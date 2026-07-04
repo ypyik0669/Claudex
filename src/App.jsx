@@ -17,6 +17,7 @@ import {
   FileText,
   GitBranch,
   GitCommit,
+  GitFork,
   Globe2,
   HardDrive,
   History,
@@ -27,6 +28,8 @@ import {
   Monitor,
   PanelRight,
   PanelBottom,
+  Pencil,
+  Pin,
   Plug,
   Plus,
   RefreshCw,
@@ -36,6 +39,7 @@ import {
   Shield,
   SquareTerminal,
   Store,
+  Trash2,
   UserRound,
   Wrench,
   X,
@@ -539,6 +543,22 @@ const copy = {
     scheduleAnytime: "任何时间",
     runNow: "立即运行",
     delete: "删除",
+    renameThread: "重命名",
+    pinThread: "置顶",
+    unpinThread: "取消置顶",
+    archiveThread: "归档",
+    restoreThread: "恢复",
+    forkThread: "Fork",
+    deleteThread: "删除",
+    renameThreadPrompt: "新的聊天标题",
+    threadArchived: "聊天已归档",
+    threadDeleted: "聊天已删除",
+    threadForked: "聊天已 Fork",
+    threadPinned: "聊天已置顶",
+    threadUnpinned: "已取消置顶",
+    deleteThreadConfirm: "确定要永久删除这个聊天吗？",
+    projectFilteredChats: "当前项目",
+    showArchivedChats: "查看归档",
     emptySchedule: "还没有计划任务。",
     emptyScheduleHint: "有任务想先放着但不想新开聊天时，可以先保存到这里。",
     copiedPrompt: "提示词已填入",
@@ -760,10 +780,13 @@ function sessionMetaLabel(session, t, isStreaming) {
   return t.threadMessageCount.replace("{count}", count);
 }
 
-function sidebarThreadItems(sessions, t) {
+function sidebarThreadItems(sessions, t, activeProject) {
   const seenEmptyDrafts = new Set();
   const items = [];
+  const activeProjectKey = String(activeProject?.path || activeProject?.name || "").trim().toLowerCase();
   for (const session of sessions || []) {
+    if (session?.archived) continue;
+    if (activeProjectKey && sessionProjectKeyForUi(session) !== activeProjectKey) continue;
     const messages = sessionMessages(session);
     const genericEmpty = messages.length === 0 && isGenericSessionTitle(session?.title, t);
     const draftKey = sessionProjectKeyForUi(session) || "default";
@@ -775,6 +798,7 @@ function sidebarThreadItems(sessions, t) {
       subtitle: sessionSubtitle(session, t),
       project: sessionProjectLabel(session, t),
       messageCount: messages.length,
+      pinned: Boolean(session?.pinned),
       rawSearchText: [
         session?.title,
         session?.project,
@@ -783,7 +807,18 @@ function sidebarThreadItems(sessions, t) {
       ].join(" "),
     });
   }
-  return items;
+  return items.sort((a, b) => Number(b.pinned) - Number(a.pinned) || new Date(b.session.updatedAt || 0) - new Date(a.session.updatedAt || 0));
+}
+
+function sessionMatchesProjectForUi(session, activeProject) {
+  const activeProjectKey = String(activeProject?.path || activeProject?.name || "").trim().toLowerCase();
+  return !activeProjectKey || sessionProjectKeyForUi(session) === activeProjectKey;
+}
+
+function selectSessionIdForProject(nextState, t, activeProject, preferredId = "") {
+  const items = sidebarThreadItems(nextState?.sessions || [], t, activeProject || nextState?.activeProject);
+  if (preferredId && items.some((item) => item.session.id === preferredId)) return preferredId;
+  return items[0]?.session.id || (nextState?.sessions || []).find((session) => !session.archived)?.id || nextState?.sessions?.[0]?.id || "";
 }
 
 function projectKey(project) {
@@ -1088,6 +1123,7 @@ function fallbackState() {
 
 function Sidebar({
   state,
+  activeProject,
   activeSessionId,
   setActiveSessionId,
   query,
@@ -1098,6 +1134,11 @@ function Sidebar({
   onCapabilities,
   onSelectProject,
   onSetProject,
+  onRenameThread,
+  onTogglePinThread,
+  onArchiveThread,
+  onForkThread,
+  onDeleteThread,
   onToggleSidebar,
   loading,
   loadError,
@@ -1106,7 +1147,7 @@ function Sidebar({
   lang,
   t,
 }) {
-  const threadItems = useMemo(() => sidebarThreadItems(state.sessions, t), [state.sessions, t]);
+  const threadItems = useMemo(() => sidebarThreadItems(state.sessions, t, activeProject), [state.sessions, t, activeProject]);
   const filtered = useMemo(() => {
     const normalized = query.trim().toLowerCase();
     if (!normalized) return threadItems;
@@ -1173,7 +1214,10 @@ function Sidebar({
         </section>
 
         <section className="sidebar-section chat-section">
-          <span>{t.chats}</span>
+          <div className="section-head chat-section-head">
+            <span>{t.chats}</span>
+            <em title={activeProject?.path || activeProject?.name || ""}>{t.projectFilteredChats}</em>
+          </div>
           <div className="thread-list">
             {loading ? (
               <div className="thread-skeleton" aria-busy="true" aria-label={t.loadingChats}>
@@ -1199,28 +1243,46 @@ function Sidebar({
                 const isDraft = item.messageCount === 0;
                 const meta = sessionMetaLabel(session, t, isStreaming);
                 return (
-                  <button
-                    type="button"
+                  <article
                     key={session.id}
-                    className={cx("thread-item", isDraft && "draft-thread", activeSessionId === session.id && "active")}
-                    onClick={() => setActiveSessionId(session.id)}
+                    className={cx("thread-item", isDraft && "draft-thread", activeSessionId === session.id && "active", session.pinned && "pinned-thread")}
                     title={`${item.title}\n${item.subtitle}`}
                   >
-                    <span className="thread-main">
+                    <button type="button" className="thread-open-button" onClick={() => setActiveSessionId(session.id)}>
+                      <span className="thread-main">
                       <strong>
+                        {session.pinned && <Pin size={12} className="thread-pin-badge" title={t.pinThread} />}
                         {isStreaming && <span className="thread-stream-dot" aria-hidden="true" />}
                         {item.title}
                       </strong>
                       {!isDraft && <span className="thread-subtitle">{item.subtitle}</span>}
+                      </span>
+                      <span className="thread-meta">
+                        <small>
+                          {needsPermission && <AlertTriangle size={12} className="thread-permission-badge" title={t.threadNeedsPermission} />}
+                          {meta}
+                        </small>
+                        {!isDraft && <time>{formatRelativeTime(session.updatedAt, lang)}</time>}
+                      </span>
+                    </button>
+                    <span className="thread-actions" aria-label={t.commandPalette}>
+                      <button type="button" onClick={() => onRenameThread(session)} title={t.renameThread} aria-label={t.renameThread}>
+                        <Pencil size={12} />
+                      </button>
+                      <button type="button" onClick={() => onTogglePinThread(session)} title={session.pinned ? t.unpinThread : t.pinThread} aria-label={session.pinned ? t.unpinThread : t.pinThread}>
+                        <Pin size={12} />
+                      </button>
+                      <button type="button" onClick={() => onForkThread(session)} title={t.forkThread} aria-label={t.forkThread}>
+                        <GitFork size={12} />
+                      </button>
+                      <button type="button" onClick={() => onArchiveThread(session)} title={t.archiveThread} aria-label={t.archiveThread}>
+                        <Archive size={12} />
+                      </button>
+                      <button type="button" onClick={() => onDeleteThread(session)} title={t.deleteThread} aria-label={t.deleteThread}>
+                        <Trash2 size={12} />
+                      </button>
                     </span>
-                    <span className="thread-meta">
-                      <small>
-                        {needsPermission && <AlertTriangle size={12} className="thread-permission-badge" title={t.threadNeedsPermission} />}
-                        {meta}
-                      </small>
-                      {!isDraft && <time>{formatRelativeTime(session.updatedAt, lang)}</time>}
-                    </span>
-                  </button>
+                  </article>
                 );
               })
             )}
@@ -4547,13 +4609,20 @@ export function App() {
 
   const lang = resolveLanguage(state.settings.language, state.settings.appLocale);
   const t = copy.zh;
-  const activeSession = state.sessions.find((session) => session.id === activeSessionId) || state.sessions[0];
-  const activeProject = state.activeProject || {
-    name: activeSession?.project || t.localWorkspace,
-    path: activeSession?.projectPath || "",
-  };
+  const activeProject = state.activeProject || { name: t.localWorkspace, path: "" };
+  const visibleThreadItems = useMemo(() => sidebarThreadItems(state.sessions, t, activeProject), [state.sessions, t, activeProject]);
+  const activeSession =
+    state.sessions.find((session) => session.id === activeSessionId && !session.archived && sessionMatchesProjectForUi(session, activeProject))
+    || visibleThreadItems[0]?.session
+    || state.sessions.find((session) => !session.archived)
+    || state.sessions[0];
   const hasKey = Boolean(state.settings.apiKeys?.[state.settings.provider]);
   const streamingSessionId = busy ? optimisticUser?.sessionId : null;
+
+  useEffect(() => {
+    const nextSessionId = selectSessionIdForProject(state, t, activeProject, activeSessionId);
+    if (nextSessionId && nextSessionId !== activeSessionId) setActiveSessionId(nextSessionId);
+  }, [state, activeProject, activeSessionId, t]);
 
   async function refreshEnvironment() {
     if (!desktopApi?.getEnvironment) return;
@@ -4583,12 +4652,78 @@ export function App() {
     setRunEvents((current) => prependRunEvent(current, entry));
   }
 
+  function applySessionState(next, preferredId = "") {
+    setState(next);
+    setActiveSessionId(selectSessionIdForProject(next, t, next.activeProject || activeProject, preferredId));
+  }
+
   async function createSession() {
     if (!desktopApi) return;
     const next = await desktopApi.createSession();
-    setState(next);
-    setActiveSessionId(next.sessions[0]?.id || "");
+    applySessionState(next, next.sessions[0]?.id || "");
     setDraft("");
+  }
+
+  async function renameThread(session) {
+    if (!desktopApi?.updateSession || !session) return;
+    const currentTitle = sessionDisplayTitle(session, t);
+    const nextTitle = window.prompt(t.renameThreadPrompt, currentTitle);
+    if (nextTitle === null) return;
+    const title = String(nextTitle || "").trim();
+    if (!title || title === currentTitle) return;
+    try {
+      const next = await desktopApi.updateSession({ sessionId: session.id, title });
+      applySessionState(next, session.id);
+      showToast(t.renameThread);
+    } catch (error) {
+      showToast(error.message || String(error));
+    }
+  }
+
+  async function togglePinThread(session) {
+    if (!desktopApi?.updateSession || !session) return;
+    try {
+      const nextPinned = !session.pinned;
+      const next = await desktopApi.updateSession({ sessionId: session.id, pinned: nextPinned });
+      applySessionState(next, session.id);
+      showToast(nextPinned ? t.threadPinned : t.threadUnpinned);
+    } catch (error) {
+      showToast(error.message || String(error));
+    }
+  }
+
+  async function archiveThread(session) {
+    if (!desktopApi?.updateSession || !session) return;
+    try {
+      const next = await desktopApi.updateSession({ sessionId: session.id, archived: true });
+      applySessionState(next, session.id === activeSession?.id ? "" : activeSession?.id);
+      showToast(t.threadArchived);
+    } catch (error) {
+      showToast(error.message || String(error));
+    }
+  }
+
+  async function forkThread(session) {
+    if (!desktopApi?.forkSession || !session) return;
+    try {
+      const next = await desktopApi.forkSession(session.id);
+      applySessionState(next, next.selectedSessionId || "");
+      showToast(t.threadForked);
+    } catch (error) {
+      showToast(error.message || String(error));
+    }
+  }
+
+  async function deleteThread(session) {
+    if (!desktopApi?.deleteSession || !session) return;
+    if (!window.confirm(t.deleteThreadConfirm)) return;
+    try {
+      const next = await desktopApi.deleteSession(session.id);
+      applySessionState(next, session.id === activeSession?.id ? "" : activeSession?.id);
+      showToast(t.threadDeleted);
+    } catch (error) {
+      showToast(error.message || String(error));
+    }
   }
 
   async function sendMessage(content) {
@@ -4644,7 +4779,7 @@ export function App() {
     if (!desktopApi) return;
     const next = await desktopApi.selectProject();
     if (next) {
-      setState(next);
+      applySessionState(next);
       showToast(t.projectSelected);
     }
   }
@@ -4652,7 +4787,7 @@ export function App() {
   async function setActiveProject(project) {
     if (!desktopApi || !project) return;
     const next = await desktopApi.setActiveProject(project);
-    setState(next);
+    applySessionState(next);
     showToast(t.projectSelected);
   }
 
@@ -4719,9 +4854,37 @@ export function App() {
     setCapabilitiesOpen(true);
   }
 
+  function openProjectsSurface() {
+    setSettingsOpen(false);
+    setCapabilitiesOpen(false);
+    setScheduledOpen(false);
+    setCommandsOpen(false);
+    setProjectsOpen(true);
+  }
+
+  function openScheduledSurface() {
+    setSettingsOpen(false);
+    setCapabilitiesOpen(false);
+    setProjectsOpen(false);
+    setCommandsOpen(false);
+    setScheduledOpen(true);
+  }
+
+  function openBottomPanel(id) {
+    setSettingsOpen(false);
+    setCapabilitiesOpen(false);
+    setProjectsOpen(false);
+    setScheduledOpen(false);
+    setCommandsOpen(false);
+    setBottomPanel(id);
+  }
+
   function activateTool(tool) {
     setSettingsOpen(false);
     setCapabilitiesOpen(false);
+    setProjectsOpen(false);
+    setScheduledOpen(false);
+    setCommandsOpen(false);
     setRightPanelVisible(true);
     setSelectedTool(tool);
   }
@@ -4753,7 +4916,7 @@ export function App() {
       // Cmd/Ctrl+P：项目
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "p") {
         event.preventDefault();
-        setProjectsOpen(true);
+        openProjectsSurface();
       }
       // Cmd/Ctrl+B：打开/关闭左侧栏
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "b") {
@@ -4799,10 +4962,20 @@ export function App() {
 
   const commands = [
     { id: "new", title: t.newChat, subtitle: "Ctrl+N", keywords: "聊天 对话 会话", action: createSession },
-    { id: "project", title: t.selectProject, subtitle: t.activeProject, keywords: "文件夹 工作区 项目", action: () => setProjectsOpen(true) },
+    { id: "project", title: t.selectProject, subtitle: t.activeProject, keywords: "文件夹 工作区 项目", action: openProjectsSurface },
     { id: "terminal", title: t.openTerminal, subtitle: projectLabel(activeProject, t), keywords: "终端 shell powershell", action: openTerminal },
     { id: "settings", title: t.settings, subtitle: t.setupProvider, keywords: "服务商 api key 模型 设置", action: openSettingsSurface },
     { id: "capabilities", title: t.capabilities, subtitle: t.plugins, keywords: "插件 技能 工具", action: openCapabilitiesSurface },
+    { id: "automation", title: t.scheduled, subtitle: t.scheduledTitle, keywords: "automation schedule 自动化 计划 任务", action: openScheduledSurface },
+    { id: "tool-workspace", title: t.workspaceTool, subtitle: t.openSidePanel, keywords: "workspace files editor diff 工作区 文件 编辑", action: () => activateTool("workspace") },
+    { id: "tool-claude", title: t.claudeCodeTool, subtitle: t.openSidePanel, keywords: "claude code cli plugin mcp terminal", action: () => activateTool("claude") },
+    { id: "tool-browser", title: t.browser, subtitle: t.openSidePanel, keywords: "browser preview web 网页 浏览器", action: () => activateTool("browser") },
+    { id: "tool-terminal", title: t.terminal, subtitle: t.openSidePanel, keywords: "terminal shell command powershell 终端 命令", action: () => activateTool("terminal") },
+    { id: "panel-outputs", title: t.outputs, subtitle: t.bottomPanel, keywords: "outputs run timeline evidence 输出 证据 时间线", action: () => openBottomPanel("outputs") },
+    { id: "panel-environment", title: t.environment, subtitle: t.bottomPanel, keywords: "environment cwd git ide 环境 项目", action: () => openBottomPanel("environment") },
+    { id: "panel-changes", title: t.changes, subtitle: t.gitDiffPreview, keywords: "changes git diff status 变更 差异", action: () => openBottomPanel("changes") },
+    { id: "panel-sources", title: t.sources, subtitle: t.bottomPanel, keywords: "sources files project 来源 文件", action: () => openBottomPanel("sources") },
+    { id: "panel-subagents", title: t.subagents, subtitle: t.bottomPanel, keywords: "subagents agents 子代理 agent", action: () => openBottomPanel("subagents") },
     { id: "review", title: t.quickReview, subtitle: t.schedulePrompt, keywords: "审查 代码 风险", action: () => setDraft(t.quickReview) },
     { id: "plan", title: t.quickPlan, subtitle: t.schedulePrompt, keywords: "计划 实现 验证", action: () => setDraft(t.quickPlan) },
     {
@@ -4841,16 +5014,22 @@ export function App() {
       <div className={gridClassName}>
         <Sidebar
           state={state}
+          activeProject={activeProject}
           activeSessionId={activeSession?.id}
           setActiveSessionId={setActiveSessionId}
           query={query}
           setQuery={setQuery}
           onNewChat={createSession}
           onSettings={openSettingsSurface}
-          onScheduled={() => setScheduledOpen(true)}
+          onScheduled={openScheduledSurface}
           onCapabilities={openCapabilitiesSurface}
           onSelectProject={selectProject}
           onSetProject={setActiveProject}
+          onRenameThread={renameThread}
+          onTogglePinThread={togglePinThread}
+          onArchiveThread={archiveThread}
+          onForkThread={forkThread}
+          onDeleteThread={deleteThread}
           onToggleSidebar={() => setSidebarVisible((current) => !current)}
           loading={stateLoading}
           loadError={loadError}
@@ -4880,7 +5059,7 @@ export function App() {
           hasKey={hasKey}
           onSend={sendMessage}
           onCancel={cancelMessage}
-          onSelectProject={() => setProjectsOpen(true)}
+          onSelectProject={openProjectsSurface}
           onSettings={openSettingsSurface}
           onCapabilities={openCapabilitiesSurface}
           onCopy={copyMessage}

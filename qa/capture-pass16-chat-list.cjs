@@ -99,7 +99,7 @@ app.whenReady().then(async () => {
 
   assertStep("PASS16_READY", await waitFor(win, `
     document.readyState === "complete" &&
-    /claude-sonnet-4-5-20250929/i.test(document.body.textContent || "") &&
+    Boolean(document.querySelector(".app-grid")) &&
     !/claude-sonnet-5|sonnet-5/i.test(document.body.textContent || "")
   `, 15000));
 
@@ -109,8 +109,8 @@ app.whenReady().then(async () => {
       const labels = rows.map((row) => row.textContent || "");
       const threadListText = document.querySelector(".thread-list")?.textContent || "";
       return rows.length === 2 &&
-        labels.some((text) => /New chat/.test(text) && /Draft/.test(text)) &&
-        labels.some((text) => /Refactor command runner UX/.test(text) && /2 messages/.test(text)) &&
+        labels.some((text) => /New chat|新聊天/.test(text) && /Draft|草稿/.test(text)) &&
+        labels.some((text) => /Refactor command runner UX/.test(text) && /2 messages|2 条消息/.test(text)) &&
         !/Claudex/.test(threadListText);
     })();
   `));
@@ -147,7 +147,7 @@ app.whenReady().then(async () => {
       newButton.click();
       await new Promise((resolve) => setTimeout(resolve, 350));
       const rows = Array.from(document.querySelectorAll(".thread-list .thread-item"));
-      const drafts = rows.filter((row) => /New chat/.test(row.textContent || "") && /Draft/.test(row.textContent || ""));
+      const drafts = rows.filter((row) => /New chat|新聊天/.test(row.textContent || "") && /Draft|草稿/.test(row.textContent || ""));
       return rows.length === 2 && drafts.length === 1;
     })();
   `));

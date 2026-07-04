@@ -175,10 +175,45 @@ function sessionProjectKey(session) {
   return String(session?.projectPath || session?.project || "").trim().toLowerCase();
 }
 
+function projectKeyForStore(project) {
+  return String(project?.path || project?.name || "").trim().toLowerCase();
+}
+
+function visibleProjectSessions(store, project = store?.activeProject) {
+  const key = projectKeyForStore(project);
+  return (store?.sessions || []).filter((session) => !session.archived && (!key || sessionProjectKey(session) === key));
+}
+
+function ensureActiveProjectDraftSession(store) {
+  const project = store.activeProject || localWorkspaceProject();
+  if (visibleProjectSessions(store, project).length) return null;
+  const createdAt = now();
+  const session = {
+    id: id("session"),
+    title: "新聊天",
+    project: project.name,
+    projectPath: project.path,
+    createdAt,
+    updatedAt: createdAt,
+    messages: [],
+    pinned: false,
+    archived: false,
+  };
+  store.sessions = [session, ...(store.sessions || [])];
+  return session;
+}
+
 function titleFromUserContent(content) {
   const text = String(content || "").replace(/\s+/g, " ").trim();
   if (!text) return "新聊天";
   return text.length > 64 ? `${text.slice(0, 61)}...` : text;
+}
+
+function sessionDisplayTitleForStore(session) {
+  const rawTitle = String(session?.title || "").trim();
+  if (rawTitle && !isGenericSessionTitle(rawTitle)) return titleFromUserContent(rawTitle);
+  const firstUser = sessionMessages(session).find((message) => message.role === "user" && message.content);
+  return titleFromUserContent(firstUser?.content || rawTitle || "新聊天");
 }
 
 function dataPath() {
@@ -351,6 +386,8 @@ function normalizeStore(store) {
         project: adoptSessionProject ? launchProject.name : session.project || activeProject.name,
         projectPath: adoptSessionProject ? launchProject.path : session.projectPath || activeProject.path || "",
         messages: Array.isArray(session.messages) ? session.messages : [],
+        pinned: Boolean(session.pinned),
+        archived: Boolean(session.archived),
       };
     }),
   };
@@ -1428,6 +1465,7 @@ ipcMain.handle("app:select-project", async () => {
 
   const store = readStore();
   addProject(store, projectFromPath(result.filePaths[0]));
+  ensureActiveProjectDraftSession(store);
   writeStore(store);
   return sanitizeStore(store);
 });
@@ -1436,6 +1474,7 @@ ipcMain.handle("app:set-active-project", (_event, project) => {
   const store = readStore();
   const nextProject = project?.path ? projectFromPath(project.path) : { name: project?.name || "本地工作区", path: "" };
   addProject(store, nextProject);
+  ensureActiveProjectDraftSession(store);
   writeStore(store);
   return sanitizeStore(store);
 });
@@ -1471,6 +1510,56 @@ ipcMain.handle("chat:create-session", (_event, title = "新聊天") => {
   store.sessions.unshift(session);
   writeStore(store);
   return sanitizeStore(store);
+});
+
+ipcMain.handle("chat:update-session", (_event, { sessionId, title, pinned, archived } = {}) => {
+  const store = readStore();
+  const session = store.sessions.find((item) => item.id === sessionId);
+  if (!session) throw new Error("没有找到这个聊天。");
+  const updatedAt = now();
+  if (typeof title === "string") {
+    const nextTitle = title.trim();
+    if (nextTitle) session.title = nextTitle;
+  }
+  if (typeof pinned === "boolean") session.pinned = pinned;
+  if (typeof archived === "boolean") session.archived = archived;
+  session.updatedAt = updatedAt;
+  ensureActiveProjectDraftSession(store);
+  writeStore(store);
+  return sanitizeStore(store);
+});
+
+ipcMain.handle("chat:delete-session", (_event, sessionId) => {
+  const store = readStore();
+  const before = store.sessions.length;
+  store.sessions = store.sessions.filter((session) => session.id !== sessionId);
+  if (store.sessions.length === before) throw new Error("没有找到这个聊天。");
+  ensureActiveProjectDraftSession(store);
+  writeStore(store);
+  return sanitizeStore(store);
+});
+
+ipcMain.handle("chat:fork-session", (_event, sessionId) => {
+  const store = readStore();
+  const source = store.sessions.find((item) => item.id === sessionId);
+  if (!source) throw new Error("没有找到这个聊天。");
+  const createdAt = now();
+  const fork = {
+    ...source,
+    id: id("session"),
+    title: `Fork: ${sessionDisplayTitleForStore(source)}`,
+    createdAt,
+    updatedAt: createdAt,
+    pinned: false,
+    archived: false,
+    messages: sessionMessages(source).map((message) => ({ ...message })),
+  };
+  store.sessions.unshift(fork);
+  writeStore(store);
+  return {
+    ...sanitizeStore(store),
+    selectedSessionId: fork.id,
+  };
 });
 
 ipcMain.handle("chat:send-message", async (_event, { sessionId, content, requestId }) => {

@@ -275,6 +275,20 @@ select:focus-visible,
   background: rgba(255, 255, 255, 0.08);
 }
 
+.chat-section-head {
+  padding-right: 2px;
+}
+
+.chat-section-head em {
+  min-width: 0;
+  overflow: hidden;
+  color: #687373;
+  font-size: 11px;
+  font-style: normal;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .project-list,
 .thread-list {
   display: grid;
@@ -310,25 +324,41 @@ select:focus-visible,
   width: 100%;
   min-width: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
-  align-items: start;
-  gap: 12px;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 4px;
   border: 1px solid transparent;
   border-radius: var(--radius-sm);
   background: transparent;
   color: #eef1ef;
-  padding: 8px 10px;
+  padding: 0;
   text-align: left;
 }
 
 .thread-item.draft-thread {
-  align-items: center;
-  padding-block: 9px;
+  align-items: stretch;
 }
 
 .thread-item.active {
   background: rgba(255, 255, 255, 0.075);
   border-color: rgba(255, 255, 255, 0.08);
+}
+
+.thread-item.pinned-thread:not(.active) {
+  background: rgba(255, 255, 255, 0.038);
+}
+
+.thread-open-button {
+  width: 100%;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 12px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  padding: 8px 10px;
+  text-align: left;
 }
 
 .thread-main {
@@ -399,6 +429,43 @@ select:focus-visible,
   font-family: var(--font-sans);
   font-size: 11px;
   letter-spacing: 0;
+}
+
+.thread-pin-badge {
+  flex: 0 0 auto;
+  color: #d9b18d;
+}
+
+.thread-actions {
+  display: none;
+  grid-template-columns: repeat(5, 24px);
+  justify-content: end;
+  gap: 2px;
+  padding: 0 7px 6px;
+}
+
+.thread-item:hover .thread-actions,
+.thread-item:focus-within .thread-actions,
+.thread-item.active .thread-actions {
+  display: grid;
+}
+
+.thread-actions button {
+  width: 24px;
+  height: 24px;
+  display: grid;
+  place-items: center;
+  border: 1px solid transparent;
+  border-radius: 7px;
+  background: transparent;
+  color: #98a2a2;
+}
+
+.thread-actions button:hover,
+.thread-actions button:focus-visible {
+  border-color: rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.08);
+  color: #f1eee8;
 }
 
 .thread-skeleton {
