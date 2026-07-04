@@ -48,9 +48,9 @@ jobs:
         with:
           name: claudex-${{ matrix.platform }}
           path: |
-            release/**/*.exe
-            release/**/*.zip
-            release/**/*.dmg
+            release/*.exe
+            release/*.zip
+            release/*.dmg
           if-no-files-found: error
 
   release:
