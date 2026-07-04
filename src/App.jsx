@@ -1,0 +1,4812 @@
+import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  AlertTriangle,
+  ArrowLeft,
+  ArrowRight,
+  Archive,
+  Bot,
+  Blocks,
+  Check,
+  ChevronDown,
+  ChevronRight,
+  Clock3,
+  Code2,
+  Copy,
+  ExternalLink,
+  Folder,
+  FileText,
+  GitBranch,
+  GitCommit,
+  Globe2,
+  HardDrive,
+  History,
+  KeyRound,
+  Languages,
+  Maximize2,
+  MessageSquarePlus,
+  Monitor,
+  PanelRight,
+  PanelBottom,
+  Plug,
+  Plus,
+  RefreshCw,
+  Search,
+  Send,
+  Settings,
+  Shield,
+  SquareTerminal,
+  Store,
+  UserRound,
+  Wrench,
+  X,
+} from "lucide-react";
+
+const desktopApi = window.claudexDesktop || window.claudeDesktop;
+
+const providers = [
+  {
+    id: "openai-compatible",
+    name: "OpenAI-compatible",
+    baseUrl: "https://api.openai.com/v1",
+    model: "gpt-4.1",
+    note: {
+      en: "OpenAI, OpenRouter, LM Studio, and compatible gateways.",
+      zh: "支持 OpenAI、OpenRouter、LM Studio 和兼容网关。",
+    },
+  },
+  {
+    id: "anthropic",
+    name: "Anthropic",
+    baseUrl: "https://api.anthropic.com/v1",
+    model: "claude-sonnet-4-5-20250929",
+    note: {
+      en: "Direct Anthropic Messages API from the Electron main process.",
+      zh: "通过 Electron 主进程直接调用 Anthropic Messages API。",
+    },
+  },
+  {
+    id: "ollama",
+    name: "Ollama / local",
+    baseUrl: "http://localhost:11434",
+    model: "qwen2.5-coder:latest",
+    note: {
+      en: "Local models through Ollama. No API key required.",
+      zh: "通过 Ollama 运行本地模型，不需要 API key。",
+    },
+  },
+];
+
+const capabilityCatalog = [
+  {
+    id: "project-context",
+    type: "tool",
+    defaultEnabled: true,
+    name: { en: "Project context", zh: "项目上下文" },
+    description: { en: "Keep the selected workspace visible in every request.", zh: "每次请求都记住当前工作区。" },
+  },
+  {
+    id: "code-review",
+    type: "skill",
+    defaultEnabled: true,
+    name: { en: "Code review", zh: "代码审查" },
+    description: { en: "Bias replies toward risks, regressions, and missing tests.", zh: "优先找风险、回归和缺失测试。" },
+  },
+  {
+    id: "implementation-plan",
+    type: "skill",
+    defaultEnabled: true,
+    name: { en: "Implementation plan", zh: "实现计划" },
+    description: { en: "Ask for concrete steps and verification before large edits.", zh: "大改动前先形成可验证步骤。" },
+  },
+  {
+    id: "terminal-helper",
+    type: "tool",
+    defaultEnabled: true,
+    name: { en: "Terminal helper", zh: "终端助手" },
+    description: { en: "Open a shell directly inside the active project.", zh: "直接在当前项目文件夹里打开终端。" },
+  },
+  {
+    id: "mcp-runtime",
+    type: "tool",
+    defaultEnabled: true,
+    name: { en: "MCP runtime", zh: "MCP 运行时" },
+    description: { en: "Expose Claude Code MCP status and commands in Claudex.", zh: "在 Claudex 里显示 Claude Code MCP 状态和命令。" },
+  },
+  {
+    id: "plugin-router",
+    type: "plugin",
+    defaultEnabled: true,
+    name: { en: "Plugin router", zh: "插件路由" },
+    description: { en: "Remember enabled plugins instead of slash commands.", zh: "启用一次后不用每次输入 slash command。" },
+  },
+  {
+    id: "marketplace-router",
+    type: "plugin",
+    defaultEnabled: true,
+    name: { en: "Marketplace router", zh: "Marketplace 路由" },
+    description: { en: "Use Claude Code marketplace commands without leaving the app.", zh: "不用离开应用就能运行 Claude Code marketplace 命令。" },
+  },
+  {
+    id: "custom-marketplaces",
+    type: "plugin",
+    defaultEnabled: false,
+    name: { en: "Custom marketplaces", zh: "自定义 marketplace" },
+    description: { en: "Keep extra marketplace URLs as local sources for plugin work.", zh: "把额外 marketplace URL 保存成本地插件来源。" },
+  },
+  {
+    id: "debugger",
+    type: "skill",
+    defaultEnabled: false,
+    name: { en: "Debugger", zh: "调试模式" },
+    description: { en: "Prefer reproduction, hypotheses, and root-cause fixes.", zh: "优先复现、假设验证和根因修复。" },
+  },
+  {
+    id: "docs-writer",
+    type: "skill",
+    defaultEnabled: false,
+    name: { en: "Docs writer", zh: "文档助手" },
+    description: { en: "Turn finished work into concise usage notes.", zh: "把完成的功能整理成使用说明。" },
+  },
+  {
+    id: "test-writer",
+    type: "skill",
+    defaultEnabled: false,
+    name: { en: "Test writer", zh: "测试助手" },
+    description: { en: "Prefer behavior tests through public interfaces.", zh: "优先写覆盖真实行为的测试。" },
+  },
+];
+
+const copy = {
+  en: {
+    appSubtitle: "desktop coding agent",
+    newChat: "New chat",
+    search: "Search",
+    scheduled: "Automations",
+    plugins: "Plugins",
+    skills: "Skills",
+    mcps: "MCPs",
+    marketplace: "Marketplace",
+    projects: "Projects",
+    chats: "Chats",
+    showMore: "Show more",
+    more: "More",
+    accountPlan: "Local",
+    promptTitle: "What should we work on?",
+    selectedEmptyTitle: "What should we work on?",
+    selectedEmptyHint: "",
+    noSessionTitle: "No chat selected",
+    noSessionHint: "Create a new chat or choose one from the sidebar.",
+    placeholder: "Do anything",
+    chooseProject: "Choose project",
+    customMode: "Custom",
+    defaultPermissions: "Default permissions",
+    defaultPermissionsShort: "Default",
+    projectContext: "Project",
+    browser: "Browser",
+    terminal: "Terminal",
+    provider: "Provider",
+    executionMode: "Execution",
+    claudeCodeMode: "Claude Code",
+    apiMode: "Direct API",
+    claudeCodeManagedTitle: "Claude Code mode",
+    claudeCodeManagedHint: "Messages run through the installed Claude Code CLI. The active CLI auth and env are shown in the right panel; Direct API fields are only used after switching execution to Direct API.",
+    directApiManagedHint: "Direct API mode uses the provider, base URL, model, and API key saved here.",
+    cliEnvSource: "CLI env",
+    storedDirectApi: "Stored Direct API settings",
+    inactiveInClaudeCode: "Inactive in Claude Code mode",
+    claudeCommand: "Claude command",
+    permissionMode: "Permission mode",
+    claudeStatus: "Claude Code status",
+    auth: "Auth",
+    pluginsAndMcp: "Plugins and MCP",
+    refreshStatus: "Refresh status",
+    model: "Model",
+    settings: "Settings",
+    data: "Data",
+    ready: "Ready",
+    needsKey: "Needs key",
+    sending: "Sending",
+    send: "Send",
+    cancel: "Stop",
+    assistant: "Assistant",
+    you: "You",
+    requestError: "Request error",
+    waiting: "Waiting for the model response...",
+    desktopOnly: "Open the packaged .exe for real model calls and encrypted local settings.",
+    settingsTitle: "Settings",
+    settingsSubtitle: "Runtime, auth, and local preferences",
+    backToApp: "Back to app",
+    searchSettings: "Search settings...",
+    settingsGeneral: "General",
+    settingsProfile: "Profile",
+    settingsAppearance: "Appearance",
+    settingsConfiguration: "Configuration",
+    settingsPersonalization: "Personalization",
+    settingsMcpServers: "MCP servers",
+    settingsBrowser: "Browser",
+    settingsComputerUse: "Computer use",
+    settingsHooks: "Hooks",
+    settingsConnections: "Connections",
+    settingsGit: "Git",
+    settingsEnvironments: "Environments",
+    settingsWorktrees: "Worktrees",
+    settingsArchivedChats: "Archived chats",
+    notImplementedYet: "Not implemented yet",
+    notImplementedHint: "This section is visible for parity, but Claudex only enables controls backed by real local state.",
+    backedLocalState: "Backed by local state",
+    localRuntime: "Local runtime",
+    toggleSidebar: "Toggle sidebar",
+    cliStatus: "CLI status",
+    refreshCliStatus: "Refresh CLI status",
+    cliPluginOutput: "Claude Code plugin output",
+    cliMcpOutput: "Claude Code MCP output",
+    marketplaceOutput: "Marketplace output",
+    fetchMarketplace: "Fetch marketplace",
+    customMarketplaces: "Custom marketplaces",
+    marketplaceUrl: "Marketplace URL",
+    addMarketplace: "Add marketplace",
+    remove: "Remove",
+    noCustomMarketplaces: "No custom marketplaces yet.",
+    localCapability: "Local capability",
+    installedCliState: "Installed CLI state",
+    settingsStatusHint: "This page reflects local Claudex state and Claude Code CLI output.",
+    settingsRouteThroughCli: "This flow is routed through Claude Code CLI or the interactive Claude terminal when native prompts are required.",
+    noCliOutputYet: "No CLI output yet.",
+    noGitProject: "Select a Git project to see branch and changes.",
+    defaultFileOpenDestination: "Default file open destination",
+    agentEnvironment: "Agent environment",
+    integratedShell: "Integrated terminal shell",
+    settingsRuntime: "Runtime",
+    activeRuntime: "Active runtime",
+    settingsDirectApi: "Direct API",
+    settingsDirectApiHint: "Only used when Execution is set to Direct API. Claude Code mode keeps using the CLI environment shown in the context panel.",
+    settingsDirectApiInactive: "Inactive until Execution is Direct API",
+    settingsDirectApiInactiveHint: "Changing these fields will not affect Claude Code CLI runs until Execution is switched to Direct API.",
+    settingsAdvancedClaude: "Advanced Claude Code",
+    settingsAdvancedApi: "Advanced API options",
+    claudeModel: "Claude model",
+    settingsPrompt: "Prompting",
+    settingsStorage: "Storage",
+    close: "Close",
+    save: "Save",
+    saving: "Saving",
+    saved: "Saved",
+    unsavedChanges: "Unsaved",
+    unsavedChangesHint: "You have changes that have not been saved yet.",
+    unsavedChangesWarning: "You have unsaved changes. Discard them or keep editing?",
+    keepEditing: "Keep editing",
+    discardChanges: "Discard changes",
+    workingHint: "Working - please wait for the current task to finish.",
+    noChangesToSave: "No changes to save yet.",
+    pluginNameRequired: "Enter a plugin name first.",
+    baseUrl: "Base URL",
+    apiKey: "API key",
+    apiKeyPlaceholder: "Paste key",
+    apiKeySaved: "Saved - leave blank to keep",
+    apiKeyNone: "Not required",
+    claudeCodeDefaultEnv: "Claude Code default",
+    temperature: "Temperature",
+    timeout: "Timeout ms",
+    systemPrompt: "System prompt",
+    language: "Language",
+    interfaceLanguage: "Interface language",
+    fontSize: "Font size",
+    fontSizeCompact: "Compact",
+    fontSizeDefault: "Default",
+    fontSizeLarge: "Large",
+    density: "Density",
+    densityCompact: "Compact",
+    densityComfortable: "Comfortable",
+    followSystem: "Follow system",
+    english: "English",
+    chinese: "中文",
+    encryption: "Encryption",
+    dataFile: "Data file",
+    env: "Env fallback",
+    openData: "Open data file",
+    savedKey: "saved",
+    missingKey: "missing",
+    noMessages: "No messages yet.",
+    quickReview: "Review this code and identify the highest risk.",
+    quickPlan: "Draft an implementation plan with verification steps.",
+    quickExplain: "Explain the next concrete coding step.",
+    activeThread: "Active thread",
+    localWorkspace: "local workspace",
+    providerNote: "Current provider",
+    localHistory: "Local history",
+    tools: "Tools",
+    contextPanel: "Context",
+    environment: "Environment",
+    outputs: "Outputs",
+    bottomPanel: "Bottom panel",
+    openSidePanel: "Open side panel",
+    outputsPanelHint: "Command output, Claude progress, and environment summaries stay visible here while you keep chatting.",
+    terminalPanelHint: "Use the real project shell for commands that need terminal interaction.",
+    browserPanelHint: "Preview a URL from the side panel when you need a live page alongside the chat.",
+    noActiveRun: "No active run.",
+    changes: "Changes",
+    local: "Local",
+    branch: "Branch",
+    commitOrPush: "Commit or push",
+    sources: "Sources",
+    subagents: "Subagents",
+    noSourcesYet: "No sources yet",
+    noSubagentsYet: "No active subagents",
+    files: "Files",
+    openInIde: "Open in IDE",
+    openIde: "Open IDE",
+    ideUnavailable: "No IDE command found",
+    gitUnavailable: "Git unavailable",
+    runtimeDetails: "Runtime details",
+    primaryActions: "Primary actions",
+    diagnostics: "Diagnostics",
+    workspaceTool: "Workspace",
+    claudeCodeTool: "Claude Code",
+    claudeCodeHelp: "Run real Claude Code commands inside the selected project.",
+    interactiveClaude: "Interactive Claude",
+    interactiveClaudeHelp: "Open the real Claude Code TUI when a task needs native permission prompts or slash-command flows.",
+    permissionDeniedNotice: "This mode couldn't complete part of the task without a permission prompt.",
+    openInteractiveClaude: "Open Interactive Claude",
+    claudeArgs: "Claude args",
+    claudeArgsPlaceholder: "Type a Claude Code command",
+    quickClaudeCommands: "Quick commands",
+    runClaude: "Run Claude",
+    installPlugin: "Install plugin",
+    updatePlugin: "Update",
+    disablePlugin: "Disable",
+    pluginName: "Plugin name",
+    pluginNamePlaceholder: "github@openai or plugin@marketplace",
+    pluginActions: "Plugin actions",
+    confirmDisableTitle: "Disable this plugin?",
+    confirmDisableWarning: "This will disable \"{name}\". You can re-enable it later by installing or updating it again.",
+    confirmDisableButton: "Yes, disable",
+    dismissAction: "Cancel",
+    installedPlugins: "Installed plugins",
+    pluginRefresh: "Refresh",
+    pluginsLoading: "Loading plugins...",
+    pluginsEmpty: "No plugins installed yet.",
+    pluginsLoadError: "Could not load plugin list.",
+    pluginStatusEnabled: "Enabled",
+    pluginStatusDisabled: "Disabled",
+    enablePlugin: "Enable",
+    runStreaming: "Running - output streams below.",
+    doctor: "Doctor",
+    commandPalette: "Command palette",
+    commandHint: "Search actions, tools, skills, and prompts...",
+    noCommands: "No matching command.",
+    selectProject: "Select project folder",
+    openProject: "Open project folder",
+    openFolderShort: "Open folder",
+    openTerminal: "Open terminal",
+    openBrowser: "Open URL",
+    capabilities: "Plugins, skills, tools",
+    capabilitiesSubtitle: "Enable once, then Claudex remembers them for every chat.",
+    capabilitySearch: "Search capabilities",
+    searchPlugins: "Search plugins",
+    searchSkills: "Search skills",
+    searchMarketplace: "Search marketplace",
+    capabilityAll: "All",
+    capabilityEnabled: "Enabled",
+    capabilityDisabled: "Disabled",
+    capabilitySummary: "{enabled} enabled · {total} total",
+    installed: "Installed",
+    installedLocal: "Installed locally",
+    marketplaceHint: "Marketplace commands are backed by Claude Code CLI. Use the Claude Code panel to fetch live marketplace output before installing.",
+    marketplaceSourceClaude: "Claude Code marketplace",
+    marketplaceSourceCustom: "Custom marketplace",
+    managePlugins: "Manage",
+    openClaudePanel: "Open Claude panel",
+    noCapabilities: "No matching capabilities.",
+    enabled: "Enabled",
+    disabled: "Disabled",
+    activeProject: "Active project",
+    noProjectPath: "No folder selected yet.",
+    urlPlaceholder: "Paste a URL",
+    openSettings: "Open settings",
+    setupProvider: "Set up provider",
+    setupProviderHint: "Save an API key or switch to Ollama before sending.",
+    copy: "Copy",
+    copied: "Copied",
+    copyPath: "Copy path",
+    copiedPath: "Path copied",
+    retry: "Retry",
+    projectSelected: "Project selected",
+    terminalOpened: "Terminal opened",
+    browserOpened: "URL opened",
+    dataOpened: "Data file opened",
+    scheduledTitle: "Scheduled prompts",
+    scheduledSubtitle: "Save prompts to run later. Use Run now when you are ready.",
+    schedulePrompt: "Prompt",
+    schedulePromptPlaceholder: "What should Claude Code run later?",
+    scheduleTime: "When",
+    addSchedule: "Add schedule",
+    scheduleQueue: "Queue",
+    scheduleCount: "{count} saved",
+    scheduleAnytime: "Anytime",
+    runNow: "Run now",
+    delete: "Delete",
+    emptySchedule: "No scheduled prompts yet.",
+    emptyScheduleHint: "Save a prompt here when you want to park a task without starting a new chat.",
+    copiedPrompt: "Prompt loaded",
+    browserHelp: "Preview docs, provider consoles, or project URLs without leaving the workspace.",
+    browserPreview: "Preview",
+    browserBack: "Back",
+    browserForward: "Forward",
+    browserReload: "Reload",
+    browserLoading: "Loading page...",
+    browserReady: "Preview loaded",
+    browserIdle: "No preview loaded",
+    browserEmptyTitle: "No page open",
+    browserEmptyHint: "Paste a docs, issue, local app, or provider URL, then preview it here. Use external open for sign-in, downloads, or blocked pages.",
+    browserFailed: "Could not load this page in the embedded browser.",
+    browserExternalHint: "Use external open for sign-in pages, downloads, and sites that block embedding.",
+    openExternal: "Open external",
+    commandRunning: "Running",
+    commandSucceeded: "Succeeded",
+    commandFailed: "Failed",
+    commandHistory: "Recent runs",
+    clearHistory: "Clear",
+    runningNow: "Running now",
+    completedRuns: "{count} saved",
+    commandLine: "Command",
+    commandCwd: "cwd",
+    commandExit: "Exit",
+    commandDuration: "Duration",
+    commandStdout: "stdout",
+    commandStderr: "stderr",
+    liveOutput: "Live output",
+    noOutput: "No output",
+    copyOutput: "Copy output",
+    outputCopied: "Output copied",
+    terminalHelp: "Launch a shell directly inside the selected project folder.",
+    opensExternalTerminal: "Opens the system terminal with this project as cwd.",
+    path: "Path",
+    workspaceHelp: "Browse source files, edit safely, and run a command only when you ask.",
+    refresh: "Refresh",
+    saveFile: "Save file",
+    saveChanges: "Save changes",
+    savedChanges: "Changes saved",
+    editFile: "Edit",
+    reviewFile: "Review",
+    fileSize: "Size",
+    fileUpdatedAt: "Updated",
+    changedLines: "Changed lines",
+    reviewUnsavedChanges: "Review unsaved changes before saving.",
+    reviewRequiredTitle: "Review required",
+    reviewRequiredHint: "Open Review to inspect the diff before saving.",
+    reviewingChanges: "Reviewing changes",
+    readyToSave: "Ready to save",
+    reviewFirstToSave: "Review changes before saving.",
+    noFileChanges: "No changes in this file.",
+    noChangesToReview: "Make an edit to review a diff here.",
+    revertChanges: "Revert",
+    reviewChanges: "Review changes",
+    diffPreview: "Diff preview",
+    diffPreviewSkippedLarge: "Diff preview is disabled for files over 1MB to keep typing responsive.",
+    runCommand: "Run command",
+    runCommandShort: "Run",
+    commandPlaceholder: "Type a shell command",
+    noFileSelected: "Choose a source file from the tree.",
+    noFileOpenTitle: "No file open",
+    noFileOpenHint: "Select a file to edit, then review changes before saving.",
+    noProjectSelected: "Select a project first.",
+    fileSaved: "File saved",
+    commandFinished: "Command finished",
+    loading: "Loading",
+    uxReady: "Ready for work",
+    savedAt: "Saved",
+    draftThread: "Draft",
+    threadNoMessages: "No messages yet",
+    threadMessageCount: "{count} messages",
+    threadRunning: "Running",
+    loadingChats: "Loading chats...",
+    chatsLoadError: "Couldn't load chats.",
+    noChatsYet: "No chats yet - start one above.",
+    noChatsMatch: "No chats match your search.",
+    threadNeedsPermission: "This thread needs a permission prompt in Interactive Claude.",
+    voiceInputUnavailable: "Voice input isn't available in this build.",
+    messageSent: "Sent",
+    permissionErrorHint: "Permission denied - this file or folder may be read-only or restricted.",
+    openingFile: "Opening file...",
+  },
+  zh: {
+    appSubtitle: "桌面编程助手",
+    newChat: "新聊天",
+    search: "搜索",
+    scheduled: "自动化",
+    plugins: "插件",
+    skills: "技能",
+    mcps: "MCPs",
+    marketplace: "市场",
+    projects: "项目",
+    chats: "聊天记录",
+    showMore: "显示更多",
+    more: "更多",
+    accountPlan: "本地",
+    promptTitle: "今天要做什么？",
+    selectedEmptyTitle: "今天要做什么？",
+    selectedEmptyHint: "",
+    noSessionTitle: "没有选择聊天",
+    noSessionHint: "新建聊天，或从左侧选择一个聊天。",
+    placeholder: "输入任何任务",
+    chooseProject: "选择项目",
+    customMode: "自定义",
+    defaultPermissions: "默认权限",
+    defaultPermissionsShort: "默认",
+    projectContext: "项目",
+    browser: "浏览器",
+    terminal: "终端",
+    provider: "服务商",
+    executionMode: "执行方式",
+    claudeCodeMode: "Claude Code",
+    apiMode: "直接 API",
+    claudeCodeManagedTitle: "Claude Code 模式",
+    claudeCodeManagedHint: "消息会通过本机 Claude Code CLI 运行。右侧显示当前 CLI 登录和环境状态；下面的直接 API 字段只有切换到直接 API 后才会生效。",
+    directApiManagedHint: "直接 API 模式会使用这里保存的服务商、Base URL、模型和 API key。",
+    cliEnvSource: "CLI 环境",
+    storedDirectApi: "已保存的直接 API 设置",
+    inactiveInClaudeCode: "Claude Code 模式下不生效",
+    claudeCommand: "Claude 命令",
+    permissionMode: "权限模式",
+    claudeStatus: "Claude Code 状态",
+    auth: "登录",
+    pluginsAndMcp: "插件和 MCP",
+    refreshStatus: "刷新状态",
+    model: "模型",
+    settings: "设置",
+    data: "数据",
+    ready: "可用",
+    needsKey: "需要密钥",
+    sending: "发送中",
+    send: "发送",
+    cancel: "停止",
+    assistant: "助手",
+    you: "你",
+    requestError: "请求错误",
+    waiting: "正在等待模型回复...",
+    desktopOnly: "请打开打包后的 .exe，真实模型调用和本地加密设置只在桌面端可用。",
+    settingsTitle: "设置",
+    settingsSubtitle: "运行方式、登录状态和本地偏好",
+    backToApp: "返回应用",
+    searchSettings: "搜索设置...",
+    settingsGeneral: "通用",
+    settingsProfile: "个人",
+    settingsAppearance: "外观",
+    settingsConfiguration: "配置",
+    settingsPersonalization: "个性化",
+    settingsMcpServers: "MCP 服务器",
+    settingsBrowser: "浏览器",
+    settingsComputerUse: "电脑操作",
+    settingsHooks: "钩子",
+    settingsConnections: "连接",
+    settingsGit: "Git",
+    settingsEnvironments: "环境",
+    settingsWorktrees: "工作树",
+    settingsArchivedChats: "归档聊天",
+    notImplementedYet: "尚未实现",
+    notImplementedHint: "这个分类为了对齐 Codex App 先展示出来；Claudex 只会启用有真实本地状态支撑的控件。",
+    backedLocalState: "本地状态支撑",
+    localRuntime: "本地运行时",
+    toggleSidebar: "打开/关闭左侧栏",
+    cliStatus: "CLI 状态",
+    refreshCliStatus: "刷新 CLI 状态",
+    cliPluginOutput: "Claude Code 插件输出",
+    cliMcpOutput: "Claude Code MCP 输出",
+    marketplaceOutput: "Marketplace 输出",
+    fetchMarketplace: "获取 marketplace",
+    customMarketplaces: "自定义 marketplaces",
+    marketplaceUrl: "Marketplace URL",
+    addMarketplace: "添加 marketplace",
+    remove: "移除",
+    noCustomMarketplaces: "还没有添加自定义 marketplace。",
+    localCapability: "本地能力",
+    installedCliState: "已安装 CLI 状态",
+    settingsStatusHint: "这个页面显示 Claudex 本地状态和 Claude Code CLI 输出。",
+    settingsRouteThroughCli: "这个流程会通过 Claude Code CLI，遇到原生权限弹窗时会转到交互式 Claude 终端。",
+    noCliOutputYet: "还没有 CLI 输出。",
+    noGitProject: "选择一个 Git 项目后会显示分支和改动。",
+    defaultFileOpenDestination: "默认文件打开方式",
+    agentEnvironment: "Agent 环境",
+    integratedShell: "集成终端 Shell",
+    settingsRuntime: "运行环境",
+    activeRuntime: "当前运行方式",
+    settingsDirectApi: "直接 API",
+    settingsDirectApiHint: "只有执行方式切换为直接 API 时才会使用。Claude Code 模式继续使用右侧上下文里显示的 CLI 环境。",
+    settingsDirectApiInactive: "切换到直接 API 后才会生效",
+    settingsDirectApiInactiveHint: "在 Claude Code CLI 模式下，修改这些字段不会影响当前运行；只有执行方式切换到直接 API 后才使用。",
+    settingsAdvancedClaude: "高级 Claude Code",
+    settingsAdvancedApi: "高级 API 选项",
+    claudeModel: "Claude 模型",
+    settingsPrompt: "提示词",
+    settingsStorage: "存储",
+    close: "关闭",
+    save: "保存",
+    saving: "保存中",
+    saved: "已保存",
+    unsavedChanges: "未保存",
+    unsavedChangesHint: "您有尚未保存的更改。",
+    unsavedChangesWarning: "您有未保存的更改。要放弃更改还是继续编辑？",
+    keepEditing: "继续编辑",
+    discardChanges: "放弃更改",
+    workingHint: "正在处理，请等待当前任务完成。",
+    noChangesToSave: "暂无更改可保存。",
+    pluginNameRequired: "请先输入插件名称。",
+    baseUrl: "Base URL",
+    apiKey: "API key",
+    apiKeyPlaceholder: "粘贴密钥",
+    apiKeySaved: "已保存，留空则保持不变",
+    apiKeyNone: "不需要",
+    claudeCodeDefaultEnv: "Claude Code 默认环境",
+    temperature: "Temperature",
+    timeout: "超时毫秒",
+    systemPrompt: "系统提示词",
+    language: "语言",
+    interfaceLanguage: "界面语言",
+    fontSize: "字号",
+    fontSizeCompact: "紧凑",
+    fontSizeDefault: "默认",
+    fontSizeLarge: "大",
+    density: "密度",
+    densityCompact: "紧凑",
+    densityComfortable: "舒适",
+    followSystem: "跟随系统",
+    english: "English",
+    chinese: "中文",
+    encryption: "加密",
+    dataFile: "数据文件",
+    env: ".env 备用",
+    openData: "打开数据文件",
+    savedKey: "已保存",
+    missingKey: "缺失",
+    noMessages: "还没有消息。",
+    quickReview: "审查这段代码，找出最大的风险。",
+    quickPlan: "写一个包含验证步骤的实现计划。",
+    quickExplain: "解释下一步具体应该怎么改代码。",
+    activeThread: "当前对话",
+    localWorkspace: "本地工作区",
+    providerNote: "当前服务商",
+    localHistory: "本地历史",
+    tools: "工具",
+    contextPanel: "上下文",
+    environment: "环境",
+    outputs: "Outputs",
+    bottomPanel: "底部面板",
+    openSidePanel: "打开侧边面板",
+    outputsPanelHint: "命令输出、Claude 进度和环境摘要会显示在这里，同时可以继续聊天。",
+    terminalPanelHint: "需要交互式命令时，使用当前项目的真实终端。",
+    browserPanelHint: "需要边聊天边看页面时，在侧边面板里预览 URL。",
+    noActiveRun: "当前没有运行中的任务。",
+    changes: "变更",
+    local: "本地",
+    branch: "分支",
+    commitOrPush: "提交或推送",
+    sources: "来源",
+    subagents: "Subagents",
+    noSourcesYet: "暂无来源",
+    noSubagentsYet: "没有运行中的 subagents",
+    files: "文件",
+    openInIde: "用 IDE 打开",
+    openIde: "打开 IDE",
+    ideUnavailable: "没有找到可用 IDE 命令",
+    gitUnavailable: "Git 不可用",
+    runtimeDetails: "运行详情",
+    primaryActions: "主要操作",
+    diagnostics: "诊断",
+    workspaceTool: "工作区",
+    claudeCodeTool: "Claude Code",
+    claudeCodeHelp: "在当前项目里运行真实 Claude Code 命令。",
+    interactiveClaude: "交互式 Claude",
+    interactiveClaudeHelp: "遇到原生权限确认或 slash command 流程时，打开真正的 Claude Code TUI。",
+    permissionDeniedNotice: "当前模式下，有一部分任务因权限确认而未能完成。",
+    openInteractiveClaude: "打开交互式 Claude",
+    claudeArgs: "Claude 参数",
+    claudeArgsPlaceholder: "输入 Claude Code 命令",
+    quickClaudeCommands: "常用命令",
+    runClaude: "运行 Claude",
+    installPlugin: "安装插件",
+    updatePlugin: "更新",
+    disablePlugin: "禁用",
+    pluginName: "插件名",
+    pluginNamePlaceholder: "github@openai 或 plugin@marketplace",
+    pluginActions: "插件操作",
+    confirmDisableTitle: "要禁用这个插件吗？",
+    confirmDisableWarning: "这会禁用「{name}」。之后可以通过重新安装或更新来重新启用它。",
+    confirmDisableButton: "确认禁用",
+    dismissAction: "取消",
+    installedPlugins: "已安装的插件",
+    pluginRefresh: "刷新",
+    pluginsLoading: "正在加载插件...",
+    pluginsEmpty: "尚未安装任何插件。",
+    pluginsLoadError: "无法加载插件列表。",
+    pluginStatusEnabled: "已启用",
+    pluginStatusDisabled: "已禁用",
+    enablePlugin: "启用",
+    runStreaming: "正在运行，输出会实时显示在下面。",
+    doctor: "诊断",
+    commandPalette: "命令面板",
+    commandHint: "搜索操作、工具、技能和提示词...",
+    noCommands: "没有匹配的命令。",
+    selectProject: "选择项目文件夹",
+    openProject: "打开项目文件夹",
+    openFolderShort: "打开文件夹",
+    openTerminal: "打开终端",
+    openBrowser: "打开网址",
+    capabilities: "插件、技能、工具",
+    capabilitiesSubtitle: "启用一次后，Claudex 会在每次聊天里自动记住。",
+    capabilitySearch: "搜索能力",
+    searchPlugins: "搜索插件",
+    searchSkills: "搜索 skills",
+    searchMarketplace: "搜索 marketplace",
+    capabilityAll: "全部",
+    capabilityEnabled: "已启用",
+    capabilityDisabled: "已关闭",
+    capabilitySummary: "已启用 {enabled} 个 · 总共 {total} 个",
+    installed: "已安装",
+    installedLocal: "本地已安装",
+    marketplaceHint: "Marketplace 命令由 Claude Code CLI 支撑。安装前请在 Claude Code 面板获取实时 marketplace 输出。",
+    marketplaceSourceClaude: "Claude Code marketplace",
+    marketplaceSourceCustom: "自定义 marketplace",
+    managePlugins: "管理",
+    openClaudePanel: "打开 Claude 面板",
+    noCapabilities: "没有匹配的能力。",
+    enabled: "已启用",
+    disabled: "已关闭",
+    activeProject: "当前项目",
+    noProjectPath: "还没有选择文件夹。",
+    urlPlaceholder: "输入网址",
+    openSettings: "打开设置",
+    setupProvider: "配置服务商",
+    setupProviderHint: "发送前请保存 API key，或者切换到 Ollama。",
+    copy: "复制",
+    copied: "已复制",
+    copyPath: "复制路径",
+    copiedPath: "路径已复制",
+    retry: "重试",
+    projectSelected: "项目已选择",
+    terminalOpened: "终端已打开",
+    browserOpened: "网址已打开",
+    dataOpened: "数据文件已打开",
+    scheduledTitle: "计划任务",
+    scheduledSubtitle: "先保存稍后要跑的提示词，准备好后点立即运行。",
+    schedulePrompt: "提示词",
+    schedulePromptPlaceholder: "稍后要让 Claude Code 做什么？",
+    scheduleTime: "时间",
+    addSchedule: "添加任务",
+    scheduleQueue: "队列",
+    scheduleCount: "已保存 {count} 个",
+    scheduleAnytime: "任何时间",
+    runNow: "立即运行",
+    delete: "删除",
+    emptySchedule: "还没有计划任务。",
+    emptyScheduleHint: "有任务想先放着但不想新开聊天时，可以先保存到这里。",
+    copiedPrompt: "提示词已填入",
+    browserHelp: "不用离开工作区，直接预览文档、服务商控制台或项目网址。",
+    browserPreview: "预览",
+    browserBack: "后退",
+    browserForward: "前进",
+    browserReload: "刷新",
+    browserLoading: "页面加载中...",
+    browserReady: "预览已加载",
+    browserIdle: "还没有预览页面",
+    browserEmptyTitle: "未打开页面",
+    browserEmptyHint: "输入文档、issue、本地应用或服务商网址后，在这里预览。登录、下载或阻止嵌入的页面请用外部打开。",
+    browserFailed: "该页面无法在内嵌浏览器中加载。",
+    browserExternalHint: "登录页、下载和阻止嵌入的网站，请用外部打开。",
+    openExternal: "外部打开",
+    commandRunning: "运行中",
+    commandSucceeded: "已完成",
+    commandFailed: "失败",
+    commandHistory: "最近运行",
+    clearHistory: "清空",
+    runningNow: "正在运行",
+    completedRuns: "{count} 条记录",
+    commandLine: "命令",
+    commandCwd: "cwd",
+    commandExit: "退出码",
+    commandDuration: "耗时",
+    commandStdout: "stdout",
+    commandStderr: "stderr",
+    liveOutput: "实时输出",
+    noOutput: "没有输出",
+    copyOutput: "复制输出",
+    outputCopied: "输出已复制",
+    terminalHelp: "直接在当前项目文件夹里启动终端。",
+    opensExternalTerminal: "会打开系统终端，并把当前项目作为 cwd。",
+    path: "路径",
+    workspaceHelp: "浏览源码、安全编辑；只有你输入命令后才会运行。",
+    refresh: "刷新",
+    saveFile: "保存文件",
+    saveChanges: "保存改动",
+    savedChanges: "改动已保存",
+    editFile: "编辑",
+    reviewFile: "审查",
+    fileSize: "大小",
+    fileUpdatedAt: "更新",
+    changedLines: "改动行",
+    reviewUnsavedChanges: "保存前先审查未保存改动。",
+    reviewRequiredTitle: "需要先审查",
+    reviewRequiredHint: "先打开审查视图确认 diff，再保存。",
+    reviewingChanges: "正在审查改动",
+    readyToSave: "可以保存",
+    reviewFirstToSave: "保存前请先查看改动。",
+    noFileChanges: "这个文件没有改动。",
+    noChangesToReview: "先编辑文件，这里会显示 diff。",
+    revertChanges: "撤销",
+    reviewChanges: "查看改动",
+    diffPreview: "Diff 预览",
+    diffPreviewSkippedLarge: "文件超过 1MB，已禁用 Diff 预览以保持输入流畅。",
+    runCommand: "运行命令",
+    runCommandShort: "运行",
+    commandPlaceholder: "输入 shell 命令",
+    noFileSelected: "从文件树里选择一个源码文件。",
+    noFileOpenTitle: "还没有打开文件",
+    noFileOpenHint: "选择文件后可以编辑，并在保存前先查看改动。",
+    noProjectSelected: "请先选择项目。",
+    fileSaved: "文件已保存",
+    commandFinished: "命令已完成",
+    loading: "加载中",
+    uxReady: "可以开始工作",
+    savedAt: "已保存",
+    draftThread: "草稿",
+    threadNoMessages: "还没有消息",
+    threadMessageCount: "{count} 条消息",
+    threadRunning: "运行中",
+    loadingChats: "正在加载聊天记录...",
+    chatsLoadError: "无法加载聊天记录。",
+    noChatsYet: "还没有聊天记录，点击上方开始一个。",
+    noChatsMatch: "没有匹配的聊天记录。",
+    threadNeedsPermission: "该对话需要在交互式 Claude 中确认权限。",
+    voiceInputUnavailable: "此版本暂不支持语音输入。",
+    messageSent: "已发送",
+    permissionErrorHint: "权限不足——该文件或文件夹可能是只读或受限的。",
+    openingFile: "正在打开文件...",
+  },
+};
+
+function cx(...parts) {
+  return parts.filter(Boolean).join(" ");
+}
+
+const FOCUSABLE_SELECTOR =
+  'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
+
+function useFocusTrap(containerRef, active = true) {
+  useEffect(() => {
+    if (!active) return undefined;
+    const container = containerRef.current;
+    if (!container) return undefined;
+
+    const previouslyFocused = document.activeElement;
+    const getFocusable = () =>
+      Array.from(container.querySelectorAll(FOCUSABLE_SELECTOR)).filter((el) => el.offsetParent !== null);
+
+    const first = getFocusable()[0];
+    (first || container).focus?.();
+
+    function handleKeyDown(event) {
+      if (event.key !== "Tab") return;
+      const items = getFocusable();
+      if (!items.length) return;
+      const firstEl = items[0];
+      const lastEl = items[items.length - 1];
+      if (event.shiftKey && document.activeElement === firstEl) {
+        event.preventDefault();
+        lastEl.focus();
+      } else if (!event.shiftKey && document.activeElement === lastEl) {
+        event.preventDefault();
+        firstEl.focus();
+      }
+    }
+
+    container.addEventListener("keydown", handleKeyDown);
+    return () => {
+      container.removeEventListener("keydown", handleKeyDown);
+      if (previouslyFocused && typeof previouslyFocused.focus === "function") {
+        previouslyFocused.focus();
+      }
+    };
+  }, [containerRef, active]);
+}
+
+function providerDefaults(providerId) {
+  return providers.find((provider) => provider.id === providerId) || providers[0];
+}
+
+function capabilityEnabled(settings, id) {
+  const item = capabilityCatalog.find((capability) => capability.id === id);
+  if (Object.prototype.hasOwnProperty.call(settings.capabilities || {}, id)) {
+    return Boolean(settings.capabilities[id]);
+  }
+  return Boolean(item?.defaultEnabled);
+}
+
+function projectLabel(project, t) {
+  return project?.name || project?.path || t.localWorkspace;
+}
+
+function sessionMessages(session) {
+  return Array.isArray(session?.messages) ? session.messages : [];
+}
+
+function messageExcerpt(value, max = 78) {
+  const text = String(value || "").replace(/\s+/g, " ").trim();
+  if (!text) return "";
+  return text.length > max ? `${text.slice(0, Math.max(0, max - 3))}...` : text;
+}
+
+function isGenericSessionTitle(title, t) {
+  const normalized = String(title || "").trim().toLowerCase();
+  return ["", "claudex", "new chat", "new coding session", "新聊天", String(t.newChat || "").toLowerCase()].includes(normalized);
+}
+
+function sessionProjectLabel(session, t) {
+  const projectName = String(session?.project || "").trim();
+  if (projectName && projectName.toLowerCase() !== String(t.localWorkspace).toLowerCase()) return projectName;
+  const projectPath = String(session?.projectPath || "").replace(/\//g, "\\");
+  const tail = projectPath.split("\\").filter(Boolean).pop();
+  return tail || projectName || t.localWorkspace;
+}
+
+function sessionProjectKeyForUi(session) {
+  return String(session?.projectPath || session?.project || "").trim().toLowerCase();
+}
+
+function sessionDisplayTitle(session, t) {
+  const rawTitle = String(session?.title || "").trim();
+  const messages = sessionMessages(session);
+  const firstUser = messages.find((message) => message.role === "user" && message.content);
+  if (rawTitle && !isGenericSessionTitle(rawTitle, t)) return messageExcerpt(rawTitle, 64);
+  if (firstUser) return messageExcerpt(firstUser.content, 64);
+  return t.newChat;
+}
+
+function sessionSubtitle(session, t) {
+  const messages = sessionMessages(session);
+  if (!messages.length) return sessionProjectLabel(session, t);
+  const lastMessage = [...messages].reverse().find((message) => message.content);
+  return messageExcerpt(lastMessage?.content || "", 82) || sessionProjectLabel(session, t);
+}
+
+function sessionMetaLabel(session, t, isStreaming) {
+  if (isStreaming) return t.threadRunning;
+  const count = sessionMessages(session).length;
+  if (!count) return t.draftThread;
+  return t.threadMessageCount.replace("{count}", count);
+}
+
+function sidebarThreadItems(sessions, t) {
+  const seenEmptyDrafts = new Set();
+  const items = [];
+  for (const session of sessions || []) {
+    const messages = sessionMessages(session);
+    const genericEmpty = messages.length === 0 && isGenericSessionTitle(session?.title, t);
+    const draftKey = sessionProjectKeyForUi(session) || "default";
+    if (genericEmpty && seenEmptyDrafts.has(draftKey)) continue;
+    if (genericEmpty) seenEmptyDrafts.add(draftKey);
+    items.push({
+      session,
+      title: sessionDisplayTitle(session, t),
+      subtitle: sessionSubtitle(session, t),
+      project: sessionProjectLabel(session, t),
+      messageCount: messages.length,
+      rawSearchText: [
+        session?.title,
+        session?.project,
+        session?.projectPath,
+        ...messages.map((message) => message.content),
+      ].join(" "),
+    });
+  }
+  return items;
+}
+
+function projectKey(project) {
+  return project?.path || project?.name || "";
+}
+
+function isPlaceholderProject(project, t) {
+  const name = String(project?.name || "").trim().toLowerCase();
+  return !project?.path && (!name || name === String(t.localWorkspace).toLowerCase());
+}
+
+function visibleProjectsForUi(state, t) {
+  const activeProject = state.activeProject || { name: t.localWorkspace, path: "" };
+  const rawProjects = Array.isArray(state.projects) && state.projects.length ? state.projects : [activeProject];
+  const hasRealProject = Boolean(activeProject?.path) || rawProjects.some((project) => project?.path);
+  const projects = [activeProject, ...rawProjects].filter((project) => !(hasRealProject && isPlaceholderProject(project, t)));
+  const seen = new Set();
+  const unique = [];
+  for (const project of projects) {
+    const key = projectKey(project);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    unique.push(project);
+  }
+  return unique.length ? unique : [{ name: t.localWorkspace, path: "" }];
+}
+
+function displayModelLabel(model) {
+  const text = String(model || "").trim();
+  if (!text) return "Sonnet 4.5";
+  if (/claude-sonnet-4-5/i.test(text)) return "Sonnet 4.5";
+  if (/gpt-4\.1/i.test(text)) return "GPT-4.1";
+  return text;
+}
+
+function compactPath(value, max = 54) {
+  const text = String(value || "");
+  if (!text || text.length <= max) return text;
+  const normalized = text.replace(/\//g, "\\");
+  const parts = normalized.split("\\").filter(Boolean);
+  if (parts.length <= 2) return `${text.slice(0, max - 1)}…`;
+  const tail = parts.slice(-2).join("\\");
+  const head = normalized.slice(0, Math.max(12, max - tail.length - 3));
+  return `${head}…\\${tail}`;
+}
+
+function authLabel(auth, settings) {
+  if (settings?.env?.anthropicApiKey) return "firstParty / api_key";
+  if (settings?.env?.anthropicAuthToken) return "firstParty / auth_token";
+  if (!auth) return "Checking";
+  if (!auth.loggedIn) return "Not signed in";
+  return `${auth.apiProvider || "Claude"} / ${auth.authMethod || "logged in"}`;
+}
+
+function cliBaseUrl(settings) {
+  return settings?.env?.anthropicBaseUrl || settings?.env?.openaiBaseUrl || "";
+}
+
+function normalizeBrowserUrl(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  if (/^https?:\/\//i.test(raw)) return raw;
+  return `https://${raw}`;
+}
+
+function resolveLanguage(language, appLocale) {
+  const locale = appLocale || navigator.language || "";
+  if (language === "zh" || language === "en") return language;
+  return locale.toLowerCase().startsWith("zh") ? "zh" : "en";
+}
+
+function formatDate(value, lang) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleString(lang === "zh" ? "zh-CN" : "en-US", {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function formatRelativeTime(value, lang) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  const diffSec = Math.max(0, Math.floor((Date.now() - date.getTime()) / 1000));
+  const diffMin = Math.floor(diffSec / 60);
+  const diffHour = Math.floor(diffMin / 60);
+  const diffDay = Math.floor(diffHour / 24);
+  const diffWeek = Math.floor(diffDay / 7);
+  const diffMonth = Math.floor(diffDay / 30);
+  const diffYear = Math.floor(diffDay / 365);
+  if (diffSec < 60) return lang === "zh" ? "刚刚" : "now";
+  if (diffMin < 60) return `${diffMin}m`;
+  if (diffHour < 24) return `${diffHour}h`;
+  if (diffDay < 7) return `${diffDay}d`;
+  if (diffWeek < 5) return `${diffWeek}w`;
+  if (diffMonth < 12) return `${diffMonth}mo`;
+  return `${diffYear}y`;
+}
+
+function formatBytes(value) {
+  const bytes = Number(value || 0);
+  if (!Number.isFinite(bytes) || bytes <= 0) return "0 B";
+  if (bytes < 1024) return `${bytes} B`;
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(bytes < 10 * 1024 ? 1 : 0)} KB`;
+  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function formatFileTimestamp(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toLocaleString([], {
+    month: "short",
+    day: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function trimLog(value, limit = 30000) {
+  const text = String(value || "");
+  if (text.length <= limit) return text;
+  return `${text.slice(text.length - limit)}\n\n[earlier output trimmed]`;
+}
+
+function appendStreamChunk(current, stream, text) {
+  const key = stream === "stderr" ? "stderr" : "stdout";
+  return {
+    ...current,
+    [key]: trimLog(`${current?.[key] || ""}${text || ""}`),
+  };
+}
+
+const COMMAND_HISTORY_LIMIT = 6;
+
+function prependCommandHistory(current, entry) {
+  return [entry, ...current.filter((item) => item.id !== entry.id)].slice(0, COMMAND_HISTORY_LIMIT);
+}
+
+function isPermissionDeniedError(message) {
+  return /\bEACCES\b|\bEPERM\b/.test(String(message || ""));
+}
+
+const LARGE_FILE_DIFF_LIMIT_BYTES = 1024 * 1024;
+const FILE_CACHE_LIMIT = 30;
+
+function cacheFileRead(cacheRef, key, value) {
+  const cache = cacheRef.current;
+  cache.delete(key);
+  cache.set(key, value);
+  while (cache.size > FILE_CACHE_LIMIT) {
+    cache.delete(cache.keys().next().value);
+  }
+}
+
+function buildLineDiff(before = "", after = "") {
+  const oldLines = String(before).split(/\r?\n/);
+  const newLines = String(after).split(/\r?\n/);
+  const max = Math.max(oldLines.length, newLines.length);
+  const rows = [];
+  let additions = 0;
+  let deletions = 0;
+
+  for (let index = 0; index < max; index += 1) {
+    const oldLine = oldLines[index];
+    const newLine = newLines[index];
+    if (oldLine === newLine) {
+      if (newLine !== undefined) rows.push({ type: "same", text: newLine });
+      continue;
+    }
+    if (oldLine !== undefined) {
+      deletions += 1;
+      rows.push({ type: "delete", text: oldLine });
+    }
+    if (newLine !== undefined) {
+      additions += 1;
+      rows.push({ type: "add", text: newLine });
+    }
+  }
+
+  return {
+    additions,
+    deletions,
+    rows: rows.filter((row, index, allRows) => {
+      if (row.type !== "same") return true;
+      const nearbyChange = allRows.slice(Math.max(0, index - 2), index + 3).some((item) => item.type !== "same");
+      return nearbyChange;
+    }).slice(0, 240),
+  };
+}
+
+function fallbackState() {
+  const createdAt = new Date().toISOString();
+  const activeProject = { name: "local workspace", path: "" };
+  return {
+    version: 1,
+    settings: {
+      provider: "openai-compatible",
+      model: "gpt-4.1",
+      baseUrl: "https://api.openai.com/v1",
+      temperature: 0.2,
+      timeoutMs: 600000,
+      language: "system",
+      appearance: {
+        fontSize: "compact",
+        density: "compact",
+      },
+      systemPrompt:
+        "You are a pragmatic senior coding assistant. Be concise, factual, and implementation-focused.",
+      apiKeys: {},
+      claudeCode: {
+        executionMode: "claude-code",
+        claudeCommand: "claude",
+        permissionMode: "default",
+      },
+      capabilities: Object.fromEntries(capabilityCatalog.map((item) => [item.id, item.defaultEnabled])),
+      customMarketplaces: [],
+      appLocale: navigator.language,
+      dataFile: "Electron app required",
+      encryptionAvailable: false,
+    },
+    activeProject,
+    projects: [activeProject],
+    sessions: [
+      {
+        id: "browser-preview",
+        title: "New chat",
+        project: activeProject.name,
+        projectPath: activeProject.path,
+        createdAt,
+        updatedAt: createdAt,
+        messages: [],
+      },
+    ],
+  };
+}
+
+function Sidebar({
+  state,
+  activeSessionId,
+  setActiveSessionId,
+  query,
+  setQuery,
+  onNewChat,
+  onSettings,
+  onScheduled,
+  onCapabilities,
+  onSelectProject,
+  onSetProject,
+  onToggleSidebar,
+  loading,
+  loadError,
+  onRetryLoad,
+  streamingSessionId,
+  lang,
+  t,
+}) {
+  const threadItems = useMemo(() => sidebarThreadItems(state.sessions, t), [state.sessions, t]);
+  const filtered = useMemo(() => {
+    const normalized = query.trim().toLowerCase();
+    if (!normalized) return threadItems;
+    return threadItems.filter((item) =>
+      [item.title, item.subtitle, item.project, item.rawSearchText]
+        .join(" ")
+        .toLowerCase()
+        .includes(normalized),
+    );
+  }, [query, threadItems]);
+
+  const projects = visibleProjectsForUi(state, t);
+
+  return (
+    <aside className="sidebar">
+      <div className="sidebar-content">
+        <nav className="nav-stack" aria-label="Main">
+          <div className="sidebar-top-row">
+            <button type="button" className="nav-primary" onClick={onNewChat} disabled={loading} title={loading ? t.loadingChats : t.newChat}>
+              <MessageSquarePlus size={17} />
+              <span>{t.newChat}</span>
+              <kbd>Ctrl+N</kbd>
+            </button>
+            <button type="button" className="sidebar-collapse-button" onClick={onToggleSidebar} title={t.toggleSidebar} aria-label={t.toggleSidebar}>
+              <PanelRight size={16} />
+            </button>
+          </div>
+          <label className="nav-search">
+            <Search size={17} />
+            <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={t.search} aria-label={t.search} />
+          </label>
+          <button type="button" onClick={onScheduled} title={t.scheduled} aria-label={t.scheduled}>
+            <Clock3 size={17} />
+            <span>{t.scheduled}</span>
+          </button>
+          <button type="button" onClick={onCapabilities} title={t.plugins} aria-label={t.plugins}>
+            <Plug size={17} />
+            <span>{t.plugins}</span>
+          </button>
+        </nav>
+
+        <section className="sidebar-section">
+          <div className="section-head">
+            <span>{t.projects}</span>
+            <button type="button" onClick={onSelectProject} title={t.selectProject} aria-label={t.selectProject}>
+              <Plus size={14} />
+            </button>
+          </div>
+          <div className="project-list">
+            {projects.map((project) => (
+              <button
+                type="button"
+                key={project.path || project.name}
+                className={cx((state.activeProject?.path || state.activeProject?.name) === (project.path || project.name) && "active")}
+                onClick={() => onSetProject(project)}
+                title={project.path || project.name}
+                aria-label={`${t.projects}: ${projectLabel(project, t)}`}
+              >
+                <Folder size={15} />
+                <span>{projectLabel(project, t)}</span>
+              </button>
+            ))}
+          </div>
+        </section>
+
+        <section className="sidebar-section chat-section">
+          <span>{t.chats}</span>
+          <div className="thread-list">
+            {loading ? (
+              <div className="thread-skeleton" aria-busy="true" aria-label={t.loadingChats}>
+                <div className="thread-skeleton-row" />
+                <div className="thread-skeleton-row" />
+                <div className="thread-skeleton-row" />
+              </div>
+            ) : loadError ? (
+              <div className="thread-list-error">
+                <span>{t.chatsLoadError}</span>
+                <button type="button" className="plain-action subtle-action" onClick={onRetryLoad}>
+                  <RefreshCw size={13} />
+                  {t.retry}
+                </button>
+              </div>
+            ) : filtered.length === 0 ? (
+              <p className="empty-list">{query.trim() ? t.noChatsMatch : t.noChatsYet}</p>
+            ) : (
+              filtered.map((item) => {
+                const session = item.session;
+                const needsPermission = (session.messages || []).some((message) => message.permissionDenials?.length > 0);
+                const isStreaming = streamingSessionId === session.id;
+                const isDraft = item.messageCount === 0;
+                const meta = sessionMetaLabel(session, t, isStreaming);
+                return (
+                  <button
+                    type="button"
+                    key={session.id}
+                    className={cx("thread-item", isDraft && "draft-thread", activeSessionId === session.id && "active")}
+                    onClick={() => setActiveSessionId(session.id)}
+                    title={`${item.title}\n${item.subtitle}`}
+                  >
+                    <span className="thread-main">
+                      <strong>
+                        {isStreaming && <span className="thread-stream-dot" aria-hidden="true" />}
+                        {item.title}
+                      </strong>
+                      {!isDraft && <span className="thread-subtitle">{item.subtitle}</span>}
+                    </span>
+                    <span className="thread-meta">
+                      <small>
+                        {needsPermission && <AlertTriangle size={12} className="thread-permission-badge" title={t.threadNeedsPermission} />}
+                        {meta}
+                      </small>
+                      {!isDraft && <time>{formatRelativeTime(session.updatedAt, lang)}</time>}
+                    </span>
+                  </button>
+                );
+              })
+            )}
+          </div>
+        </section>
+
+        <div className="account-row runtime-row">
+          <div className="account-avatar"><SquareTerminal size={14} /></div>
+          <div>
+            <strong>{t.localRuntime}</strong>
+            <span>{displayModelLabel(state.settings?.model)}</span>
+          </div>
+          <button type="button" onClick={onSettings} title={t.settings} aria-label={t.settings}>
+            <Settings size={16} />
+          </button>
+        </div>
+      </div>
+    </aside>
+  );
+}
+
+function WelcomeComposer({
+  onSend,
+  onCancel,
+  busy,
+  settings,
+  activeProject,
+  hasKey,
+  onSelectProject,
+  onSettings,
+  onCapabilities,
+  draft,
+  setDraft,
+  justSent,
+  t,
+}) {
+  const [localValue, setLocalValue] = useState("");
+  const value = draft ?? localValue;
+  const updateValue = setDraft ?? setLocalValue;
+  const textareaRef = useRef(null);
+  const submit = (event) => {
+    event.preventDefault();
+    if (!busy && value.trim()) {
+      onSend(value);
+      updateValue("");
+    }
+  };
+  const usesClaudeCode = settings.claudeCode?.executionMode !== "api";
+  const needsProviderSetup = !usesClaudeCode && settings.provider !== "ollama" && !hasKey;
+  const projectName = projectLabel(activeProject, t);
+  const projectTitle = activeProject?.path || t.chooseProject;
+  const modelTitle = needsProviderSetup ? t.setupProviderHint : settings.model;
+  const modelLabel = usesClaudeCode ? displayModelLabel(settings.model) : displayModelLabel(settings.model) || settings.model;
+
+  useEffect(() => {
+    const el = textareaRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    el.style.height = `${el.scrollHeight}px`;
+  }, [value]);
+
+  return (
+    <form className="prompt-box" onSubmit={submit}>
+      <textarea
+        ref={textareaRef}
+        value={value}
+        onChange={(event) => updateValue(event.target.value)}
+        placeholder={t.placeholder}
+        rows={1}
+        autoFocus
+        onKeyDown={(event) => {
+          if ((event.ctrlKey || event.metaKey) && event.key === "Enter") {
+            submit(event);
+            return;
+          }
+          if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
+            submit(event);
+          }
+        }}
+      />
+      <div className="prompt-actions">
+        <div className="prompt-left">
+          <button type="button" className="composer-icon-button project-pill" title={projectTitle} aria-label={`${t.projectContext}: ${projectName}`} onClick={onSelectProject}>
+            <Folder size={15} />
+            <span>{compactPath(projectName, 22)}</span>
+          </button>
+          <button type="button" className="permissions-pill" onClick={onCapabilities} title={t.capabilities} aria-label={t.capabilities}>
+            <Settings size={16} />
+            <span>{t.defaultPermissionsShort}</span>
+            <ChevronDown size={14} />
+          </button>
+        </div>
+        <div className="prompt-right">
+          <button type="button" className={cx("model-pill", needsProviderSetup && "needs-setup")} onClick={onSettings} title={modelTitle} aria-label={`${t.model}: ${modelTitle}`}>
+            <span>{usesClaudeCode ? t.claudeCodeMode : t.model}</span>
+            <strong>{modelLabel}</strong>
+          </button>
+          <button
+            type={busy ? "button" : "submit"}
+            className={cx("send-button", justSent && "send-success")}
+            onClick={busy ? onCancel : undefined}
+            disabled={!busy && !value.trim()}
+            title={busy ? t.cancel : justSent ? t.messageSent : t.send}
+            aria-label={busy ? t.cancel : t.send}
+          >
+            {busy ? <X size={18} /> : justSent ? <Check size={18} /> : <Send size={18} />}
+          </button>
+        </div>
+      </div>
+    </form>
+  );
+}
+
+function Conversation({
+  session,
+  settings,
+  activeProject,
+  hasKey,
+  onSend,
+  onCancel,
+  onSelectProject,
+  onSettings,
+  onCapabilities,
+  onCopy,
+  onRetry,
+  onOpenInteractiveClaude,
+  sidebarVisible,
+  onToggleSidebar,
+  rightPanelVisible,
+  onToggleTools,
+  bottomPanel,
+  setBottomPanel,
+  onActivateTool,
+  onOpenTerminal,
+  onOpenProject,
+  busy,
+  streamingAssistant,
+  optimisticUser,
+  draft,
+  setDraft,
+  environment,
+  onRefreshEnvironment,
+  ideOptions,
+  selectedIdeId,
+  setSelectedIdeId,
+  onOpenIde,
+  lang,
+  t,
+}) {
+  const messagesRef = useRef(null);
+  const messages = useMemo(() => {
+    const base = session?.messages || [];
+    if (!optimisticUser) return base;
+    const exists = base.some((message) => message.role === "user" && message.content === optimisticUser.content && message.createdAt === optimisticUser.createdAt);
+    return exists ? base : [...base, { role: "user", content: optimisticUser.content, createdAt: optimisticUser.createdAt }];
+  }, [session?.messages, optimisticUser]);
+
+  useEffect(() => {
+    messagesRef.current?.scrollTo({
+      top: messagesRef.current.scrollHeight,
+      behavior: "smooth",
+    });
+  }, [messages.length, streamingAssistant?.content, streamingAssistant?.status]);
+
+  const [justSent, setJustSent] = useState(false);
+  const prevBusyRef = useRef(busy);
+  useEffect(() => {
+    const wasBusy = prevBusyRef.current;
+    prevBusyRef.current = busy;
+    if (wasBusy && !busy) {
+      const lastMessage = messages[messages.length - 1];
+      if (!lastMessage || lastMessage.role !== "error") {
+        setJustSent(true);
+        const timer = setTimeout(() => setJustSent(false), 1200);
+        return () => clearTimeout(timer);
+      }
+    }
+    return undefined;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [busy]);
+
+  const emptyTitle = session ? t.selectedEmptyTitle : t.noSessionTitle;
+  const emptyHint = session ? t.selectedEmptyHint : t.noSessionHint;
+  const git = environment?.git;
+  const gitAvailable = Boolean(git?.available);
+  const gitChangesLabel = gitAvailable ? String(git.changes || 0) : t.gitUnavailable;
+  const branchLabel = git?.branch || t.gitUnavailable;
+  const rawGitStatus = String(git?.raw || "").trim();
+  const contextTabs = [
+    { id: "environment", label: t.environment, icon: HardDrive, meta: branchLabel },
+    { id: "outputs", label: t.outputs, icon: FileText, meta: busy ? t.commandRunning : "" },
+    { id: "changes", label: t.changes, icon: GitBranch, meta: gitChangesLabel },
+    { id: "sources", label: t.sources, icon: Folder, meta: activeProject?.path ? t.files : "" },
+    { id: "subagents", label: t.subagents, icon: Bot, meta: "" },
+  ];
+  const utilityTabs = [
+    { id: "terminal", label: t.terminal, icon: SquareTerminal },
+    { id: "browser", label: t.browser, icon: Globe2 },
+  ];
+  const toggleBottomPanel = (id) => setBottomPanel(bottomPanel === id ? "" : id);
+
+  return (
+    <main className="workspace">
+      {!sidebarVisible && (
+        <div className="workspace-left-actions">
+          <button type="button" className="workspace-top-button" onClick={onToggleSidebar} title={t.toggleSidebar} aria-label={t.toggleSidebar}>
+            <PanelRight size={15} />
+            <span>{t.projects}</span>
+          </button>
+        </div>
+      )}
+      <div className="workspace-top-actions" aria-label={t.environment}>
+        <div className="workspace-context-tabs" role="tablist" aria-label={t.bottomPanel}>
+          {contextTabs.map((item) => {
+            const Icon = item.icon;
+            return (
+              <button
+                type="button"
+                key={item.id}
+                className={cx("workspace-context-button", bottomPanel === item.id && "active")}
+                onClick={() => toggleBottomPanel(item.id)}
+                title={item.meta ? `${item.label} · ${item.meta}` : item.label}
+                aria-label={item.meta ? `${item.label}: ${item.meta}` : item.label}
+                aria-selected={bottomPanel === item.id}
+              >
+                <Icon size={14} />
+                <span>{item.label}</span>
+                {item.meta && <em>{item.meta}</em>}
+              </button>
+            );
+          })}
+        </div>
+        {ideOptions?.length > 1 ? (
+          <label className="ide-picker" title={t.openInIde}>
+            <Monitor size={14} />
+            <select value={selectedIdeId} onChange={(event) => setSelectedIdeId(event.target.value)} aria-label={t.openInIde}>
+              {ideOptions.map((option) => (
+                <option value={option.id} key={option.id}>{option.label}</option>
+              ))}
+            </select>
+          </label>
+        ) : (
+          <button type="button" className="workspace-top-button" onClick={onOpenIde} title={ideOptions?.[0]?.label || t.ideUnavailable} aria-label={t.openInIde}>
+            <Code2 size={14} />
+            <span>{ideOptions?.[0]?.label || t.openIde}</span>
+          </button>
+        )}
+        <button type="button" className={cx("workspace-top-button side-panel-button", rightPanelVisible && "active")} onClick={onToggleTools} title={`${t.openSidePanel} Ctrl+\\`} aria-label={t.openSidePanel}>
+          <PanelRight size={15} />
+          <span>{rightPanelVisible ? t.close : t.tools}</span>
+        </button>
+        {bottomPanel && (
+          <button type="button" className="workspace-top-button close-panel-button" onClick={() => setBottomPanel("")} title={t.close} aria-label={t.close}>
+            <X size={14} />
+          </button>
+        )}
+      </div>
+      <div className={cx("conversation-shell", messages.length === 0 && "is-empty")}>
+        {messages.length === 0 ? (
+          <section className="empty-state">
+            <div className="empty-state-copy">
+              <h1>{emptyTitle}</h1>
+              {emptyHint && <p>{emptyHint}</p>}
+            </div>
+            <WelcomeComposer
+              onSend={onSend}
+              onCancel={onCancel}
+              busy={busy}
+              settings={settings}
+              activeProject={activeProject}
+              hasKey={hasKey}
+              onSelectProject={onSelectProject}
+              onSettings={onSettings}
+              onCapabilities={onCapabilities}
+              draft={draft}
+              setDraft={setDraft}
+              justSent={justSent}
+              t={t}
+            />
+          </section>
+        ) : (
+          <>
+            <header className="thread-header">
+              <div>
+                <span>{t.activeThread}</span>
+                <h1>{session?.title || "Claudex"}</h1>
+              </div>
+              <div className="model-chip">
+                <Bot size={16} />
+                <span>{settings.model}</span>
+              </div>
+            </header>
+              <div className="messages" ref={messagesRef}>
+              {messages.map((message, index) => (
+                <article className={cx("message", message.role)} key={`${message.createdAt}-${index}`}>
+                  <div className="message-avatar">
+                    {message.role === "user" ? <UserRound size={15} /> : <Bot size={15} />}
+                  </div>
+                  <div className="message-content">
+                    <div className="message-meta">
+                      <strong>
+                        {message.role === "user" ? t.you : message.role === "error" ? t.requestError : t.assistant}
+                      </strong>
+                      <time>{formatDate(message.createdAt, lang)}</time>
+                      <button type="button" onClick={() => onCopy(message.content)} title={t.copy} aria-label={t.copy}>
+                        <Copy size={13} />
+                      </button>
+                      {message.role === "error" && <button type="button" onClick={onSettings}>{t.openSettings}</button>}
+                    </div>
+                    <p>{message.content}</p>
+                    {message.permissionDenials?.length > 0 && (
+                      <div className="permission-notice">
+                        <span>{t.permissionDeniedNotice}</span>
+                        <button type="button" onClick={onOpenInteractiveClaude}>{t.openInteractiveClaude}</button>
+                      </div>
+                    )}
+                  </div>
+                </article>
+              ))}
+              {busy && (
+                <article className="message assistant">
+                  <div className="message-avatar">
+                    <Bot size={15} />
+                  </div>
+                  <div className="message-content">
+                    <div className="message-meta">
+                      <strong>{t.assistant}</strong>
+                      <button type="button" onClick={onCancel}>{t.cancel}</button>
+                    </div>
+                    <p className={!streamingAssistant?.content ? "streaming-status" : ""}>
+                      {streamingAssistant?.content || streamingAssistant?.status || t.waiting}
+                    </p>
+                    {streamingAssistant?.activities?.length > 0 && (
+                      <ul className="activity-lines" aria-label={t.outputs}>
+                        {streamingAssistant.activities.map((activity) => (
+                          <li key={activity.id}>{activity.text}</li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                </article>
+              )}
+            </div>
+            <div className="composer-dock">
+              <WelcomeComposer
+                key={session?.id}
+                onSend={onSend}
+                onCancel={onCancel}
+                busy={busy}
+                settings={settings}
+                activeProject={activeProject}
+                hasKey={hasKey}
+                onSelectProject={onSelectProject}
+                onSettings={onSettings}
+                onCapabilities={onCapabilities}
+                draft={draft}
+                setDraft={setDraft}
+                justSent={justSent}
+                t={t}
+              />
+              {messages.some((message) => message.role === "error") && (
+                <button type="button" className="retry-action" onClick={onRetry}>{t.retry}</button>
+              )}
+            </div>
+          </>
+        )}
+      </div>
+      {bottomPanel && (
+        <section className="bottom-work-panel" aria-label={t.bottomPanel}>
+          <div className="bottom-panel-tabs" role="tablist" aria-label={t.bottomPanel}>
+            {[...contextTabs, ...utilityTabs].map(({ id, label, icon: Icon }) => (
+              <button
+                type="button"
+                key={id}
+                className={cx(bottomPanel === id && "active")}
+                onClick={() => setBottomPanel(id)}
+                role="tab"
+                aria-selected={bottomPanel === id}
+              >
+                <Icon size={14} />
+                {label}
+              </button>
+            ))}
+            <button type="button" className="icon-only mini-icon" onClick={() => setBottomPanel("")} title={t.close} aria-label={t.close}>
+              <X size={14} />
+            </button>
+          </div>
+          <div className="bottom-panel-body">
+            {bottomPanel === "outputs" && (
+              <div className="bottom-panel-grid">
+                <div>
+                  <span>{t.outputs}</span>
+                  <strong>{busy ? streamingAssistant?.status || t.commandRunning : t.noActiveRun}</strong>
+                  <p>{t.outputsPanelHint}</p>
+                  {busy && streamingAssistant?.activities?.length > 0 && (
+                    <ul className="activity-lines compact-activity-lines" aria-label={t.outputs}>
+                      {streamingAssistant.activities.map((activity) => (
+                        <li key={activity.id}>{activity.text}</li>
+                      ))}
+                    </ul>
+                  )}
+                </div>
+                <dl>
+                  <div><dt>{t.activeProject}</dt><dd title={activeProject?.path || t.noProjectPath}>{projectLabel(activeProject, t)}</dd></div>
+                  <div><dt>{t.branch}</dt><dd>{environment?.git?.branch || t.gitUnavailable}</dd></div>
+                  <div><dt>{t.changes}</dt><dd>{environment?.git?.available ? environment.git.changes || 0 : t.gitUnavailable}</dd></div>
+                </dl>
+              </div>
+            )}
+            {bottomPanel === "environment" && (
+              <div className="bottom-panel-grid">
+                <div>
+                  <span>{t.environment}</span>
+                  <strong>{projectLabel(activeProject, t)}</strong>
+                  <p title={environment?.cwd || activeProject?.path || t.noProjectPath}>
+                    {activeProject?.path ? compactPath(activeProject.path, 78) : t.noProjectPath}
+                  </p>
+                </div>
+                <div className="bottom-panel-actions">
+                  <button type="button" className="plain-action subtle-action" onClick={onRefreshEnvironment}>
+                    <RefreshCw size={14} />
+                    {t.refresh}
+                  </button>
+                  <button type="button" className="plain-action subtle-action" onClick={onOpenIde}>
+                    <Code2 size={14} />
+                    {t.openIde}
+                  </button>
+                  <button type="button" className="plain-action subtle-action" onClick={() => onActivateTool("workspace")}>
+                    <PanelRight size={14} />
+                    {t.workspaceTool}
+                  </button>
+                </div>
+                <dl>
+                  <div><dt>{t.branch}</dt><dd>{branchLabel}</dd></div>
+                  <div><dt>{t.changes}</dt><dd>{gitChangesLabel}</dd></div>
+                  <div><dt>{t.openInIde}</dt><dd>{ideOptions?.map((item) => item.label).join(", ") || t.ideUnavailable}</dd></div>
+                </dl>
+              </div>
+            )}
+            {bottomPanel === "changes" && (
+              <div className="bottom-panel-stack">
+                <div className="bottom-panel-grid">
+                  <div>
+                    <span>{t.changes}</span>
+                    <strong>{gitAvailable ? `${gitChangesLabel} · ${branchLabel}` : t.noGitProject}</strong>
+                    <p>{activeProject?.path ? compactPath(activeProject.path, 78) : t.noProjectPath}</p>
+                  </div>
+                  <div className="bottom-panel-actions">
+                    <button type="button" className="plain-action subtle-action" onClick={() => onActivateTool("workspace")}>
+                      <FileText size={14} />
+                      {t.reviewChanges}
+                    </button>
+                    <button type="button" className="plain-action subtle-action" onClick={onOpenTerminal}>
+                      <SquareTerminal size={14} />
+                      {t.commitOrPush}
+                    </button>
+                  </div>
+                </div>
+                <pre className="git-status-preview">{rawGitStatus || t.noGitProject}</pre>
+              </div>
+            )}
+            {bottomPanel === "sources" && (
+              <div className="bottom-panel-grid">
+                <div>
+                  <span>{t.sources}</span>
+                  <strong>{activeProject?.path ? projectLabel(activeProject, t) : t.noSourcesYet}</strong>
+                  <p title={activeProject?.path || t.noProjectPath}>
+                    {activeProject?.path ? compactPath(activeProject.path, 78) : t.noProjectPath}
+                  </p>
+                </div>
+                <div className="bottom-panel-actions">
+                  <button type="button" className="plain-action subtle-action" onClick={() => onActivateTool("workspace")}>
+                    <Folder size={14} />
+                    {t.files}
+                  </button>
+                  <button type="button" className="plain-action subtle-action" onClick={onOpenProject} disabled={!activeProject?.path}>
+                    <ExternalLink size={14} />
+                    {t.openFolderShort}
+                  </button>
+                </div>
+              </div>
+            )}
+            {bottomPanel === "subagents" && (
+              <div className="bottom-panel-grid">
+                <div>
+                  <span>{t.subagents}</span>
+                  <strong>{t.noSubagentsYet}</strong>
+                  <p>{busy ? streamingAssistant?.status || t.commandRunning : t.noActiveRun}</p>
+                </div>
+                <div className="bottom-panel-actions">
+                  <button type="button" className="plain-action subtle-action" onClick={onOpenInteractiveClaude}>
+                    <SquareTerminal size={14} />
+                    {t.interactiveClaude}
+                  </button>
+                  <button type="button" className="plain-action subtle-action" onClick={() => onActivateTool("claude")}>
+                    <Bot size={14} />
+                    {t.claudeCodeTool}
+                  </button>
+                </div>
+              </div>
+            )}
+            {bottomPanel === "terminal" && (
+              <div className="bottom-panel-grid">
+                <div>
+                  <span>{t.terminal}</span>
+                  <strong>{projectLabel(activeProject, t)}</strong>
+                  <p>{t.terminalPanelHint}</p>
+                </div>
+                <div className="bottom-panel-actions">
+                  <button type="button" className="plain-action" onClick={onOpenTerminal}>
+                    <SquareTerminal size={14} />
+                    {t.openTerminal}
+                  </button>
+                  <button type="button" className="plain-action subtle-action" onClick={() => onActivateTool("terminal")}>
+                    <PanelRight size={14} />
+                    {t.openSidePanel}
+                  </button>
+                  <button type="button" className="plain-action subtle-action" onClick={onOpenProject} disabled={!activeProject?.path}>
+                    <Folder size={14} />
+                    {t.openFolderShort}
+                  </button>
+                </div>
+              </div>
+            )}
+            {bottomPanel === "browser" && (
+              <div className="bottom-panel-grid">
+                <div>
+                  <span>{t.browser}</span>
+                  <strong>{t.browserIdle}</strong>
+                  <p>{t.browserPanelHint}</p>
+                </div>
+                <div className="bottom-panel-actions">
+                  <button type="button" className="plain-action" onClick={() => onActivateTool("browser")}>
+                    <Globe2 size={14} />
+                    {t.openSidePanel}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        </section>
+      )}
+    </main>
+  );
+}
+
+function CommandOutputCard({ commandLine, cwd, code, durationMs, stdout = "", stderr = "", live = false, t }) {
+  const [copied, setCopied] = useState(false);
+  const statusClass = live ? "live" : code === 0 ? "ok" : "error";
+  const statusLabel = live ? t.commandRunning : code === 0 ? t.commandSucceeded : t.commandFailed;
+  const hasStdout = Boolean(String(stdout || "").trim());
+  const hasStderr = Boolean(String(stderr || "").trim());
+  const clipboardText = [
+    `$ ${commandLine || ""}`,
+    cwd ? `${t.commandCwd}: ${cwd}` : "",
+    !live ? `${t.commandExit}: ${code ?? ""}${typeof durationMs === "number" ? ` (${durationMs}ms)` : ""}` : "",
+    "",
+    stdout || "",
+    stderr ? `[stderr]\n${stderr}` : "",
+  ].filter((line, index) => index < 3 || line !== "").join("\n");
+
+  async function copyOutput() {
+    await navigator.clipboard?.writeText(clipboardText);
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1200);
+  }
+
+  return (
+    <section className={cx("command-output-card", statusClass)} aria-live={live ? "polite" : undefined}>
+      <div className="command-output-head">
+        <div>
+          <span>{live ? t.liveOutput : statusLabel}</span>
+          <strong>{commandLine}</strong>
+        </div>
+        <button type="button" className="icon-only mini-icon" onClick={copyOutput} title={copied ? t.outputCopied : t.copyOutput} aria-label={copied ? t.outputCopied : t.copyOutput}>
+          {copied ? <Check size={13} /> : <Copy size={13} />}
+        </button>
+      </div>
+      <dl className="command-output-meta">
+        <div><dt>{t.commandCwd}</dt><dd title={cwd || ""}>{cwd ? compactPath(cwd, 48) : "-"}</dd></div>
+        <div><dt>{t.commandExit}</dt><dd>{live ? t.commandRunning : code}</dd></div>
+        <div><dt>{t.commandDuration}</dt><dd>{typeof durationMs === "number" ? `${durationMs}ms` : "-"}</dd></div>
+      </dl>
+      <div className="command-output-section">
+        <div className="command-output-section-head">
+          <span>{t.commandStdout}</span>
+        </div>
+        <pre>{hasStdout ? stdout : live ? t.runStreaming : t.noOutput}</pre>
+      </div>
+      {(hasStderr || live) && (
+        <div className="command-output-section stderr">
+          <div className="command-output-section-head">
+            <span>{t.commandStderr}</span>
+          </div>
+          <pre>{hasStderr ? stderr : t.noOutput}</pre>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function CommandHistory({ title, liveEntry, entries, onClear, t }) {
+  if (!liveEntry && !entries.length) return null;
+  const summary = liveEntry ? t.runningNow : t.completedRuns.replace("{count}", entries.length);
+
+  return (
+    <section className="command-history" aria-label={title}>
+      <div className="command-history-head">
+        <div>
+          <span>{title}</span>
+          <strong>{summary}</strong>
+        </div>
+        {entries.length > 0 && (
+          <button type="button" className="plain-action subtle-action command-history-clear" onClick={onClear}>
+            <X size={12} />
+            {t.clearHistory}
+          </button>
+        )}
+      </div>
+      <div className="command-history-list">
+        {liveEntry && <CommandOutputCard {...liveEntry} live t={t} />}
+        {entries.map((entry, index) => (
+          !liveEntry && index === 0 ? (
+            <CommandOutputCard key={entry.id} {...entry} t={t} />
+          ) : (
+            <details className={cx("command-history-item", entry.code === 0 ? "ok" : "error")} key={entry.id}>
+              <summary>
+                <span className="command-history-dot" />
+                <strong title={entry.commandLine}>{entry.commandLine}</strong>
+                <em>
+                  {entry.code === 0 ? t.commandSucceeded : t.commandFailed}
+                  {typeof entry.durationMs === "number" ? ` · ${entry.durationMs}ms` : ""}
+                </em>
+              </summary>
+              <CommandOutputCard {...entry} t={t} />
+            </details>
+          )
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function EnvironmentOverview({
+  environment,
+  activeProject,
+  ideOptions,
+  selectedIdeId,
+  setSelectedIdeId,
+  onOpenIde,
+  onRefreshEnvironment,
+  t,
+}) {
+  const git = environment?.git;
+  const selectedIde = ideOptions?.find((option) => option.id === selectedIdeId) || ideOptions?.[0];
+  return (
+    <section className="environment-card" aria-label={t.environment}>
+      <div className="environment-card-head">
+        <div>
+          <span>{t.environment}</span>
+          <strong>{projectLabel(activeProject, t)}</strong>
+        </div>
+        <button type="button" className="icon-only mini-icon" onClick={onRefreshEnvironment} title={t.refresh} aria-label={t.refresh}>
+          <RefreshCw size={14} />
+        </button>
+      </div>
+      <div className="environment-rows">
+        <button type="button" className="environment-row" title={git?.raw || t.changes}>
+          <FileText size={15} />
+          <span>{t.changes}</span>
+          <em>{git?.available ? `${git.changes || 0}` : t.gitUnavailable}</em>
+        </button>
+        <button type="button" className="environment-row" title={environment?.cwd || activeProject?.path || t.noProjectPath}>
+          <HardDrive size={15} />
+          <span>{t.local}</span>
+          <em>{activeProject?.path ? compactPath(activeProject.path, 28) : t.noProjectPath}</em>
+        </button>
+        <button type="button" className="environment-row" title={git?.branch || t.gitUnavailable}>
+          <GitBranch size={15} />
+          <span>{t.branch}</span>
+          <em>{git?.branch || t.gitUnavailable}</em>
+        </button>
+        <button type="button" className="environment-row muted" disabled>
+          <GitCommit size={15} />
+          <span>{t.commitOrPush}</span>
+          <em>{git?.available ? "Git CLI" : t.gitUnavailable}</em>
+        </button>
+      </div>
+      <div className="environment-ide-row">
+        {ideOptions?.length > 1 && (
+          <label>
+            <Monitor size={14} />
+            <select value={selectedIdeId} onChange={(event) => setSelectedIdeId(event.target.value)} aria-label={t.openInIde}>
+              {ideOptions.map((option) => (
+                <option value={option.id} key={option.id}>{option.label}</option>
+              ))}
+            </select>
+          </label>
+        )}
+        <button type="button" className="plain-action subtle-action" onClick={onOpenIde} title={selectedIde?.label || t.ideUnavailable}>
+          <Code2 size={14} />
+          {selectedIde?.label || t.openIde}
+        </button>
+      </div>
+      <details className="environment-subsection">
+        <summary>{t.subagents}</summary>
+        <p>{t.noSubagentsYet}</p>
+      </details>
+      <details className="environment-subsection">
+        <summary>{t.sources}</summary>
+        <p>{t.noSourcesYet}</p>
+      </details>
+    </section>
+  );
+}
+
+function ToolsPanel({
+  activeProject,
+  settings,
+  environment,
+  onRefreshEnvironment,
+  ideOptions,
+  selectedIdeId,
+  setSelectedIdeId,
+  onOpenIde,
+  selectedTool,
+  setSelectedTool,
+  onSettings,
+  onOpenProject,
+  onOpenTerminal,
+  onOpenBrowserUrl,
+  onCapabilities,
+  onClose,
+  t,
+}) {
+  const [url, setUrl] = useState("");
+  const [browserPreviewUrl, setBrowserPreviewUrl] = useState("");
+  const [browserStatus, setBrowserStatus] = useState("idle");
+  const [browserError, setBrowserError] = useState("");
+  const browserWebviewRef = useRef(null);
+  const [tree, setTree] = useState([]);
+  const fileCacheRef = useRef(new Map());
+  const [expandedDirs, setExpandedDirs] = useState(() => new Set());
+  const [lazyChildren, setLazyChildren] = useState({});
+  const [file, setFile] = useState(null);
+  const [fileDraft, setFileDraft] = useState("");
+  const [fileView, setFileView] = useState("edit");
+  const [workspaceError, setWorkspaceError] = useState("");
+  const [workspaceErrorRetry, setWorkspaceErrorRetry] = useState(null);
+  const [workspaceBusy, setWorkspaceBusy] = useState(false);
+  const [openingPath, setOpeningPath] = useState("");
+  const [saveStatus, setSaveStatus] = useState("idle");
+  const [command, setCommand] = useState("");
+  const [commandResult, setCommandResult] = useState(null);
+  const [commandHistory, setCommandHistory] = useState([]);
+  const [commandStream, setCommandStream] = useState({ stdout: "", stderr: "" });
+  const [commandRequestId, setCommandRequestId] = useState("");
+  const commandRequestRef = useRef("");
+  const workspaceOutputRef = useRef(null);
+  const [claudeStatus, setClaudeStatus] = useState(null);
+  const [statusBusy, setStatusBusy] = useState(false);
+  const [statusError, setStatusError] = useState("");
+  const [claudeArgs, setClaudeArgs] = useState("");
+  const [claudeBusy, setClaudeBusy] = useState(false);
+  const [claudeRunningArgs, setClaudeRunningArgs] = useState("");
+  const [claudeResult, setClaudeResult] = useState(null);
+  const [claudeHistory, setClaudeHistory] = useState([]);
+  const [claudeStream, setClaudeStream] = useState({ stdout: "", stderr: "" });
+  const [claudeRequestId, setClaudeRequestId] = useState("");
+  const claudeRequestRef = useRef("");
+  const claudeOutputRef = useRef(null);
+  const [confirmingPluginAction, setConfirmingPluginAction] = useState(null);
+  const [pluginName, setPluginName] = useState("");
+  const [pluginItems, setPluginItems] = useState(null);
+  const [pluginsLoading, setPluginsLoading] = useState(false);
+  const [pluginsError, setPluginsError] = useState("");
+  const [pathCopied, setPathCopied] = useState(false);
+  const selectedToolDetailRef = useRef(null);
+  const toolAutoScrollReadyRef = useRef(false);
+
+  const hasUnsavedFile = Boolean(file && fileDraft !== file.content);
+  const [debouncedFileDraft, setDebouncedFileDraft] = useState("");
+  useEffect(() => {
+    const timer = setTimeout(() => setDebouncedFileDraft(fileDraft), 300);
+    return () => clearTimeout(timer);
+  }, [fileDraft]);
+  useEffect(() => {
+    setSaveStatus("idle");
+    setFileView("edit");
+  }, [file?.path]);
+  useEffect(() => {
+    setSaveStatus((prev) => (prev === "saved" && hasUnsavedFile ? "idle" : prev));
+  }, [hasUnsavedFile]);
+  const fileTooLargeForDiff = Boolean(file && file.size > LARGE_FILE_DIFF_LIMIT_BYTES);
+  const diff = useMemo(
+    () => (hasUnsavedFile && !fileTooLargeForDiff ? buildLineDiff(file.content, debouncedFileDraft) : null),
+    [file, debouncedFileDraft, hasUnsavedFile, fileTooLargeForDiff],
+  );
+  const fileUpdatedAt = formatFileTimestamp(file?.updatedAt);
+  const changeSummary = diff ? `+${diff.additions} -${diff.deletions}` : hasUnsavedFile ? t.unsavedChanges : t.noFileChanges;
+  const reviewRows = diff?.rows || [];
+  const reviewBeforeSaveRequired = hasUnsavedFile && !fileTooLargeForDiff && fileView !== "review";
+  const canSaveFile = hasUnsavedFile && !reviewBeforeSaveRequired;
+  const changeBarTitle = saveStatus === "saved"
+    ? t.savedChanges
+    : reviewBeforeSaveRequired
+      ? t.reviewRequiredTitle
+      : fileView === "review" && hasUnsavedFile
+        ? t.readyToSave
+        : t.reviewUnsavedChanges;
+  const changeBarHint = saveStatus === "saved"
+    ? t.saved
+    : reviewBeforeSaveRequired
+      ? t.reviewRequiredHint
+      : changeSummary;
+
+  useEffect(() => {
+    if (!desktopApi?.onWorkspaceCommandStream) return undefined;
+    return desktopApi.onWorkspaceCommandStream((event) => {
+      setCommandStream((current) => (
+        event.requestId && event.requestId === commandRequestRef.current
+          ? appendStreamChunk(current, event.stream, event.text)
+          : current
+      ));
+    });
+  }, []);
+
+  useEffect(() => {
+    if (!desktopApi?.onClaudeRunStream) return undefined;
+    return desktopApi.onClaudeRunStream((event) => {
+      setClaudeStream((current) => (
+        event.requestId && event.requestId === claudeRequestRef.current
+          ? appendStreamChunk(current, event.stream, event.text)
+          : current
+      ));
+    });
+  }, []);
+
+  useEffect(() => {
+    const webview = browserWebviewRef.current;
+    if (!webview) return undefined;
+    const handleStart = () => {
+      setBrowserStatus("loading");
+      setBrowserError("");
+    };
+    const handleStop = () => {
+      setBrowserStatus("ready");
+      setBrowserError("");
+    };
+    const handleFail = (event) => {
+      if (event?.errorCode === -3) return;
+      setBrowserStatus("error");
+      setBrowserError(event?.errorDescription || t.browserFailed);
+    };
+    const handleNavigate = (event) => {
+      if (event?.url && /^https?:\/\//i.test(event.url)) setUrl(event.url);
+    };
+    webview.addEventListener("did-start-loading", handleStart);
+    webview.addEventListener("did-stop-loading", handleStop);
+    webview.addEventListener("did-fail-load", handleFail);
+    webview.addEventListener("did-navigate", handleNavigate);
+    webview.addEventListener("did-navigate-in-page", handleNavigate);
+    return () => {
+      webview.removeEventListener("did-start-loading", handleStart);
+      webview.removeEventListener("did-stop-loading", handleStop);
+      webview.removeEventListener("did-fail-load", handleFail);
+      webview.removeEventListener("did-navigate", handleNavigate);
+      webview.removeEventListener("did-navigate-in-page", handleNavigate);
+    };
+  }, [browserPreviewUrl, selectedTool, t.browserFailed]);
+
+  useEffect(() => {
+    if (!commandRequestId && !commandResult) return;
+    window.setTimeout(() => workspaceOutputRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" }), 60);
+  }, [commandRequestId, commandResult]);
+
+  useEffect(() => {
+    if (!claudeRequestId && !claudeResult) return;
+    window.setTimeout(() => claudeOutputRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" }), 60);
+  }, [claudeRequestId, claudeResult]);
+
+  async function loadClaudeStatus() {
+    if (!desktopApi?.getClaudeStatus) {
+      setClaudeStatus(null);
+      setStatusError("");
+      return;
+    }
+    setStatusBusy(true);
+    setStatusError("");
+    try {
+      const result = await desktopApi.getClaudeStatus({ projectPath: activeProject?.path });
+      setClaudeStatus(result);
+    } catch (error) {
+      setStatusError(error.message || String(error));
+    } finally {
+      setStatusBusy(false);
+    }
+  }
+
+  async function loadTree() {
+    if (!desktopApi?.listWorkspaceFiles) {
+      setWorkspaceError(t.desktopOnly);
+      return;
+    }
+    if (!activeProject?.path) {
+      setWorkspaceError(t.noProjectSelected);
+      return;
+    }
+    setWorkspaceBusy(true);
+    setWorkspaceError("");
+    setWorkspaceErrorRetry(null);
+    setExpandedDirs(new Set());
+    setLazyChildren({});
+    fileCacheRef.current.clear();
+    try {
+      const result = await desktopApi.listWorkspaceFiles({ projectPath: activeProject.path, depth: 2 });
+      setTree(result.files || []);
+    } catch (error) {
+      setWorkspaceError(error.message || String(error));
+      setWorkspaceErrorRetry(() => () => loadTree());
+    } finally {
+      setWorkspaceBusy(false);
+    }
+  }
+
+  function toggleDir(item) {
+    setExpandedDirs((prev) => {
+      const next = new Set(prev);
+      if (next.has(item.path)) next.delete(item.path);
+      else next.add(item.path);
+      return next;
+    });
+    if (!expandedDirs.has(item.path) && item.children === undefined && lazyChildren[item.path] === undefined) {
+      loadDirChildren(item);
+    }
+  }
+
+  async function loadDirChildren(item) {
+    if (!desktopApi?.listWorkspaceFiles || !activeProject?.path) return;
+    setLazyChildren((prev) => ({ ...prev, [item.path]: "loading" }));
+    try {
+      const result = await desktopApi.listWorkspaceFiles({ projectPath: activeProject.path, relativePath: item.path, depth: 2 });
+      setLazyChildren((prev) => ({ ...prev, [item.path]: result.files || [] }));
+    } catch (error) {
+      setLazyChildren((prev) => ({ ...prev, [item.path]: [] }));
+      setWorkspaceError(error.message || String(error));
+    }
+  }
+
+  async function openFile(item) {
+    if (!item || item.type !== "file") return;
+    if (!desktopApi?.readWorkspaceFile) {
+      setWorkspaceError(t.desktopOnly);
+      return;
+    }
+    const cacheKey = `${activeProject?.path || ""}::${item.path}`;
+    const cached = fileCacheRef.current.get(cacheKey);
+    if (cached) {
+      cacheFileRead(fileCacheRef, cacheKey, cached);
+      setWorkspaceError("");
+      setWorkspaceErrorRetry(null);
+      setFile(cached);
+      setFileDraft(cached.content || "");
+      return;
+    }
+    setWorkspaceBusy(true);
+    setWorkspaceError("");
+    setWorkspaceErrorRetry(null);
+    setOpeningPath(item.path);
+    try {
+      const result = await desktopApi.readWorkspaceFile({ projectPath: activeProject.path, relativePath: item.path });
+      cacheFileRead(fileCacheRef, cacheKey, result);
+      setFile(result);
+      setFileDraft(result.content || "");
+    } catch (error) {
+      setWorkspaceError(error.message || String(error));
+      setWorkspaceErrorRetry(() => () => openFile(item));
+    } finally {
+      setWorkspaceBusy(false);
+      setOpeningPath("");
+    }
+  }
+
+  async function saveFile() {
+    if (!file) return;
+    if (hasUnsavedFile && !fileTooLargeForDiff && fileView !== "review") {
+      setFileView("review");
+      return;
+    }
+    if (!desktopApi?.saveWorkspaceFile) {
+      setWorkspaceError(t.desktopOnly);
+      return;
+    }
+    setWorkspaceBusy(true);
+    setWorkspaceError("");
+    setWorkspaceErrorRetry(null);
+    setSaveStatus("saving");
+    try {
+      const result = await desktopApi.saveWorkspaceFile({
+        projectPath: activeProject.path,
+        relativePath: file.path,
+        content: fileDraft,
+      });
+      cacheFileRead(fileCacheRef, `${activeProject?.path || ""}::${file.path}`, result);
+      setFile(result);
+      setFileDraft(result.content || "");
+      setFileView("edit");
+      setSaveStatus("saved");
+    } catch (error) {
+      setWorkspaceError(error.message || String(error));
+      setWorkspaceErrorRetry(() => () => saveFile());
+      setSaveStatus("error");
+    } finally {
+      setWorkspaceBusy(false);
+    }
+  }
+
+  function discardFileChanges() {
+    if (!file) return;
+    setFileDraft(file.content || "");
+    setFileView("edit");
+    setSaveStatus("idle");
+  }
+
+  useEffect(() => {
+    if (saveStatus !== "saved") return undefined;
+    const timer = setTimeout(() => setSaveStatus("idle"), 1500);
+    return () => clearTimeout(timer);
+  }, [saveStatus]);
+
+  async function runCommand() {
+    const nextCommand = command.trim();
+    if (!nextCommand) return;
+    if (!desktopApi?.runWorkspaceCommand) {
+      setWorkspaceError(t.desktopOnly);
+      return;
+    }
+    if (!activeProject?.path) {
+      setWorkspaceError(t.noProjectSelected);
+      return;
+    }
+    setWorkspaceBusy(true);
+    setWorkspaceError("");
+    setWorkspaceErrorRetry(null);
+    const requestId = `workspace_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+    commandRequestRef.current = requestId;
+    setCommandRequestId(requestId);
+    setCommandStream({ stdout: "", stderr: "" });
+    setCommandResult(null);
+    try {
+      const result = await desktopApi.runWorkspaceCommand({ projectPath: activeProject.path, command: nextCommand, requestId });
+      setCommandResult(result);
+      setCommandHistory((current) => prependCommandHistory(current, {
+        id: requestId,
+        commandLine: result.command || nextCommand,
+        cwd: result.cwd || activeProject.path,
+        code: result.code,
+        durationMs: result.durationMs,
+        stdout: result.stdout || "",
+        stderr: result.stderr || "",
+      }));
+    } catch (error) {
+      setWorkspaceError(error.message || String(error));
+      setWorkspaceErrorRetry(() => () => runCommand());
+    } finally {
+      setWorkspaceBusy(false);
+      commandRequestRef.current = "";
+      setCommandRequestId("");
+    }
+  }
+
+  async function runClaude(args = claudeArgs) {
+    const nextArgs = String(args || "").trim();
+    if (!nextArgs) return;
+    if (!desktopApi?.runClaudeCommand) {
+      setStatusError(t.desktopOnly);
+      return;
+    }
+    setClaudeBusy(true);
+    setStatusError("");
+    const requestId = `claude_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+    claudeRequestRef.current = requestId;
+    setClaudeRequestId(requestId);
+    setClaudeRunningArgs(nextArgs);
+    setClaudeStream({ stdout: "", stderr: "" });
+    setClaudeResult(null);
+    try {
+      const result = await desktopApi.runClaudeCommand({ projectPath: activeProject?.path, args: nextArgs, requestId });
+      setClaudeResult(result);
+      setClaudeHistory((current) => prependCommandHistory(current, {
+        id: requestId,
+        commandLine: `claude ${result.args?.join(" ") || nextArgs}`,
+        cwd: result.cwd || activeProject?.path || "",
+        code: result.code,
+        durationMs: result.durationMs,
+        stdout: result.stdout || "",
+        stderr: result.stderr || "",
+      }));
+    } catch (error) {
+      setStatusError(error.message || String(error));
+    } finally {
+      setClaudeBusy(false);
+      claudeRequestRef.current = "";
+      setClaudeRequestId("");
+    }
+  }
+
+  async function openInteractiveClaude() {
+    if (!desktopApi?.openClaudeTerminal) {
+      setStatusError(t.desktopOnly);
+      return;
+    }
+    await desktopApi?.openClaudeTerminal({ projectPath: activeProject?.path });
+  }
+
+  function submitBrowserPreview(event) {
+    event?.preventDefault?.();
+    const nextUrl = normalizeBrowserUrl(url);
+    if (!nextUrl) {
+      setUrl("");
+      setBrowserPreviewUrl("");
+      setBrowserError("");
+      setBrowserStatus("idle");
+      return;
+    }
+    setUrl(nextUrl);
+    setBrowserError("");
+    setBrowserStatus("loading");
+    if (nextUrl === browserPreviewUrl) {
+      browserWebviewRef.current?.reload?.();
+    } else {
+      setBrowserPreviewUrl(nextUrl);
+    }
+  }
+
+  function browserBack() {
+    browserWebviewRef.current?.goBack?.();
+  }
+
+  function browserForward() {
+    browserWebviewRef.current?.goForward?.();
+  }
+
+  function browserReload() {
+    if (!browserPreviewUrl) {
+      setBrowserStatus("idle");
+      return;
+    }
+    setBrowserStatus("loading");
+    setBrowserError("");
+    browserWebviewRef.current?.reload?.();
+  }
+
+  async function copyProjectPath() {
+    const pathText = activeProject?.path || "";
+    if (!pathText) return;
+    await navigator.clipboard?.writeText(pathText);
+    setPathCopied(true);
+    window.setTimeout(() => setPathCopied(false), 1200);
+  }
+
+  async function loadPlugins() {
+    if (!desktopApi?.runClaudeCommand) return;
+    setPluginsLoading(true);
+    setPluginsError("");
+    try {
+      const requestId = `plugins_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+      const result = await desktopApi.runClaudeCommand({ projectPath: activeProject?.path, args: "plugin list --json", requestId });
+      if (result.code !== 0) throw new Error(result.stderr || t.pluginsLoadError);
+      setPluginItems(JSON.parse(result.stdout || "[]"));
+    } catch (error) {
+      setPluginsError(error.message || t.pluginsLoadError);
+      setPluginItems([]);
+    } finally {
+      setPluginsLoading(false);
+    }
+  }
+
+  async function runClaudeAndRefreshPlugins(args) {
+    await runClaude(args);
+    loadPlugins();
+  }
+
+  useEffect(() => {
+    if (selectedTool === "workspace") loadTree();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedTool, activeProject?.path]);
+
+  useEffect(() => {
+    loadClaudeStatus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeProject?.path]);
+
+  useEffect(() => {
+    if (selectedTool === "claude") loadPlugins();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedTool, activeProject?.path]);
+
+  useEffect(() => {
+    if (!selectedTool) return;
+    if (!toolAutoScrollReadyRef.current) {
+      toolAutoScrollReadyRef.current = true;
+      return;
+    }
+    window.setTimeout(() => selectedToolDetailRef.current?.scrollIntoView({ block: "nearest", behavior: "smooth" }), 80);
+  }, [selectedTool]);
+
+  const statusText = authLabel(claudeStatus?.auth, settings);
+  const statusBaseUrl = cliBaseUrl(settings);
+  const statusReady = Boolean(claudeStatus?.available);
+  const statusHeadline = statusBusy ? `${t.loading}...` : statusReady ? t.uxReady : statusText;
+  const compactRuntimeStatus = statusBusy
+    ? `${t.loading}...`
+    : [statusText, displayModelLabel(settings?.model), projectLabel(activeProject, t)].filter(Boolean).join(" · ");
+  const quickClaudeCommands = [
+    { label: t.auth, args: "auth status" },
+    { label: t.plugins, args: "plugin list" },
+    { label: "MCP", args: "mcp list" },
+    { label: t.doctor, args: "doctor" },
+  ];
+  const workspaceLiveEntry = workspaceBusy && commandRequestId
+    ? {
+      id: commandRequestId,
+      commandLine: command,
+      cwd: activeProject?.path || "",
+      stdout: commandStream.stdout,
+      stderr: commandStream.stderr,
+    }
+    : null;
+  const claudeLiveEntry = claudeBusy && claudeRequestId
+    ? {
+      id: claudeRequestId,
+      commandLine: `claude ${claudeRunningArgs || claudeArgs}`,
+      cwd: activeProject?.path || "",
+      stdout: claudeStream.stdout,
+      stderr: claudeStream.stderr,
+    }
+    : null;
+
+  return (
+    <aside className="tools-panel">
+      <div className="panel-toggle">
+        <span>{t.tools}</span>
+        <div>
+          <button type="button" title={t.capabilities} aria-label={t.capabilities} onClick={onCapabilities}>
+            <Maximize2 size={14} />
+          </button>
+          <button type="button" title={t.terminal} aria-label={t.terminal} onClick={onOpenTerminal}>
+            <PanelBottom size={16} />
+          </button>
+          <button type="button" title={t.settings} aria-label={t.settings} onClick={onSettings}>
+            <Settings size={16} />
+          </button>
+          <button type="button" title={t.close} aria-label={t.close} onClick={onClose}>
+            <PanelRight size={17} />
+          </button>
+        </div>
+      </div>
+
+      <section className="tool-group">
+        <button type="button" className={cx("tool-row", selectedTool === "workspace" && "active")} onClick={() => setSelectedTool(selectedTool === "workspace" ? "" : "workspace")} aria-expanded={selectedTool === "workspace"} aria-controls="workspace-tool-detail" title={t.workspaceTool}>
+          <Folder size={17} />
+          <span>{t.workspaceTool}</span>
+          {selectedTool === "workspace" ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
+        </button>
+        <button type="button" className={cx("tool-row", selectedTool === "claude" && "active")} onClick={() => setSelectedTool(selectedTool === "claude" ? "" : "claude")} aria-expanded={selectedTool === "claude"} aria-controls="claude-tool-detail" title={t.claudeCodeTool}>
+          <Bot size={17} />
+          <span>{t.claudeCodeTool}</span>
+          {selectedTool === "claude" ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
+        </button>
+        <button type="button" className={cx("tool-row", selectedTool === "browser" && "active")} onClick={() => setSelectedTool(selectedTool === "browser" ? "" : "browser")} aria-expanded={selectedTool === "browser"} aria-controls="browser-tool-detail" title={t.browser}>
+          <Globe2 size={17} />
+          <span>{t.browser}</span>
+          <span className="tool-row-trailing">
+            <kbd>Ctrl+T</kbd>
+            {selectedTool === "browser" ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
+          </span>
+        </button>
+        <button type="button" className={cx("tool-row", selectedTool === "terminal" && "active")} onClick={() => setSelectedTool(selectedTool === "terminal" ? "" : "terminal")} aria-expanded={selectedTool === "terminal"} aria-controls="terminal-tool-detail" title={t.terminal}>
+          <SquareTerminal size={17} />
+          <span>{t.terminal}</span>
+          {selectedTool === "terminal" ? <ChevronDown size={15} /> : <ChevronRight size={15} />}
+        </button>
+        <section className="context-summary compact-context-summary" aria-label={t.claudeStatus}>
+          <div className="context-summary-head">
+            <div>
+              <span className={cx("status-dot", statusReady && "ok", statusBusy && "loading")} />
+              <p>{t.claudeStatus}</p>
+              <strong>{statusHeadline}</strong>
+            </div>
+            <button type="button" className="icon-only mini-icon" onClick={loadClaudeStatus} disabled={statusBusy} title={statusBusy ? t.workingHint : t.refreshStatus} aria-label={t.refreshStatus}>
+              <RefreshCw size={14} className={statusBusy ? "spin" : undefined} />
+            </button>
+          </div>
+          {statusError && <p className="tool-error">{statusError}</p>}
+          <p className="context-summary-compact" title={compactRuntimeStatus}>{compactRuntimeStatus}</p>
+          <details className="context-summary-details">
+            <summary>{t.runtimeDetails}</summary>
+            <dl className="context-summary-meta">
+              <div><dt>CLI</dt><dd>{statusBusy ? `${t.loading}...` : claudeStatus?.version || "unknown"}</dd></div>
+              <div><dt>{t.auth}</dt><dd>{statusText}</dd></div>
+              <div><dt>{t.model}</dt><dd>{settings?.model || "claude-sonnet-4-5-20250929"}</dd></div>
+              <div><dt>{t.activeProject}</dt><dd>{projectLabel(activeProject, t)}</dd></div>
+              {statusBaseUrl && <div><dt>{t.cliEnvSource}</dt><dd title={statusBaseUrl}>{compactPath(statusBaseUrl, 42)}</dd></div>}
+            </dl>
+          </details>
+        </section>
+        <details className="status-details environment-status-details">
+          <summary>{t.environment}</summary>
+          <EnvironmentOverview
+            environment={environment}
+            activeProject={activeProject}
+            ideOptions={ideOptions}
+            selectedIdeId={selectedIdeId}
+            setSelectedIdeId={setSelectedIdeId}
+            onOpenIde={onOpenIde}
+            onRefreshEnvironment={onRefreshEnvironment}
+            t={t}
+          />
+        </details>
+        {selectedTool === "workspace" && (
+          <div className="tool-detail workspace-detail" id="workspace-tool-detail" ref={selectedToolDetailRef}>
+            <div className="tool-detail-head">
+              <p>{t.workspaceHelp}</p>
+              <button type="button" className="plain-action" onClick={loadTree} disabled={workspaceBusy} title={workspaceBusy ? t.workingHint : t.refresh}>
+                <History size={14} />
+                {t.refresh}
+              </button>
+            </div>
+            {workspaceError && (
+              <div className="tool-error-row">
+                <div>
+                  <p className="tool-error">{workspaceError}</p>
+                  {isPermissionDeniedError(workspaceError) && <p className="tool-hint">{t.permissionErrorHint}</p>}
+                </div>
+                {workspaceErrorRetry && (
+                  <button
+                    type="button"
+                    className="plain-action subtle-action"
+                    onClick={() => {
+                      const retry = workspaceErrorRetry;
+                      setWorkspaceError("");
+                      setWorkspaceErrorRetry(null);
+                      retry();
+                    }}
+                  >
+                    <RefreshCw size={13} />
+                    {t.retry}
+                  </button>
+                )}
+              </div>
+            )}
+            <div className="workspace-grid">
+              <div className="file-tree" aria-label="Project files">
+                {workspaceBusy && !tree.length && (
+                  <div className="thread-skeleton" aria-busy="true" aria-label={t.loading}>
+                    <div className="thread-skeleton-row" />
+                    <div className="thread-skeleton-row" />
+                    <div className="thread-skeleton-row" />
+                  </div>
+                )}
+                {!activeProject?.path && <p className="empty-list">{t.noProjectSelected}</p>}
+                {tree.map((item) => (
+                  <FileTreeItem
+                    item={item}
+                    key={item.path}
+                    activePath={file?.path}
+                    onOpenFile={openFile}
+                    expandedDirs={expandedDirs}
+                    lazyChildren={lazyChildren}
+                    onToggleDir={toggleDir}
+                  />
+                ))}
+              </div>
+              <div className="file-editor">
+                {file ? (
+                  <>
+                    <div className="editor-head">
+                      <div>
+                        <strong>{file.name}</strong>
+                        <span title={file.path}>{file.path}</span>
+                        <div className="editor-meta-row" aria-label="File metadata">
+                          <em>{t.fileSize}: {formatBytes(file.size)}</em>
+                          {fileUpdatedAt && <em>{t.fileUpdatedAt}: {fileUpdatedAt}</em>}
+                          <em>{t.changedLines}: {changeSummary}</em>
+                        </div>
+                      </div>
+                      <div className="editor-actions">
+                        <div className="segmented-control compact-segmented" role="tablist" aria-label={t.reviewChanges}>
+                          <button type="button" className={cx(fileView === "edit" && "active")} onClick={() => setFileView("edit")} aria-selected={fileView === "edit"}>
+                            {t.editFile}
+                          </button>
+                          <button type="button" className={cx(fileView === "review" && "active")} onClick={() => setFileView("review")} aria-selected={fileView === "review"}>
+                            {t.reviewFile}
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                    {fileView === "review" ? (
+                      <div className="editor-review-pane" role="tabpanel" aria-label={t.reviewChanges}>
+                        {hasUnsavedFile && fileTooLargeForDiff ? (
+                          <p className="tool-hint">{t.diffPreviewSkippedLarge}</p>
+                        ) : reviewRows.length ? (
+                          <div className="diff-rows" role="list">
+                            {reviewRows.map((row, index) => (
+                              <code className={cx("diff-row", row.type)} role="listitem" key={`${row.type}-${index}-${row.text}`}>
+                                <span>{row.type === "add" ? "+" : row.type === "delete" ? "-" : " "}</span>
+                                <b>{row.text || " "}</b>
+                              </code>
+                            ))}
+                          </div>
+                        ) : (
+                          <div className="editor-empty compact-empty">
+                            <FileText size={20} />
+                            <p>{hasUnsavedFile ? t.noFileChanges : t.noChangesToReview}</p>
+                          </div>
+                        )}
+                      </div>
+                    ) : (
+                      <textarea value={fileDraft} onChange={(event) => setFileDraft(event.target.value)} spellCheck="false" aria-label={file.path} />
+                    )}
+                    {(hasUnsavedFile || saveStatus === "saved") && (
+                      <div className={cx("editor-change-bar", saveStatus === "saved" && "saved", reviewBeforeSaveRequired && "needs-review")}>
+                        <div>
+                          <strong>{changeBarTitle}</strong>
+                          <span>{changeBarHint}</span>
+                        </div>
+                        <div className="editor-change-actions">
+                          {hasUnsavedFile && fileView !== "review" && (
+                            <button type="button" className="plain-action review-primary-action" onClick={() => setFileView("review")} disabled={workspaceBusy || fileTooLargeForDiff} title={fileTooLargeForDiff ? t.diffPreviewSkippedLarge : t.reviewChanges}>
+                              <FileText size={14} />
+                              {t.reviewFile}
+                            </button>
+                          )}
+                          {hasUnsavedFile && fileView === "review" && (
+                            <button type="button" className="plain-action subtle-action" onClick={() => setFileView("edit")} disabled={workspaceBusy} title={workspaceBusy ? t.workingHint : t.keepEditing}>
+                              <FileText size={14} />
+                              {t.editFile}
+                            </button>
+                          )}
+                          {hasUnsavedFile && (
+                            <button type="button" className="plain-action subtle-action" onClick={discardFileChanges} disabled={workspaceBusy} title={workspaceBusy ? t.workingHint : t.discardChanges}>
+                              <X size={14} />
+                              {t.revertChanges}
+                            </button>
+                          )}
+                          {(hasUnsavedFile || saveStatus === "saved") && (
+                            <button
+                              type="button"
+                              className={cx("plain-action", saveStatus === "saved" && "save-success")}
+                              onClick={saveFile}
+                              disabled={workspaceBusy || !canSaveFile}
+                              title={saveStatus === "saving" ? t.workingHint : reviewBeforeSaveRequired ? t.reviewFirstToSave : !hasUnsavedFile ? t.noChangesToSave : t.saveChanges}
+                            >
+                              {saveStatus === "saving" ? <RefreshCw size={14} className="spin" /> : <Check size={14} />}
+                              {saveStatus === "saving" ? t.saving : saveStatus === "saved" ? t.saved : t.save}
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </>
+                ) : openingPath ? (
+                  <div className="editor-empty" aria-busy="true">
+                    <RefreshCw size={22} className="spin" />
+                    <p>{t.openingFile}</p>
+                  </div>
+                ) : (
+                  <div className="editor-empty workspace-empty-editor">
+                    <div className="workspace-empty-icon">
+                      <FileText size={24} />
+                    </div>
+                    <strong>{t.noFileOpenTitle}</strong>
+                    <p>{t.noFileOpenHint}</p>
+                    <span className="workspace-empty-project" title={activeProject?.path || t.noProjectPath}>
+                      <Folder size={14} />
+                      {activeProject?.path ? compactPath(activeProject.path, 42) : t.noProjectPath}
+                    </span>
+                    <div className="workspace-empty-actions">
+                      <button type="button" className="plain-action subtle-action" onClick={loadTree} disabled={workspaceBusy} title={workspaceBusy ? t.workingHint : t.refresh}>
+                        <RefreshCw size={14} className={workspaceBusy ? "spin" : undefined} />
+                        {t.refresh}
+                      </button>
+                      <button type="button" className="plain-action subtle-action" onClick={onOpenProject} disabled={!activeProject?.path} title={activeProject?.path ? t.openProject : t.noProjectPath}>
+                        <Folder size={14} />
+                        {t.openFolderShort}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+            <div className="command-runner">
+              <label>
+                <span>{t.runCommand}</span>
+                <input value={command} onChange={(event) => setCommand(event.target.value)} placeholder={t.commandPlaceholder} />
+              </label>
+              <button type="button" className="plain-action" onClick={runCommand} disabled={workspaceBusy || !command.trim()} title={workspaceBusy ? t.workingHint : !command.trim() ? t.commandPlaceholder : t.runCommand}>
+                <SquareTerminal size={14} />
+                {t.runCommandShort}
+              </button>
+            </div>
+            <div className="command-history-slot" ref={workspaceOutputRef}>
+              <CommandHistory
+                title={t.commandHistory}
+                liveEntry={workspaceLiveEntry}
+                entries={commandHistory}
+                onClear={() => {
+                  setCommandHistory([]);
+                  setCommandResult(null);
+                }}
+                t={t}
+              />
+            </div>
+          </div>
+        )}
+        {selectedTool === "browser" && (
+          <div className="tool-detail browser-detail" id="browser-tool-detail" ref={selectedToolDetailRef}>
+            <div className="tool-detail-head">
+              <p>{t.browserHelp}</p>
+              <ExternalLink size={15} />
+            </div>
+            <form className="browser-toolbar" onSubmit={submitBrowserPreview}>
+              <div className="browser-nav-actions" aria-label={t.browserPreview}>
+                <button type="button" className="icon-only mini-icon" onClick={browserBack} title={t.browserBack} aria-label={t.browserBack} disabled={!browserPreviewUrl}>
+                  <ArrowLeft size={14} />
+                </button>
+                <button type="button" className="icon-only mini-icon" onClick={browserForward} title={t.browserForward} aria-label={t.browserForward} disabled={!browserPreviewUrl}>
+                  <ArrowRight size={14} />
+                </button>
+                <button type="button" className="icon-only mini-icon" onClick={browserReload} title={t.browserReload} aria-label={t.browserReload} disabled={!browserPreviewUrl}>
+                  <RefreshCw size={14} className={browserStatus === "loading" ? "spin" : undefined} />
+                </button>
+              </div>
+              <label>
+                <span>URL</span>
+                <input value={url} onChange={(event) => setUrl(event.target.value)} placeholder={t.urlPlaceholder} />
+              </label>
+              <button type="submit" className="plain-action browser-preview-action" disabled={!url.trim()}>
+                <Globe2 size={14} />
+                {t.browserPreview}
+              </button>
+              <button type="button" className="plain-action subtle-action browser-external-action" onClick={() => onOpenBrowserUrl(normalizeBrowserUrl(url))} disabled={!url.trim()}>
+                <ExternalLink size={14} />
+                {t.openExternal}
+              </button>
+            </form>
+            <div className={cx("browser-frame", browserStatus === "error" && "has-error")}>
+              {!browserPreviewUrl && (
+                <div className="browser-empty-panel">
+                  <Globe2 size={18} />
+                  <strong>{t.browserEmptyTitle}</strong>
+                  <span>{t.browserEmptyHint}</span>
+                </div>
+              )}
+              {browserError && (
+                <div className="browser-error-panel">
+                  <AlertTriangle size={16} />
+                  <div>
+                    <strong>{t.browserFailed}</strong>
+                    <span>{browserError}</span>
+                  </div>
+                  <button type="button" className="plain-action subtle-action" onClick={() => onOpenBrowserUrl(browserPreviewUrl)}>
+                    <ExternalLink size={13} />
+                    {t.openExternal}
+                  </button>
+                </div>
+              )}
+              {browserPreviewUrl && <webview ref={browserWebviewRef} src={browserPreviewUrl} allowpopups="true" />}
+            </div>
+            <div className={cx("browser-status-row", browserStatus)}>
+              <span>{browserStatus === "loading" ? t.browserLoading : browserStatus === "error" ? t.browserFailed : browserStatus === "idle" ? t.browserIdle : t.browserReady}</span>
+              <small>{t.browserExternalHint}</small>
+            </div>
+          </div>
+        )}
+        {selectedTool === "claude" && (
+          <div className="tool-detail claude-command-detail" id="claude-tool-detail" ref={selectedToolDetailRef}>
+            <div className="tool-detail-head">
+              <p>{t.claudeCodeHelp}</p>
+              <Bot size={15} />
+            </div>
+            <section className="claude-primary-card" aria-label={t.primaryActions}>
+              <div className="primary-action-row">
+                <button type="button" className="plain-action subtle-action" onClick={openInteractiveClaude}>
+                  <SquareTerminal size={15} />
+                  {t.interactiveClaude}
+                </button>
+                <button type="button" className="primary-action compact-action" onClick={() => runClaude()} disabled={claudeBusy || !claudeArgs.trim()} title={claudeBusy ? t.workingHint : !claudeArgs.trim() ? t.claudeArgsPlaceholder : undefined}>
+                  {claudeBusy && claudeRequestId ? <RefreshCw size={14} className="spin" /> : <Bot size={14} />}
+                  {claudeBusy && claudeRequestId ? t.commandRunning : t.runClaude}
+                </button>
+              </div>
+              <label>
+                <span>{t.claudeArgs}</span>
+                <input value={claudeArgs} onChange={(event) => setClaudeArgs(event.target.value)} placeholder={t.claudeArgsPlaceholder} />
+              </label>
+              <div className="quick-command-row" aria-label={t.quickClaudeCommands}>
+                {quickClaudeCommands.map((item) => (
+                  <button
+                    type="button"
+                    className="plain-action subtle-action"
+                    key={item.args}
+                    onClick={() => {
+                      setClaudeArgs(item.args);
+                      runClaude(item.args);
+                    }}
+                    disabled={claudeBusy}
+                    title={claudeBusy ? t.workingHint : item.args}
+                  >
+                    {item.label}
+                  </button>
+                ))}
+              </div>
+              <p className="tool-hint">{t.interactiveClaudeHelp}</p>
+            </section>
+            <dl className="tool-runtime-list">
+              <div><dt>{t.auth}</dt><dd>{statusText}</dd></div>
+              <div><dt>{t.model}</dt><dd>{settings?.model || "claude-sonnet-4-5-20250929"}</dd></div>
+              {statusBaseUrl && <div><dt>{t.cliEnvSource}</dt><dd title={statusBaseUrl}>{compactPath(statusBaseUrl, 38)}</dd></div>}
+            </dl>
+            <details className="tool-subsection">
+              <summary>{t.diagnostics}</summary>
+              <div className="tool-actions">
+                <button type="button" className="plain-action" onClick={() => runClaude("auth status")} disabled={claudeBusy} title={claudeBusy ? t.workingHint : undefined}>{t.auth}</button>
+                <button type="button" className="plain-action" onClick={() => runClaude("plugin list")} disabled={claudeBusy} title={claudeBusy ? t.workingHint : undefined}>{t.plugins}</button>
+                <button type="button" className="plain-action" onClick={() => runClaude("plugin marketplace list")} disabled={claudeBusy} title={claudeBusy ? t.workingHint : undefined}>Marketplace</button>
+                <button type="button" className="plain-action" onClick={() => runClaude("mcp list")} disabled={claudeBusy} title={claudeBusy ? t.workingHint : undefined}>MCP</button>
+                <button type="button" className="plain-action" onClick={() => runClaude("doctor")} disabled={claudeBusy} title={claudeBusy ? t.workingHint : undefined}>{t.doctor}</button>
+              </div>
+            </details>
+            <details className="tool-subsection">
+              <summary>{t.pluginActions}</summary>
+              <div className="plugin-installer">
+                <label>
+                  <span>{t.pluginName}</span>
+                  <input value={pluginName} onChange={(event) => setPluginName(event.target.value)} placeholder={t.pluginNamePlaceholder} />
+                </label>
+                <div className="tool-actions">
+                  <button type="button" className="plain-action" onClick={() => pluginName.trim() && runClaudeAndRefreshPlugins(`plugin install ${pluginName.trim()}`)} disabled={claudeBusy || !pluginName.trim()} title={claudeBusy ? t.workingHint : !pluginName.trim() ? t.pluginNameRequired : undefined}>{t.installPlugin}</button>
+                  <button type="button" className="plain-action" onClick={() => pluginName.trim() && runClaudeAndRefreshPlugins(`plugin update ${pluginName.trim()}`)} disabled={claudeBusy || !pluginName.trim()} title={claudeBusy ? t.workingHint : !pluginName.trim() ? t.pluginNameRequired : undefined}>{t.updatePlugin}</button>
+                  <button type="button" className="plain-action danger-action" onClick={() => pluginName.trim() && setConfirmingPluginAction(pluginName.trim())} disabled={claudeBusy || !pluginName.trim()} title={claudeBusy ? t.workingHint : !pluginName.trim() ? t.pluginNameRequired : undefined}>{t.disablePlugin}</button>
+                </div>
+                {confirmingPluginAction && (
+                  <div className="dirty-confirm-banner" role="alertdialog">
+                    <span>{t.confirmDisableWarning.replace("{name}", confirmingPluginAction)}</span>
+                    <div className="dirty-confirm-actions">
+                      <button type="button" className="plain-action" onClick={() => setConfirmingPluginAction(null)}>{t.dismissAction}</button>
+                      <button
+                        type="button"
+                        className="danger-action"
+                        onClick={() => {
+                          runClaudeAndRefreshPlugins(`plugin disable ${confirmingPluginAction}`);
+                          setConfirmingPluginAction(null);
+                        }}
+                      >
+                        {t.confirmDisableButton}
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+              <div className="plugin-status-list">
+                <div className="plugin-status-header">
+                  <span>{t.installedPlugins}</span>
+                  <button type="button" className="icon-only" onClick={loadPlugins} disabled={pluginsLoading} title={pluginsLoading ? t.workingHint : t.pluginRefresh} aria-label={t.pluginRefresh}>
+                    <RefreshCw size={14} className={pluginsLoading ? "spin" : undefined} />
+                  </button>
+                </div>
+                {pluginsLoading && !pluginItems && <p className="empty-list">{t.pluginsLoading}</p>}
+                {pluginsError && <p className="empty-list">{pluginsError}</p>}
+                {!pluginsLoading && !pluginsError && pluginItems?.length === 0 && <p className="empty-list">{t.pluginsEmpty}</p>}
+                {pluginItems?.length > 0 && (
+                  <div className="plugin-status-items">
+                    {pluginItems.map((plugin) => (
+                      <div className="plugin-status-item" key={plugin.id}>
+                        <div>
+                          <strong>{plugin.id}</strong>
+                          <span>{plugin.version && plugin.version !== "unknown" ? `v${plugin.version}` : plugin.scope}</span>
+                        </div>
+                        <em className={cx("plugin-status-badge", plugin.enabled ? "enabled" : "disabled")}>
+                          {plugin.enabled ? t.pluginStatusEnabled : t.pluginStatusDisabled}
+                        </em>
+                        {plugin.enabled ? (
+                          <button
+                            type="button"
+                            className="plain-action"
+                            onClick={() => setConfirmingPluginAction(plugin.id)}
+                            disabled={claudeBusy}
+                            title={claudeBusy ? t.workingHint : undefined}
+                          >
+                            {t.disablePlugin}
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            className="plain-action"
+                            onClick={() => runClaudeAndRefreshPlugins(`plugin enable ${plugin.id}`)}
+                            disabled={claudeBusy}
+                            title={claudeBusy ? t.workingHint : undefined}
+                          >
+                            {t.enablePlugin}
+                          </button>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </details>
+            <div className="command-history-slot" ref={claudeOutputRef}>
+              <CommandHistory
+                title={t.commandHistory}
+                liveEntry={claudeLiveEntry}
+                entries={claudeHistory}
+                onClear={() => {
+                  setClaudeHistory([]);
+                  setClaudeResult(null);
+                }}
+                t={t}
+              />
+            </div>
+          </div>
+        )}
+        {selectedTool === "terminal" && (
+          <div className="tool-detail" id="terminal-tool-detail" ref={selectedToolDetailRef}>
+            <div className="tool-detail-head">
+              <p>{t.terminalHelp}</p>
+              <SquareTerminal size={15} />
+            </div>
+            <p className="tool-hint">{t.opensExternalTerminal}</p>
+            <dl>
+              <div><dt>{t.activeProject}</dt><dd>{projectLabel(activeProject, t)}</dd></div>
+              <div className="path-row">
+                <dt>{t.path}</dt>
+                <dd title={activeProject?.path || t.noProjectPath}>{activeProject?.path ? compactPath(activeProject.path, 36) : t.noProjectPath}</dd>
+                {activeProject?.path && (
+                  <button type="button" className="icon-only mini-icon" onClick={copyProjectPath} title={pathCopied ? t.copiedPath : t.copyPath} aria-label={pathCopied ? t.copiedPath : t.copyPath}>
+                    {pathCopied ? <Check size={13} /> : <Copy size={13} />}
+                  </button>
+                )}
+              </div>
+            </dl>
+            <div className="tool-actions">
+              <button type="button" className="plain-action" onClick={onOpenTerminal}><SquareTerminal size={15} />{t.openTerminal}</button>
+              <button type="button" className="plain-action" onClick={onOpenProject}><Folder size={15} />{t.openProject}</button>
+            </div>
+          </div>
+        )}
+
+        <details className="status-details">
+          <summary>{t.pluginsAndMcp}</summary>
+          <pre>{`${claudeStatus?.plugins || ""}\n\n${claudeStatus?.mcp || ""}`.trim() || "No plugin or MCP output yet."}</pre>
+        </details>
+      </section>
+    </aside>
+  );
+}
+
+function FileTreeItem({ item, activePath, onOpenFile, depth = 0, expandedDirs, lazyChildren, onToggleDir }) {
+  const isDirectory = item.type === "directory";
+  const isExpanded = isDirectory && expandedDirs.has(item.path);
+  const children = lazyChildren[item.path] ?? item.children;
+  const childrenLoading = lazyChildren[item.path] === "loading";
+
+  return (
+    <div className="tree-node" style={{ "--depth": depth }}>
+      <button
+        type="button"
+        className={cx("tree-item", activePath === item.path && "active")}
+        onClick={() => {
+          if (isDirectory) onToggleDir(item);
+          else onOpenFile(item);
+        }}
+        title={item.path}
+      >
+        {isDirectory ? (
+          <ChevronRight size={12} className={cx("tree-chevron", isExpanded && "expanded")} />
+        ) : (
+          <span className="tree-chevron-spacer" />
+        )}
+        {isDirectory ? <Folder size={14} /> : <FileText size={14} />}
+        <span>{item.name}</span>
+        {!isDirectory && typeof item.size === "number" && <small>{item.size < 1024 ? `${item.size}b` : `${Math.round(item.size / 1024)}kb`}</small>}
+      </button>
+      {isDirectory && isExpanded && (
+        <div className="tree-children">
+          {childrenLoading && <p className="empty-list tree-loading">Loading…</p>}
+          {!childrenLoading && Array.isArray(children) && children.length === 0 && (
+            <p className="empty-list tree-loading">Empty</p>
+          )}
+          {!childrenLoading && Array.isArray(children) && children.length > 0 && children.map((child) => (
+            <FileTreeItem
+              item={child}
+              activePath={activePath}
+              onOpenFile={onOpenFile}
+              depth={depth + 1}
+              key={child.path}
+              expandedDirs={expandedDirs}
+              lazyChildren={lazyChildren}
+              onToggleDir={onToggleDir}
+            />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function SettingsModal({ state, lang, t, onClose, onSaved, surface = false }) {
+  const initialForm = {
+    provider: state.settings.provider,
+    model: state.settings.model,
+    baseUrl: state.settings.baseUrl,
+    temperature: state.settings.temperature,
+    timeoutMs: state.settings.timeoutMs || 600000,
+    language: state.settings.language || "system",
+    appearance: {
+      fontSize: state.settings.appearance?.fontSize || "compact",
+      density: state.settings.appearance?.density || "compact",
+    },
+    systemPrompt: state.settings.systemPrompt,
+    claudeCode: {
+      executionMode: state.settings.claudeCode?.executionMode || "claude-code",
+      claudeCommand: state.settings.claudeCode?.claudeCommand || "claude",
+      permissionMode: state.settings.claudeCode?.permissionMode || "default",
+    },
+    apiKey: "",
+    customMarketplaces: Array.isArray(state.settings.customMarketplaces) ? state.settings.customMarketplaces : [],
+  };
+  const [form, setForm] = useState(initialForm);
+  const initialSnapshotRef = useRef(JSON.stringify(initialForm));
+  const [saveStatus, setSaveStatus] = useState("idle");
+  const [error, setError] = useState("");
+  const [confirmingClose, setConfirmingClose] = useState(false);
+  const [settingsQuery, setSettingsQuery] = useState("");
+  const [settingsEnvironment, setSettingsEnvironment] = useState(null);
+  const [settingsClaudeStatus, setSettingsClaudeStatus] = useState(null);
+  const [settingsStatusBusy, setSettingsStatusBusy] = useState(false);
+  const [settingsStatusError, setSettingsStatusError] = useState("");
+  const activeProvider = providerDefaults(form.provider);
+  const directApiActive = form.claudeCode.executionMode === "api";
+  const savedKey = Boolean(state.settings.apiKeys?.[form.provider]);
+  const runtimeModelLabel = form.model || activeProvider.model;
+  const runtimeAuthLabel = directApiActive
+    ? form.provider === "ollama"
+      ? t.apiKeyNone
+      : savedKey
+        ? t.savedKey
+        : t.missingKey
+    : authLabel(null, state.settings);
+  const runtimeEnvLabel = directApiActive
+    ? form.baseUrl || activeProvider.baseUrl
+    : cliBaseUrl(state.settings) || t.claudeCodeDefaultEnv;
+  const saving = saveStatus === "saving";
+  const isDirty = JSON.stringify(form) !== initialSnapshotRef.current;
+  const modalRef = useRef(null);
+  useFocusTrap(modalRef, !surface);
+  const [activeSection, setActiveSection] = useState("general");
+  const settingsSections = [
+    ["general", t.settingsGeneral, Settings],
+    ["profile", t.settingsProfile, UserRound],
+    ["appearance", t.settingsAppearance, Monitor],
+    ["configuration", t.settingsConfiguration, Wrench],
+    ["personalization", t.settingsPersonalization, Shield],
+    ["mcp", t.settingsMcpServers, Blocks],
+    ["browser", t.settingsBrowser, Globe2],
+    ["computer", t.settingsComputerUse, Monitor],
+    ["hooks", t.settingsHooks, Plug],
+    ["connections", t.settingsConnections, ExternalLink],
+    ["git", t.settingsGit, GitBranch],
+    ["environments", t.settingsEnvironments, HardDrive],
+    ["worktrees", t.settingsWorktrees, Folder],
+    ["archived", t.settingsArchivedChats, Archive],
+  ];
+  const filteredSettingsSections = settingsSections.filter(([id, label]) => {
+    const normalized = settingsQuery.trim().toLowerCase();
+    return !normalized || `${id} ${label}`.toLowerCase().includes(normalized);
+  });
+  const backedSettingsSections = new Set([
+    "profile",
+    "personalization",
+    "mcp",
+    "browser",
+    "computer",
+    "hooks",
+    "connections",
+    "git",
+    "environments",
+    "worktrees",
+    "archived",
+  ]);
+
+  async function refreshSettingsStatus() {
+    if (!desktopApi) return;
+    setSettingsStatusBusy(true);
+    setSettingsStatusError("");
+    try {
+      const [environmentResult, claudeResult] = await Promise.allSettled([
+        desktopApi.getEnvironment?.({ projectPath: state.activeProject?.path }),
+        desktopApi.getClaudeStatus?.({ projectPath: state.activeProject?.path }),
+      ]);
+      if (environmentResult.status === "fulfilled" && environmentResult.value) {
+        setSettingsEnvironment(environmentResult.value);
+      }
+      if (claudeResult.status === "fulfilled" && claudeResult.value) {
+        setSettingsClaudeStatus(claudeResult.value);
+      }
+      const failures = [environmentResult, claudeResult].filter((result) => result.status === "rejected");
+      if (failures.length) setSettingsStatusError(failures.map((result) => result.reason?.message || String(result.reason)).join("\n"));
+    } catch (statusError) {
+      setSettingsStatusError(statusError.message || String(statusError));
+    } finally {
+      setSettingsStatusBusy(false);
+    }
+  }
+
+  useEffect(() => {
+    refreshSettingsStatus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.activeProject?.path]);
+
+  function updateProvider(providerId) {
+    const next = providerDefaults(providerId);
+    setForm((current) => ({
+      ...current,
+      provider: providerId,
+      model: next.model,
+      baseUrl: next.baseUrl,
+      apiKey: "",
+    }));
+  }
+
+  function requestClose() {
+    if (isDirty && saveStatus !== "saved") {
+      setConfirmingClose(true);
+      return;
+    }
+    onClose();
+  }
+
+  const settingsBody = (
+      <form
+        ref={modalRef}
+        tabIndex={-1}
+        role={surface ? "region" : "dialog"}
+        aria-modal={surface ? undefined : "true"}
+        aria-label={t.settingsTitle}
+        className={surface ? "settings-surface" : "settings-modal"}
+        onMouseDown={(event) => {
+          if (!surface) event.stopPropagation();
+        }}
+        onSubmit={async (event) => {
+          event.preventDefault();
+          setSaveStatus("saving");
+          setError("");
+          try {
+            const nextState = await desktopApi.saveSettings(form);
+            onSaved(nextState);
+            setSaveStatus("saved");
+            initialSnapshotRef.current = JSON.stringify(form);
+            if (!surface) setTimeout(onClose, 450);
+          } catch (saveError) {
+            setSaveStatus("error");
+            setError(saveError.message || "Could not save settings.");
+          }
+        }}
+      >
+        <header>
+          <div>
+            {surface && (
+              <button type="button" className="surface-back" onClick={requestClose}>
+                <ArrowLeft size={15} />
+                {t.backToApp}
+              </button>
+            )}
+            <span>{t.settingsSubtitle}</span>
+            <h2>{t.settingsTitle}</h2>
+            {isDirty && saveStatus === "idle" && <em className="dirty-flag" title={t.unsavedChangesHint}>{t.unsavedChanges}</em>}
+          </div>
+          <button type="button" className="icon-only" onClick={requestClose} title={t.close}>
+            <X size={18} />
+          </button>
+        </header>
+        {confirmingClose && (
+          <div className="dirty-confirm-banner" role="alertdialog">
+            <span>{t.unsavedChangesWarning}</span>
+            <div className="dirty-confirm-actions">
+              <button type="button" className="plain-action" onClick={() => setConfirmingClose(false)}>{t.keepEditing}</button>
+              <button type="button" className="danger-action" onClick={onClose}>{t.discardChanges}</button>
+            </div>
+          </div>
+        )}
+
+        <div className="settings-shell">
+          <nav className="settings-nav" aria-label={t.settingsTitle}>
+            <label className="settings-search">
+              <Search size={15} />
+              <input value={settingsQuery} onChange={(event) => setSettingsQuery(event.target.value)} placeholder={t.searchSettings} />
+            </label>
+            {filteredSettingsSections.map(([id, label, Icon]) => (
+              <button type="button" key={id} className={cx(activeSection === id && "active")} onClick={() => setActiveSection(id)}>
+                <Icon size={15} />
+                <span>{label}</span>
+              </button>
+            ))}
+          </nav>
+          <div className="settings-content">
+            {activeSection === "general" || activeSection === "configuration" ? (
+        <div className="settings-layout">
+          <section className="settings-section settings-runtime-section">
+            <div className="settings-section-head">
+              <div>
+                <span>{t.activeRuntime}</span>
+                <h3>{directApiActive ? t.apiMode : t.claudeCodeManagedTitle}</h3>
+              </div>
+              <em className={cx("settings-badge", directApiActive ? "api" : "cli")}>
+                {directApiActive ? t.apiMode : t.claudeCodeMode}
+              </em>
+            </div>
+            <div className="settings-runtime-card">
+              {!directApiActive && <p>{t.claudeCodeManagedHint}</p>}
+              <dl className="settings-summary runtime-summary">
+                <div><dt>{t.auth}</dt><dd>{runtimeAuthLabel}</dd></div>
+                <div><dt>{t.model}</dt><dd>{runtimeModelLabel}</dd></div>
+                <div><dt>{directApiActive ? t.baseUrl : t.cliEnvSource}</dt><dd title={runtimeEnvLabel}>{runtimeEnvLabel}</dd></div>
+              </dl>
+            </div>
+            <div className="settings-grid runtime-control-grid">
+              <label>
+                <span>{t.language}</span>
+                <select value={form.language} onChange={(event) => setForm((current) => ({ ...current, language: event.target.value }))}>
+                  <option value="system">{t.followSystem}</option>
+                  <option value="zh">{t.chinese}</option>
+                  <option value="en">{t.english}</option>
+                </select>
+              </label>
+              <label>
+                <span>{t.executionMode}</span>
+                <select value={form.claudeCode.executionMode} onChange={(event) => setForm((current) => ({ ...current, claudeCode: { ...current.claudeCode, executionMode: event.target.value } }))}>
+                  <option value="claude-code">{t.claudeCodeMode}</option>
+                  <option value="api">{t.apiMode}</option>
+                </select>
+              </label>
+              <label>
+                <span>{t.permissionMode}</span>
+                <select value={form.claudeCode.permissionMode} onChange={(event) => setForm((current) => ({ ...current, claudeCode: { ...current.claudeCode, permissionMode: event.target.value } }))}>
+                  <option value="default">default</option>
+                  <option value="acceptEdits">acceptEdits</option>
+                  <option value="auto">auto</option>
+                  <option value="plan">plan</option>
+                  <option value="dontAsk">dontAsk</option>
+                  <option value="bypassPermissions">bypassPermissions</option>
+                </select>
+              </label>
+            </div>
+            {!directApiActive && (
+              <details className="settings-inline-disclosure">
+                <summary>
+                  <span>{t.settingsAdvancedClaude}</span>
+                  <em>{t.showMore}</em>
+                </summary>
+                <div className="settings-grid compact-settings-grid">
+                  <label>
+                    <span>{t.claudeModel}</span>
+                    <input value={form.model} onChange={(event) => setForm((current) => ({ ...current, model: event.target.value }))} placeholder={activeProvider.model} />
+                  </label>
+                  <label>
+                    <span>{t.claudeCommand}</span>
+                    <input value={form.claudeCode.claudeCommand} onChange={(event) => setForm((current) => ({ ...current, claudeCode: { ...current.claudeCode, claudeCommand: event.target.value } }))} placeholder="claude" />
+                  </label>
+                  <label>
+                    <span>{t.timeout}</span>
+                    <input type="number" min="1000" step="1000" value={form.timeoutMs} onChange={(event) => setForm((current) => ({ ...current, timeoutMs: event.target.value }))} />
+                  </label>
+                </div>
+              </details>
+            )}
+          </section>
+
+          <details className={cx("settings-section", "settings-disclosure", !directApiActive && "inactive")} open={directApiActive}>
+            <summary>
+              <div>
+                <span>{t.settingsDirectApi}</span>
+                <strong>{directApiActive ? form.baseUrl || activeProvider.baseUrl : t.settingsDirectApiInactive}</strong>
+              </div>
+              <em>{directApiActive ? t.enabled : t.inactiveInClaudeCode}</em>
+            </summary>
+            <p className="settings-section-copy">{directApiActive ? t.settingsDirectApiHint : t.settingsDirectApiInactiveHint}</p>
+            <div className="settings-grid direct-api-grid">
+              <label>
+                <span>{t.provider}</span>
+                <select value={form.provider} onChange={(event) => updateProvider(event.target.value)} disabled={!directApiActive} title={!directApiActive ? t.inactiveInClaudeCode : undefined}>
+                  {providers.map((provider) => (
+                    <option value={provider.id} key={provider.id}>
+                      {provider.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="span-2">
+                <span>{t.model}</span>
+                <input value={form.model} onChange={(event) => setForm((current) => ({ ...current, model: event.target.value }))} placeholder={activeProvider.model} disabled={!directApiActive} title={!directApiActive ? t.inactiveInClaudeCode : undefined} />
+              </label>
+              <label className="span-2">
+                <span>{t.baseUrl}</span>
+                <input value={form.baseUrl} onChange={(event) => setForm((current) => ({ ...current, baseUrl: event.target.value }))} placeholder={activeProvider.baseUrl} disabled={!directApiActive} title={!directApiActive ? t.inactiveInClaudeCode : undefined} />
+              </label>
+              <label>
+                <span>{t.apiKey}</span>
+                <input
+                  type="password"
+                  value={form.apiKey}
+                  onChange={(event) => setForm((current) => ({ ...current, apiKey: event.target.value }))}
+                  placeholder={form.provider === "ollama" ? t.apiKeyNone : savedKey ? t.apiKeySaved : t.apiKeyPlaceholder}
+                  disabled={!directApiActive || form.provider === "ollama"}
+                  title={!directApiActive ? t.inactiveInClaudeCode : form.provider === "ollama" ? t.apiKeyNone : undefined}
+                />
+              </label>
+            </div>
+            <details className="settings-inline-disclosure">
+              <summary>
+                <span>{t.settingsAdvancedApi}</span>
+                <em>{t.showMore}</em>
+              </summary>
+              <div className="settings-grid compact-settings-grid">
+                <label>
+                  <span>{t.temperature}</span>
+                  <input type="number" min="0" max="2" step="0.1" value={form.temperature} onChange={(event) => setForm((current) => ({ ...current, temperature: event.target.value }))} disabled={!directApiActive} title={!directApiActive ? t.inactiveInClaudeCode : undefined} />
+                </label>
+                <label>
+                  <span>{t.timeout}</span>
+                  <input type="number" min="1000" step="1000" value={form.timeoutMs} onChange={(event) => setForm((current) => ({ ...current, timeoutMs: event.target.value }))} disabled={!directApiActive} title={!directApiActive ? t.inactiveInClaudeCode : undefined} />
+                </label>
+              </div>
+            </details>
+          </details>
+
+          <details className="settings-section settings-disclosure">
+            <summary>
+              <div>
+                <span>{t.settingsPrompt}</span>
+                <strong>{t.systemPrompt}</strong>
+              </div>
+              <em>{t.showMore}</em>
+            </summary>
+            <label className="settings-prompt-field">
+              <span>{t.systemPrompt}</span>
+              <textarea value={form.systemPrompt} onChange={(event) => setForm((current) => ({ ...current, systemPrompt: event.target.value }))} />
+            </label>
+          </details>
+
+          <details className="settings-section settings-disclosure">
+            <summary>
+              <div>
+                <span>{t.settingsStorage}</span>
+                <strong>{state.settings.encryptionAvailable ? t.savedKey : t.missingKey}</strong>
+              </div>
+              <em>{t.showMore}</em>
+            </summary>
+            <div className="settings-note">
+              <KeyRound size={15} />
+              <span>
+                {t.encryption}: {state.settings.encryptionAvailable ? "yes" : "no"} · {t.dataFile}: {state.settings.dataFile}
+              </span>
+            </div>
+            <div className="settings-note">
+              <Languages size={15} />
+              <span>
+                {t.env}: Anthropic {state.settings.env?.anthropicKey ? "found" : "not found"}, OpenAI {state.settings.env?.openaiKey ? "found" : "not found"} · locale {state.settings.appLocale || navigator.language}
+              </span>
+            </div>
+          </details>
+        </div>
+            ) : activeSection === "appearance" ? (
+        <div className="settings-layout">
+          <section className="settings-section">
+            <div className="settings-section-head">
+              <div>
+                <span>{t.settingsAppearance}</span>
+                <h3>{t.interfaceLanguage}</h3>
+              </div>
+              <em className="settings-badge">{form.language === "system" ? t.followSystem : form.language === "zh" ? t.chinese : t.english}</em>
+            </div>
+            <div className="settings-grid runtime-control-grid">
+              <label>
+                <span>{t.interfaceLanguage}</span>
+                <select value={form.language} onChange={(event) => setForm((current) => ({ ...current, language: event.target.value }))}>
+                  <option value="system">{t.followSystem}</option>
+                  <option value="zh">{t.chinese}</option>
+                  <option value="en">{t.english}</option>
+                </select>
+              </label>
+              <label>
+                <span>{t.fontSize}</span>
+                <select
+                  value={form.appearance.fontSize}
+                  onChange={(event) => setForm((current) => ({ ...current, appearance: { ...current.appearance, fontSize: event.target.value } }))}
+                >
+                  <option value="compact">{t.fontSizeCompact}</option>
+                  <option value="default">{t.fontSizeDefault}</option>
+                  <option value="large">{t.fontSizeLarge}</option>
+                </select>
+              </label>
+              <label>
+                <span>{t.density}</span>
+                <select
+                  value={form.appearance.density}
+                  onChange={(event) => setForm((current) => ({ ...current, appearance: { ...current.appearance, density: event.target.value } }))}
+                >
+                  <option value="compact">{t.densityCompact}</option>
+                  <option value="comfortable">{t.densityComfortable}</option>
+                </select>
+              </label>
+            </div>
+          </section>
+          <section className="settings-section">
+            <div className="settings-section-head">
+              <div>
+                <span>{t.settingsGeneral}</span>
+                <h3>{t.defaultPermissions}</h3>
+              </div>
+              <em className="settings-badge cli">{t.claudeCodeMode}</em>
+            </div>
+            <p className="settings-section-copy">{t.claudeCodeManagedHint}</p>
+          </section>
+        </div>
+            ) : (
+              backedSettingsSections.has(activeSection) ? (
+                <SettingsBackedStatus
+                  activeSection={activeSection}
+                  settingsSections={settingsSections}
+                  state={state}
+                  form={form}
+                  environment={settingsEnvironment}
+                  claudeStatus={settingsClaudeStatus}
+                  busy={settingsStatusBusy}
+                  error={settingsStatusError}
+                  onRefresh={refreshSettingsStatus}
+                  t={t}
+                />
+              ) : (
+              <section className="settings-placeholder">
+                <div>
+                  <span>{settingsSections.find(([id]) => id === activeSection)?.[1]}</span>
+                  <h3>{t.notImplementedYet}</h3>
+                  <p>{t.notImplementedHint}</p>
+                </div>
+              </section>
+              )
+            )}
+          </div>
+        </div>
+
+        {error && <p className="settings-error">{error}</p>}
+        <footer className="settings-footer">
+          <span>{isDirty ? t.unsavedChangesHint : t.noChangesToSave}</span>
+          <button className={cx("primary-action", saveStatus === "saved" && "save-success")} type="submit" disabled={saving || (!isDirty && saveStatus !== "error")} title={saving ? t.workingHint : undefined}>
+            <Check size={17} />
+            {saveStatus === "saving" ? t.saving : saveStatus === "saved" ? t.saved : t.save}
+          </button>
+        </footer>
+      </form>
+  );
+  if (surface) {
+    return <main className="workspace settings-workspace">{settingsBody}</main>;
+  }
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={requestClose}>
+      {settingsBody}
+    </div>
+  );
+}
+
+function ShellModal({ title, subtitle, onClose, children, className = "", closeLabel = "Close", surface = false }) {
+  const modalRef = useRef(null);
+  useFocusTrap(modalRef, !surface);
+  const shellBody = (
+      <section
+        ref={modalRef}
+        tabIndex={-1}
+        role={surface ? "region" : "dialog"}
+        aria-modal={surface ? undefined : "true"}
+        aria-label={title}
+        className={cx(surface ? "surface-panel" : "settings-modal", "shell-modal", className)}
+        onMouseDown={(event) => {
+          if (!surface) event.stopPropagation();
+        }}
+      >
+        <header>
+          <div>
+            {surface && (
+              <button type="button" className="surface-back" onClick={onClose}>
+                <ArrowLeft size={15} />
+                {closeLabel}
+              </button>
+            )}
+            {subtitle && <span>{subtitle}</span>}
+            <h2>{title}</h2>
+          </div>
+          <button type="button" className="icon-only" onClick={onClose} title={closeLabel} aria-label={closeLabel}>
+            <X size={18} />
+          </button>
+        </header>
+        {children}
+      </section>
+  );
+  if (surface) return <main className="workspace shell-workspace">{shellBody}</main>;
+  return (
+    <div className="modal-backdrop" role="presentation" onMouseDown={onClose}>
+      {shellBody}
+    </div>
+  );
+}
+
+function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenClaudePanel, surface = false }) {
+  const tabs = [
+    ["plugins", t.plugins],
+    ["mcp", t.mcps],
+    ["skills", t.skills],
+    ["marketplace", t.marketplace],
+  ];
+  const [activeTab, setActiveTab] = useState("plugins");
+  const [query, setQuery] = useState("");
+  const [filter, setFilter] = useState("all");
+  const [cliStatus, setCliStatus] = useState(null);
+  const [cliBusy, setCliBusy] = useState(false);
+  const [cliError, setCliError] = useState("");
+  const [marketplaceOutput, setMarketplaceOutput] = useState("");
+  const [marketplaceBusy, setMarketplaceBusy] = useState(false);
+  const [customMarketplaceUrl, setCustomMarketplaceUrl] = useState("");
+  const activeProject = state.activeProject || { name: t.localWorkspace, path: "" };
+  const customMarketplaces = Array.isArray(state.settings.customMarketplaces) ? state.settings.customMarketplaces : [];
+  const capabilityRows = capabilityCatalog.map((item) => ({
+    ...item,
+    enabled: capabilityEnabled(state.settings, item.id),
+  }));
+  const normalizedQuery = query.trim().toLowerCase();
+  const visibleRows = capabilityRows.filter((item) => {
+    const matchesQuery = !normalizedQuery || [item.id, item.type, item.name[lang], item.description[lang]]
+      .join(" ")
+      .toLowerCase()
+      .includes(normalizedQuery);
+    const matchesFilter =
+      filter === "all" ||
+      (filter === "enabled" && item.enabled) ||
+      (filter === "disabled" && !item.enabled);
+    return matchesQuery && matchesFilter;
+  });
+  const enabledCount = capabilityRows.filter((item) => item.enabled).length;
+  const totalCount = capabilityRows.length;
+  const tabRows = {
+    plugins: visibleRows.filter((item) => item.type === "plugin"),
+    skills: visibleRows.filter((item) => item.type === "skill"),
+    mcp: visibleRows.filter((item) => item.type === "tool" && /mcp/i.test(item.id + item.name.en + item.description.en)),
+  };
+  const searchPlaceholder =
+    activeTab === "skills" ? t.searchSkills : activeTab === "marketplace" ? t.searchMarketplace : t.searchPlugins;
+
+  async function refreshCliStatus() {
+    if (!desktopApi?.getClaudeStatus) return;
+    setCliBusy(true);
+    setCliError("");
+    try {
+      const result = await desktopApi.getClaudeStatus({ projectPath: activeProject?.path });
+      setCliStatus(result);
+    } catch (error) {
+      setCliError(error.message || String(error));
+    } finally {
+      setCliBusy(false);
+    }
+  }
+
+  async function fetchMarketplace() {
+    if (!desktopApi?.runClaudeCommand) return;
+    setMarketplaceBusy(true);
+    setCliError("");
+    try {
+      const result = await desktopApi.runClaudeCommand({
+        projectPath: activeProject?.path,
+        args: "plugin marketplace list",
+        requestId: `marketplace_${Date.now()}_${Math.random().toString(16).slice(2)}`,
+      });
+      if (result.code !== 0) throw new Error(result.stderr || result.stdout || t.pluginsLoadError);
+      setMarketplaceOutput(result.stdout || result.stderr || t.noCliOutputYet);
+    } catch (error) {
+      setCliError(error.message || String(error));
+      setMarketplaceOutput("");
+    } finally {
+      setMarketplaceBusy(false);
+    }
+  }
+
+  async function saveCustomMarketplaces(items) {
+    if (!desktopApi?.saveSettings) return;
+    const nextState = await desktopApi.saveSettings({
+      ...state.settings,
+      customMarketplaces: items,
+      apiKey: "",
+    });
+    onSaved?.(nextState);
+  }
+
+  async function addCustomMarketplace(event) {
+    event.preventDefault();
+    const value = customMarketplaceUrl.trim();
+    if (!value || customMarketplaces.includes(value)) return;
+    await saveCustomMarketplaces([value, ...customMarketplaces].slice(0, 12));
+    setCustomMarketplaceUrl("");
+  }
+
+  useEffect(() => {
+    refreshCliStatus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeProject?.path]);
+  return (
+    <ShellModal title={t.capabilities} subtitle={t.capabilitiesSubtitle} onClose={onClose} closeLabel={surface ? t.backToApp : t.close} className="capability-modal plugin-manager-modal" surface={surface}>
+      <div className="installed-capability-strip" aria-label={t.installed}>
+        {capabilityRows.filter((item) => item.enabled).slice(0, 14).map((item) => (
+          <button
+            type="button"
+            key={item.id}
+            className={cx("installed-capability-icon", item.type)}
+            title={item.name[lang]}
+            onClick={() => {
+              setQuery(item.name[lang]);
+              setActiveTab(item.type === "skill" ? "skills" : item.type === "plugin" ? "plugins" : "mcp");
+            }}
+          >
+            {item.type === "plugin" ? <Plug size={15} /> : item.type === "skill" ? <Blocks size={15} /> : <SquareTerminal size={15} />}
+          </button>
+        ))}
+      </div>
+      <section className="plugin-cli-summary" aria-label={t.installedCliState}>
+        <div>
+          <span>{t.installedCliState}</span>
+          <strong>{cliBusy ? `${t.loading}...` : cliStatus?.available ? cliStatus.version || t.ready : t.needsKey}</strong>
+          <small>{projectLabel(activeProject, t)}</small>
+        </div>
+        <button type="button" className="plain-action subtle-action" onClick={refreshCliStatus} disabled={cliBusy} title={cliBusy ? t.workingHint : t.refreshCliStatus}>
+          <RefreshCw size={14} className={cliBusy ? "spin" : undefined} />
+          {t.refresh}
+        </button>
+      </section>
+      {cliError && <p className="plugin-cli-error">{cliError}</p>}
+      <div className="capability-toolbar">
+        <label className="command-search capability-search">
+          <Search size={16} />
+          <input value={query} onChange={(event) => setQuery(event.target.value)} placeholder={searchPlaceholder} />
+        </label>
+        <div className="segmented-control" aria-label={t.capabilities}>
+          {[
+            ["all", t.capabilityAll],
+            ["enabled", t.capabilityEnabled],
+            ["disabled", t.capabilityDisabled],
+          ].map(([id, label]) => (
+            <button type="button" key={id} className={cx(filter === id && "active")} onClick={() => setFilter(id)}>
+              {label}
+            </button>
+          ))}
+        </div>
+        <p>{t.capabilitySummary.replace("{enabled}", enabledCount).replace("{total}", totalCount)}</p>
+      </div>
+      <div className="plugin-manager-tabs" role="tablist" aria-label={t.capabilities}>
+        {tabs.map(([id, label]) => {
+          const count = id === "plugins" ? capabilityRows.filter((item) => item.type === "plugin").length
+            : id === "skills" ? capabilityRows.filter((item) => item.type === "skill").length
+              : id === "mcp" ? tabRows.mcp.length
+                : 1;
+          return (
+            <button type="button" key={id} className={cx(activeTab === id && "active")} onClick={() => setActiveTab(id)} role="tab" aria-selected={activeTab === id}>
+              <span>{label}</span>
+              <em>{count}</em>
+            </button>
+          );
+        })}
+      </div>
+      <div className="plugin-manager-list">
+        {activeTab === "marketplace" ? (
+          <div className="marketplace-workbench">
+            <section className="marketplace-card">
+              <div className="marketplace-card-head">
+                <div>
+                  <span>{t.marketplaceSourceClaude}</span>
+                  <strong>{t.marketplace}</strong>
+                </div>
+                <div className="marketplace-actions">
+                  <button type="button" className="plain-action subtle-action" onClick={onOpenClaudePanel}>
+                    <Bot size={14} />
+                    {t.openClaudePanel}
+                  </button>
+                  <button type="button" className="plain-action" onClick={fetchMarketplace} disabled={marketplaceBusy} title={marketplaceBusy ? t.workingHint : t.fetchMarketplace}>
+                    <RefreshCw size={14} className={marketplaceBusy ? "spin" : undefined} />
+                    {marketplaceBusy ? t.loading : t.fetchMarketplace}
+                  </button>
+                </div>
+              </div>
+              <p>{t.marketplaceHint}</p>
+              <pre className="settings-raw-output marketplace-output">{marketplaceOutput || t.noCliOutputYet}</pre>
+            </section>
+            <section className="marketplace-card">
+              <div className="marketplace-card-head">
+                <div>
+                  <span>{t.marketplaceSourceCustom}</span>
+                  <strong>{t.customMarketplaces}</strong>
+                </div>
+                <em className="settings-badge">{customMarketplaces.length}</em>
+              </div>
+              <form className="marketplace-form" onSubmit={addCustomMarketplace}>
+                <label>
+                  <span>{t.marketplaceUrl}</span>
+                  <input value={customMarketplaceUrl} onChange={(event) => setCustomMarketplaceUrl(event.target.value)} placeholder="https://..." />
+                </label>
+                <button type="submit" className="plain-action" disabled={!customMarketplaceUrl.trim()}>
+                  <Plus size={14} />
+                  {t.addMarketplace}
+                </button>
+              </form>
+              <div className="marketplace-source-list">
+                {customMarketplaces.length === 0 && <p className="empty-list">{t.noCustomMarketplaces}</p>}
+                {customMarketplaces.map((item) => (
+                  <div className="marketplace-source-row" key={item}>
+                    <span title={item}>{compactPath(item, 76)}</span>
+                    <button
+                      type="button"
+                      className="plain-action subtle-action"
+                      onClick={() => saveCustomMarketplaces(customMarketplaces.filter((source) => source !== item))}
+                    >
+                      <X size={13} />
+                      {t.remove}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </section>
+          </div>
+        ) : (
+          (activeTab === "mcp" ? tabRows.mcp : activeTab === "skills" ? tabRows.skills : tabRows.plugins).map((item) => (
+            <PluginManagerRow
+              key={item.id}
+              icon={item.type === "plugin" ? <Plug size={17} /> : item.type === "skill" ? <Blocks size={17} /> : <SquareTerminal size={17} />}
+              title={item.name[lang]}
+              subtitle={item.description[lang]}
+              enabled={item.enabled}
+              onToggle={() => onToggle(item.id, !item.enabled)}
+              t={t}
+            />
+          ))
+        )}
+        {activeTab !== "marketplace" && (activeTab === "mcp" ? tabRows.mcp : activeTab === "skills" ? tabRows.skills : tabRows.plugins).length === 0 && (
+          <p className="empty-list">{t.noCapabilities}</p>
+        )}
+        {activeTab === "plugins" && (
+          <section className="plugin-cli-output">
+            <span>{t.cliPluginOutput}</span>
+            <pre>{cliStatus?.plugins || t.noCliOutputYet}</pre>
+          </section>
+        )}
+        {activeTab === "mcp" && (
+          <section className="plugin-cli-output">
+            <span>{t.cliMcpOutput}</span>
+            <pre>{cliStatus?.mcp || t.noCliOutputYet}</pre>
+          </section>
+        )}
+      </div>
+    </ShellModal>
+  );
+}
+
+function PluginManagerRow({ icon, title, subtitle, enabled, onToggle, actionLabel, onAction, t }) {
+  return (
+    <button
+      type="button"
+      className={cx("plugin-manager-row", enabled && "enabled")}
+      onClick={onAction || onToggle}
+      disabled={!onToggle && !onAction}
+      aria-pressed={Boolean(enabled)}
+    >
+      <span className="plugin-manager-icon">{icon}</span>
+      <span className="plugin-manager-copy">
+        <strong>{title}</strong>
+        <small>{subtitle}</small>
+      </span>
+      {actionLabel ? (
+        <span className="plain-action subtle-action plugin-row-action">{actionLabel}</span>
+      ) : (
+        <span className={cx("capability-state", enabled ? "enabled" : "disabled")}>{enabled ? t.enabled : t.disabled}</span>
+      )}
+    </button>
+  );
+}
+
+function ProjectModal({ state, t, onClose, onSelectProject, onSetProject, onOpenProject, onOpenTerminal }) {
+  const activeProject = state.activeProject || { name: t.localWorkspace, path: "" };
+  const projects = visibleProjectsForUi(state, t);
+  const hasProjectPath = Boolean(activeProject?.path);
+  return (
+    <ShellModal title={t.selectProject} subtitle={t.activeProject} onClose={onClose} closeLabel={t.close} className="project-modal">
+      <section className="project-current" aria-label={t.activeProject}>
+        <span>{t.activeProject}</span>
+        <strong>{projectLabel(activeProject, t)}</strong>
+        <code title={activeProject?.path || t.noProjectPath}>{activeProject?.path ? compactPath(activeProject.path, 92) : t.noProjectPath}</code>
+      </section>
+      <div className="project-modal-actions">
+        <button type="button" className="primary-action" onClick={onSelectProject}><Folder size={16} />{t.selectProject}</button>
+        <button type="button" className="plain-action" onClick={onOpenTerminal} disabled={!hasProjectPath} title={hasProjectPath ? t.openTerminal : t.noProjectPath}><SquareTerminal size={16} />{t.openTerminal}</button>
+        <button type="button" className="plain-action" onClick={onOpenProject} disabled={!hasProjectPath} title={hasProjectPath ? t.openProject : t.noProjectPath}><ExternalLink size={16} />{t.openProject}</button>
+      </div>
+      <div className="project-list-large">
+        {projects.map((project) => (
+          <button type="button" key={project.path || project.name} className={cx((state.activeProject?.path || state.activeProject?.name) === (project.path || project.name) && "active")} onClick={() => onSetProject(project)}>
+            <Folder size={16} />
+            <div>
+              <strong>{projectLabel(project, t)}</strong>
+              <span>{project.path || t.noProjectPath}</span>
+            </div>
+          </button>
+        ))}
+      </div>
+    </ShellModal>
+  );
+}
+
+function SettingsBackedStatus({
+  activeSection,
+  settingsSections,
+  state,
+  form,
+  environment,
+  claudeStatus,
+  busy,
+  error,
+  onRefresh,
+  t,
+}) {
+  const label = settingsSections.find(([id]) => id === activeSection)?.[1] || t.settings;
+  const activeProject = state.activeProject || { name: t.localWorkspace, path: "" };
+  const git = environment?.git;
+  const directApiActive = form.claudeCode?.executionMode === "api";
+  const ideNames = (environment?.ideOptions || []).map((item) => item.label).join(", ") || t.ideUnavailable;
+  const customMarketplaces = Array.isArray(form.customMarketplaces) ? form.customMarketplaces : [];
+  const env = state.settings.env || {};
+  const rowsBySection = {
+    profile: [
+      [t.localRuntime, t.claudeCodeMode],
+      [t.model, displayModelLabel(form.model)],
+      [t.activeProject, projectLabel(activeProject, t)],
+      [t.dataFile, state.settings.dataFile || t.desktopOnly],
+    ],
+    personalization: [
+      [t.interfaceLanguage, form.language === "system" ? t.followSystem : form.language === "zh" ? t.chinese : t.english],
+      [t.fontSize, form.appearance?.fontSize || t.fontSizeCompact],
+      [t.density, form.appearance?.density || t.densityCompact],
+      [t.defaultPermissions, form.claudeCode?.permissionMode || "default"],
+    ],
+    git: [
+      [t.activeProject, projectLabel(activeProject, t)],
+      [t.branch, git?.available ? git.branch || "main" : t.gitUnavailable],
+      [t.changes, git?.available ? String(git.changes || 0) : t.gitUnavailable],
+      ["cwd", environment?.cwd || activeProject.path || t.noProjectPath],
+    ],
+    environments: [
+      ["cwd", environment?.cwd || activeProject.path || t.noProjectPath],
+      [t.defaultFileOpenDestination, ideNames],
+      [t.agentEnvironment, "Windows native"],
+      [t.integratedShell, "PowerShell / cmd"],
+    ],
+    connections: [
+      [t.executionMode, directApiActive ? t.apiMode : t.claudeCodeMode],
+      [t.provider, providerDefaults(form.provider).name],
+      [t.baseUrl, directApiActive ? form.baseUrl || providerDefaults(form.provider).baseUrl : cliBaseUrl(state.settings) || t.claudeCodeDefaultEnv],
+      [t.env, `Anthropic ${env.anthropicKey ? "found" : "missing"} · OpenAI ${env.openaiKey ? "found" : "missing"}`],
+    ],
+    browser: [
+      [t.browserPreview, "Electron webview"],
+      [t.openExternal, "System browser"],
+      [t.activeProject, projectLabel(activeProject, t)],
+      [t.localCapability, capabilityEnabled(state.settings, "terminal-helper") ? t.enabled : t.disabled],
+    ],
+    computer: [
+      [t.settingsComputerUse, t.settingsRouteThroughCli],
+      [t.executionMode, t.claudeCodeMode],
+      [t.permissionMode, form.claudeCode?.permissionMode || "default"],
+      [t.interactiveClaude, t.enabled],
+    ],
+    hooks: [
+      [t.settingsHooks, t.settingsRouteThroughCli],
+      [t.claudeCommand, form.claudeCode?.claudeCommand || "claude"],
+      [t.cliStatus, claudeStatus?.available ? t.ready : t.needsKey],
+      [t.model, displayModelLabel(form.model)],
+    ],
+    worktrees: [
+      [t.settingsWorktrees, t.settingsRouteThroughCli],
+      [t.activeProject, projectLabel(activeProject, t)],
+      [t.branch, git?.available ? git.branch || "main" : t.gitUnavailable],
+      [t.path, activeProject.path || t.noProjectPath],
+    ],
+    archived: [
+      [t.settingsArchivedChats, `${state.sessions?.filter((session) => session.archived).length || 0}`],
+      [t.localHistory, `${state.sessions?.length || 0}`],
+      [t.dataFile, state.settings.dataFile || t.desktopOnly],
+      [t.encryption, state.settings.encryptionAvailable ? "yes" : "no"],
+    ],
+    mcp: [
+      [t.cliStatus, claudeStatus?.available ? t.ready : t.needsKey],
+      [t.claudeCommand, form.claudeCode?.claudeCommand || "claude"],
+      [t.plugins, capabilityEnabled(state.settings, "plugin-router") ? t.enabled : t.disabled],
+      [t.mcps, capabilityEnabled(state.settings, "mcp-runtime") ? t.enabled : t.disabled],
+    ],
+  };
+  const rows = rowsBySection[activeSection] || [];
+  const rawCliOutput = activeSection === "mcp"
+    ? `${claudeStatus?.plugins || ""}\n\n${claudeStatus?.mcp || ""}`.trim()
+    : activeSection === "git"
+      ? git?.raw || ""
+      : "";
+
+  return (
+    <div className="settings-layout">
+      <section className="settings-section settings-backed-section">
+        <div className="settings-section-head">
+          <div>
+            <span>{label}</span>
+            <h3>{t.backedLocalState}</h3>
+          </div>
+          <button type="button" className="plain-action subtle-action" onClick={onRefresh} disabled={busy} title={busy ? t.workingHint : t.refreshCliStatus}>
+            <RefreshCw size={14} className={busy ? "spin" : undefined} />
+            {busy ? t.loading : t.refresh}
+          </button>
+        </div>
+        <p className="settings-section-copy">{activeSection === "git" && !git?.available ? t.noGitProject : t.settingsStatusHint}</p>
+        {error && <p className="tool-error">{error}</p>}
+        <dl className="settings-status-grid">
+          {rows.map(([name, value]) => (
+            <div key={name}>
+              <dt>{name}</dt>
+              <dd title={String(value || "")}>{String(value || "")}</dd>
+            </div>
+          ))}
+        </dl>
+      </section>
+      {activeSection === "mcp" && (
+        <section className="settings-section">
+          <div className="settings-section-head">
+            <div>
+              <span>{t.installedCliState}</span>
+              <h3>{t.pluginsAndMcp}</h3>
+            </div>
+            <em className="settings-badge cli">{t.claudeCodeMode}</em>
+          </div>
+          <pre className="settings-raw-output">{rawCliOutput || t.noCliOutputYet}</pre>
+        </section>
+      )}
+      {activeSection === "git" && rawCliOutput && (
+        <section className="settings-section">
+          <div className="settings-section-head">
+            <div>
+              <span>{t.settingsGit}</span>
+              <h3>git status --short --branch</h3>
+            </div>
+          </div>
+          <pre className="settings-raw-output">{rawCliOutput}</pre>
+        </section>
+      )}
+      {activeSection === "connections" && (
+        <section className="settings-section">
+          <div className="settings-section-head">
+            <div>
+              <span>{t.customMarketplaces}</span>
+              <h3>{customMarketplaces.length ? `${customMarketplaces.length}` : t.noCustomMarketplaces}</h3>
+            </div>
+            <em className="settings-badge">{t.marketplace}</em>
+          </div>
+          <div className="settings-chip-list">
+            {customMarketplaces.length
+              ? customMarketplaces.map((item) => <span key={item} title={item}>{compactPath(item, 62)}</span>)
+              : <p className="empty-list">{t.noCustomMarketplaces}</p>}
+          </div>
+        </section>
+      )}
+    </div>
+  );
+}
+
+function CommandPalette({ commands, t, onClose }) {
+  const [commandQuery, setCommandQuery] = useState("");
+  const inputRef = useRef(null);
+  useEffect(() => {
+    inputRef.current?.focus();
+  }, []);
+  const filtered = commands.filter((command) =>
+    [command.title, command.subtitle, command.keywords].join(" ").toLowerCase().includes(commandQuery.toLowerCase()),
+  );
+  return (
+    <ShellModal title={t.commandPalette} onClose={onClose} closeLabel={t.close} className="command-modal">
+      <label className="command-search">
+        <Search size={16} />
+        <input ref={inputRef} value={commandQuery} onChange={(event) => setCommandQuery(event.target.value)} placeholder={t.commandHint} />
+      </label>
+      <div className="command-list">
+        {filtered.map((command) => (
+          <button
+            type="button"
+            key={command.id}
+            onClick={() => {
+              onClose();
+              command.action();
+            }}
+          >
+            <span>{command.title}</span>
+            <small>{command.subtitle}</small>
+          </button>
+        ))}
+        {filtered.length === 0 && <p className="empty-list">{t.noCommands}</p>}
+      </div>
+    </ShellModal>
+  );
+}
+
+function ScheduledModal({ t, lang, onClose, onUsePrompt }) {
+  const [items, setItems] = useState(() => {
+    try {
+      return JSON.parse(localStorage.getItem("claudex.schedules") || "[]");
+    } catch {
+      return [];
+    }
+  });
+  const [prompt, setPrompt] = useState("");
+  const [time, setTime] = useState("");
+  function save(next) {
+    setItems(next);
+    localStorage.setItem("claudex.schedules", JSON.stringify(next));
+  }
+  const scheduleCount = t.scheduleCount.replace("{count}", items.length);
+  return (
+    <ShellModal title={t.scheduledTitle} subtitle={t.scheduledSubtitle} onClose={onClose} closeLabel={t.close} className="scheduled-modal">
+      <div className="schedule-workbench">
+        <form className="schedule-form" onSubmit={(event) => {
+          event.preventDefault();
+          if (!prompt.trim()) return;
+          save([{ id: crypto.randomUUID(), prompt: prompt.trim(), time }, ...items]);
+          setPrompt("");
+          setTime("");
+        }}>
+          <label>
+            <span>{t.schedulePrompt}</span>
+            <textarea
+              value={prompt}
+              onChange={(event) => setPrompt(event.target.value)}
+              placeholder={t.schedulePromptPlaceholder}
+            />
+          </label>
+          <label>
+            <span>{t.scheduleTime}</span>
+            <input type="datetime-local" value={time} onChange={(event) => setTime(event.target.value)} />
+          </label>
+          <button type="submit" className="primary-action" disabled={!prompt.trim()} title={!prompt.trim() ? t.schedulePromptPlaceholder : undefined}>
+            <Clock3 size={16} />
+            {t.addSchedule}
+          </button>
+        </form>
+        <section className="schedule-queue" aria-label={t.scheduleQueue}>
+          <div className="schedule-list-head">
+            <div>
+              <span>{t.scheduleQueue}</span>
+              <strong>{scheduleCount}</strong>
+            </div>
+          </div>
+          <div className="schedule-list">
+            {items.map((item) => (
+              <article key={item.id} className="schedule-item">
+                <div>
+                  <strong>{item.prompt}</strong>
+                  <span>{item.time ? formatDate(item.time, lang) : t.scheduleAnytime}</span>
+                </div>
+                <div className="schedule-item-actions">
+                  <button type="button" onClick={() => onUsePrompt(item.prompt)} title={t.runNow}>
+                    <Send size={14} />
+                    {t.runNow}
+                  </button>
+                  <button type="button" className="danger-action" onClick={() => save(items.filter((current) => current.id !== item.id))} title={t.delete}>
+                    <X size={14} />
+                    {t.delete}
+                  </button>
+                </div>
+              </article>
+            ))}
+            {items.length === 0 && (
+              <div className="empty-panel">
+                <Clock3 size={20} />
+                <strong>{t.emptySchedule}</strong>
+                <p>{t.emptyScheduleHint}</p>
+              </div>
+            )}
+          </div>
+        </section>
+      </div>
+    </ShellModal>
+  );
+}
+
+export function App() {
+  const [state, setState] = useState(fallbackState());
+  const [activeSessionId, setActiveSessionId] = useState("browser-preview");
+  const [query, setQuery] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [capabilitiesOpen, setCapabilitiesOpen] = useState(false);
+  const [projectsOpen, setProjectsOpen] = useState(false);
+  const [commandsOpen, setCommandsOpen] = useState(false);
+  const [scheduledOpen, setScheduledOpen] = useState(false);
+  const [selectedTool, setSelectedTool] = useState("");
+  const [draft, setDraft] = useState("");
+  const [toast, setToast] = useState("");
+  const [loadError, setLoadError] = useState("");
+  const [stateLoading, setStateLoading] = useState(true);
+  const [currentRequestId, setCurrentRequestId] = useState("");
+  const [streamingAssistant, setStreamingAssistant] = useState(null);
+  const [optimisticUser, setOptimisticUser] = useState(null);
+  const [environment, setEnvironment] = useState(null);
+  const [ideOptions, setIdeOptions] = useState([]);
+  const [selectedIdeId, setSelectedIdeId] = useState("");
+
+  useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      if (!desktopApi) {
+        if (!cancelled) setStateLoading(false);
+        return;
+      }
+      try {
+        const next = await desktopApi.getState();
+        if (!cancelled) {
+          setState(next);
+          setActiveSessionId(next.sessions[0]?.id || "");
+          setLoadError("");
+        }
+      } catch (error) {
+        if (!cancelled) setLoadError(error.message || "Could not load desktop state.");
+      } finally {
+        if (!cancelled) setStateLoading(false);
+      }
+    }
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function retryLoadDesktopState() {
+    if (!desktopApi) return;
+    setStateLoading(true);
+    setLoadError("");
+    try {
+      const next = await desktopApi.getState();
+      setState(next);
+      setActiveSessionId(next.sessions[0]?.id || "");
+    } catch (error) {
+      setLoadError(error.message || "Could not load desktop state.");
+    } finally {
+      setStateLoading(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!desktopApi?.onChatStream) return undefined;
+    return desktopApi.onChatStream((event) => {
+      setStreamingAssistant((current) => {
+        if (!current || current.requestId !== event.requestId) return current;
+        if (event.type === "delta") {
+          return { ...current, content: `${current.content}${event.text || ""}`, status: "" };
+        }
+        if (event.type === "status") {
+          return { ...current, status: event.text || current.status };
+        }
+        if (event.type === "activity") {
+          const activity = {
+            id: `${Date.now()}_${Math.random().toString(16).slice(2)}`,
+            text: event.text || "",
+          };
+          return {
+            ...current,
+            activities: [...(current.activities || []), activity].filter((item) => item.text).slice(-8),
+          };
+        }
+        return current;
+      });
+    });
+  }, []);
+
+  const lang = resolveLanguage(state.settings.language, state.settings.appLocale);
+  const t = copy[lang];
+  const activeSession = state.sessions.find((session) => session.id === activeSessionId) || state.sessions[0];
+  const activeProject = state.activeProject || {
+    name: activeSession?.project || t.localWorkspace,
+    path: activeSession?.projectPath || "",
+  };
+  const hasKey = Boolean(state.settings.apiKeys?.[state.settings.provider]);
+  const streamingSessionId = busy ? optimisticUser?.sessionId : null;
+
+  async function refreshEnvironment() {
+    if (!desktopApi?.getEnvironment) return;
+    try {
+      const next = await desktopApi.getEnvironment({ projectPath: activeProject?.path });
+      setEnvironment(next);
+      const nextIdeOptions = Array.isArray(next?.ideOptions) ? next.ideOptions : [];
+      setIdeOptions(nextIdeOptions);
+      setSelectedIdeId((current) => current || nextIdeOptions[0]?.id || "");
+    } catch {
+      setEnvironment(null);
+    }
+  }
+
+  useEffect(() => {
+    refreshEnvironment();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeProject?.path]);
+
+  function showToast(message) {
+    setToast(message);
+    window.clearTimeout(showToast.timer);
+    showToast.timer = window.setTimeout(() => setToast(""), 2200);
+  }
+
+  async function createSession() {
+    if (!desktopApi) return;
+    const next = await desktopApi.createSession();
+    setState(next);
+    setActiveSessionId(next.sessions[0]?.id || "");
+    setDraft("");
+  }
+
+  async function sendMessage(content) {
+    if (!desktopApi || !activeSession) return;
+    const requestId = `request_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+    setCurrentRequestId(requestId);
+    setOptimisticUser({ sessionId: activeSession.id, content: content.trim(), createdAt: new Date().toISOString() });
+    setStreamingAssistant({ requestId, content: "", status: t.waiting, activities: [] });
+    setBusy(true);
+    try {
+      const next = await desktopApi.sendMessage({ sessionId: activeSession.id, content, requestId });
+      setState(next);
+      setActiveSessionId(activeSession.id);
+    } finally {
+      setBusy(false);
+      setCurrentRequestId("");
+      setStreamingAssistant(null);
+      setOptimisticUser(null);
+    }
+  }
+
+  async function cancelMessage() {
+    if (!desktopApi || !currentRequestId) return;
+    await desktopApi.cancelRequest(currentRequestId);
+  }
+
+  async function retryLast() {
+    const lastUser = [...(activeSession?.messages || [])].reverse().find((message) => message.role === "user");
+    if (lastUser) await sendMessage(lastUser.content);
+  }
+
+  async function selectProject() {
+    if (!desktopApi) return;
+    const next = await desktopApi.selectProject();
+    if (next) {
+      setState(next);
+      showToast(t.projectSelected);
+    }
+  }
+
+  async function setActiveProject(project) {
+    if (!desktopApi || !project) return;
+    const next = await desktopApi.setActiveProject(project);
+    setState(next);
+    showToast(t.projectSelected);
+  }
+
+  async function openProject() {
+    await desktopApi?.openProject(activeProject?.path);
+  }
+
+  async function openTerminal() {
+    await desktopApi?.openTerminal(activeProject?.path);
+    showToast(t.terminalOpened);
+  }
+
+  async function openIde() {
+    if (!desktopApi?.openIde) {
+      await openProject();
+      return;
+    }
+    await desktopApi.openIde({ projectPath: activeProject?.path, ideId: selectedIdeId });
+  }
+
+  async function openInteractiveClaudeFromChat() {
+    if (!desktopApi?.openClaudeTerminal) {
+      showToast(t.desktopOnly);
+      return;
+    }
+    await desktopApi.openClaudeTerminal({ projectPath: activeProject?.path });
+  }
+
+  async function openBrowserUrl(url) {
+    await desktopApi?.openBrowserUrl(url);
+    showToast(t.browserOpened);
+  }
+
+  async function toggleCapability(id, enabled) {
+    const nextCaps = { ...(state.settings.capabilities || {}), [id]: enabled };
+    const next = await desktopApi.saveCapabilities(nextCaps);
+    setState(next);
+    showToast(t.saved);
+  }
+
+  async function copyMessage(content) {
+    await navigator.clipboard.writeText(content || "");
+    showToast(t.copied);
+  }
+
+  const [shortcutsOpen, setShortcutsOpen] = useState(false);
+  const [sidebarVisible, setSidebarVisible] = useState(true);
+  const [rightPanelVisible, setRightPanelVisible] = useState(false);
+  const [bottomPanel, setBottomPanel] = useState("");
+
+  function openSettingsSurface() {
+    setCapabilitiesOpen(false);
+    setProjectsOpen(false);
+    setScheduledOpen(false);
+    setCommandsOpen(false);
+    setSettingsOpen(true);
+  }
+
+  function openCapabilitiesSurface() {
+    setSettingsOpen(false);
+    setProjectsOpen(false);
+    setScheduledOpen(false);
+    setCommandsOpen(false);
+    setCapabilitiesOpen(true);
+  }
+
+  function activateTool(tool) {
+    setSettingsOpen(false);
+    setCapabilitiesOpen(false);
+    setRightPanelVisible(true);
+    setSelectedTool(tool);
+  }
+
+  useEffect(() => {
+    const onKeyDown = (event) => {
+      // Cmd/Ctrl+K: Command palette
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
+        event.preventDefault();
+        setCommandsOpen(true);
+      }
+      // Cmd/Ctrl+N: New chat
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "n") {
+        event.preventDefault();
+        createSession();
+      }
+      // Cmd/Ctrl+,: Settings
+      if ((event.ctrlKey || event.metaKey) && event.key === ",") {
+        event.preventDefault();
+        openSettingsSurface();
+      }
+      // Cmd/Ctrl+P: Projects
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "p") {
+        event.preventDefault();
+        setProjectsOpen(true);
+      }
+      // Cmd/Ctrl+B: Toggle sidebar
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "b") {
+        event.preventDefault();
+        setSidebarVisible((v) => !v);
+      }
+      // Cmd/Ctrl+\: Toggle right panel
+      if ((event.ctrlKey || event.metaKey) && event.key === "\\") {
+        event.preventDefault();
+        setRightPanelVisible((v) => !v);
+      }
+      // Cmd/Ctrl+Shift+F: Search chats
+      if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === "f") {
+        event.preventDefault();
+        // Focus search input if exists
+        document.querySelector('.nav-search input')?.focus();
+      }
+      // Cmd/Ctrl+/: Keyboard shortcuts help
+      if ((event.ctrlKey || event.metaKey) && event.key === "/") {
+        event.preventDefault();
+        setShortcutsOpen(true);
+      }
+      // Cmd/Ctrl+T: Toggle browser (existing)
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "t") {
+        event.preventDefault();
+        setRightPanelVisible(true);
+        setSelectedTool((current) => (current === "browser" ? "" : "browser"));
+      }
+      // Escape: Close modals
+      if (event.key === "Escape") {
+        setCommandsOpen(false);
+        setProjectsOpen(false);
+        setCapabilitiesOpen(false);
+        setScheduledOpen(false);
+        setSettingsOpen(false);
+        setShortcutsOpen(false);
+        setSelectedTool("");
+      }
+    };
+    window.addEventListener("keydown", onKeyDown);
+    return () => window.removeEventListener("keydown", onKeyDown);
+  });
+
+  const commands = [
+    { id: "new", title: t.newChat, subtitle: "Ctrl+N", keywords: "chat session", action: createSession },
+    { id: "project", title: t.selectProject, subtitle: t.activeProject, keywords: "folder workspace", action: () => setProjectsOpen(true) },
+    { id: "terminal", title: t.openTerminal, subtitle: projectLabel(activeProject, t), keywords: "shell powershell", action: openTerminal },
+    { id: "settings", title: t.settings, subtitle: t.setupProvider, keywords: "provider api key model", action: openSettingsSurface },
+    { id: "capabilities", title: t.capabilities, subtitle: t.plugins, keywords: "plugins skills tools", action: openCapabilitiesSurface },
+    { id: "review", title: t.quickReview, subtitle: "Prompt", keywords: "review code", action: () => setDraft(t.quickReview) },
+    { id: "plan", title: t.quickPlan, subtitle: "Prompt", keywords: "plan implementation", action: () => setDraft(t.quickPlan) },
+    {
+      id: "data",
+      title: t.openData,
+      subtitle: t.dataFile,
+      keywords: "storage history",
+      action: async () => {
+        await desktopApi?.openDataFile();
+        showToast(t.dataOpened);
+      },
+    },
+  ];
+  const appearance = state.settings.appearance || {};
+  const surfaceOpen = settingsOpen || capabilitiesOpen;
+  const appClassName = cx(
+    "app-shell",
+    (!appearance.fontSize || appearance.fontSize === "compact") && "font-compact",
+    appearance.fontSize === "default" && "font-default",
+    appearance.fontSize === "large" && "font-large",
+    appearance.density === "comfortable" && "density-comfortable",
+  );
+  const gridClassName = cx(
+    "app-grid",
+    !sidebarVisible && "sidebar-hidden",
+    !rightPanelVisible && "right-panel-hidden",
+    surfaceOpen && "surface-open",
+    settingsOpen && "settings-open",
+  );
+
+  return (
+    <div className={appClassName} lang={lang}>
+      {!desktopApi && <div className="desktop-warning">{t.desktopOnly}</div>}
+      {loadError && <div className="desktop-warning">{loadError}</div>}
+      {toast && <div className="toast"><Check size={15} />{toast}</div>}
+      <div className={gridClassName}>
+        <Sidebar
+          state={state}
+          activeSessionId={activeSession?.id}
+          setActiveSessionId={setActiveSessionId}
+          query={query}
+          setQuery={setQuery}
+          onNewChat={createSession}
+          onSettings={openSettingsSurface}
+          onScheduled={() => setScheduledOpen(true)}
+          onCapabilities={openCapabilitiesSurface}
+          onSelectProject={selectProject}
+          onSetProject={setActiveProject}
+          onToggleSidebar={() => setSidebarVisible((current) => !current)}
+          loading={stateLoading}
+          loadError={loadError}
+          onRetryLoad={retryLoadDesktopState}
+          streamingSessionId={streamingSessionId}
+          lang={lang}
+          t={t}
+        />
+        {settingsOpen ? (
+          <SettingsModal state={state} lang={lang} t={t} onClose={() => setSettingsOpen(false)} onSaved={(next) => setState(next)} surface />
+        ) : capabilitiesOpen ? (
+          <CapabilityModal
+            state={state}
+            lang={lang}
+            t={t}
+            onClose={() => setCapabilitiesOpen(false)}
+            onToggle={toggleCapability}
+            onSaved={(next) => setState(next)}
+            onOpenClaudePanel={() => activateTool("claude")}
+            surface
+          />
+        ) : (
+        <Conversation
+          session={activeSession}
+          settings={state.settings}
+          activeProject={activeProject}
+          hasKey={hasKey}
+          onSend={sendMessage}
+          onCancel={cancelMessage}
+          onSelectProject={() => setProjectsOpen(true)}
+          onSettings={openSettingsSurface}
+          onCapabilities={openCapabilitiesSurface}
+          onCopy={copyMessage}
+          onRetry={retryLast}
+          onOpenInteractiveClaude={openInteractiveClaudeFromChat}
+          sidebarVisible={sidebarVisible}
+          onToggleSidebar={() => setSidebarVisible((current) => !current)}
+          rightPanelVisible={rightPanelVisible}
+          onToggleTools={() => setRightPanelVisible((current) => !current)}
+          bottomPanel={bottomPanel}
+          setBottomPanel={setBottomPanel}
+          onActivateTool={activateTool}
+          onOpenTerminal={openTerminal}
+          onOpenProject={openProject}
+          busy={busy}
+          streamingAssistant={streamingAssistant}
+          optimisticUser={optimisticUser?.sessionId === activeSession?.id ? optimisticUser : null}
+          draft={draft}
+          setDraft={setDraft}
+          environment={environment}
+          onRefreshEnvironment={refreshEnvironment}
+          ideOptions={ideOptions}
+          selectedIdeId={selectedIdeId}
+          setSelectedIdeId={setSelectedIdeId}
+          onOpenIde={openIde}
+          lang={lang}
+          t={t}
+        />
+        )}
+        {!surfaceOpen && (
+        <ToolsPanel
+          activeProject={activeProject}
+          settings={state.settings}
+          environment={environment}
+          onRefreshEnvironment={refreshEnvironment}
+          ideOptions={ideOptions}
+          selectedIdeId={selectedIdeId}
+          setSelectedIdeId={setSelectedIdeId}
+          onOpenIde={openIde}
+          selectedTool={selectedTool}
+          setSelectedTool={setSelectedTool}
+          onSettings={openSettingsSurface}
+          onOpenProject={openProject}
+          onOpenTerminal={openTerminal}
+          onOpenBrowserUrl={openBrowserUrl}
+          onCapabilities={openCapabilitiesSurface}
+          onClose={() => setRightPanelVisible(false)}
+          t={t}
+        />
+        )}
+      </div>
+      <footer className="statusbar">
+        <span>Claudex</span>
+        <span>{providerDefaults(state.settings.provider).name}</span>
+        <span>{state.settings.model}</span>
+        <span>{state.settings.provider === "ollama" || hasKey ? t.ready : t.needsKey}</span>
+      </footer>
+      {projectsOpen && (
+        <ProjectModal
+          state={state}
+          t={t}
+          onClose={() => setProjectsOpen(false)}
+          onSelectProject={selectProject}
+          onSetProject={setActiveProject}
+          onOpenProject={openProject}
+          onOpenTerminal={openTerminal}
+        />
+      )}
+      {commandsOpen && <CommandPalette commands={commands} t={t} onClose={() => setCommandsOpen(false)} />}
+      {scheduledOpen && (
+        <ScheduledModal
+          t={t}
+          lang={lang}
+          onClose={() => setScheduledOpen(false)}
+          onUsePrompt={(prompt) => {
+            setDraft(prompt);
+            setScheduledOpen(false);
+            showToast(t.copiedPrompt);
+          }}
+        />
+      )}
+      {shortcutsOpen && <KeyboardShortcutsModal t={t} onClose={() => setShortcutsOpen(false)} />}
+    </div>
+  );
+}
+
+function KeyboardShortcutsModal({ t, onClose }) {
+  const isMac = navigator.platform.toUpperCase().indexOf('MAC') >= 0;
+  const mod = isMac ? 'Cmd' : 'Ctrl';
+  const modalRef = useRef(null);
+  useFocusTrap(modalRef);
+
+  const shortcuts = [
+    { keys: `${mod}+K`, action: t.commandPalette || 'Command palette' },
+    { keys: `${mod}+N`, action: t.newChat || 'New chat' },
+    { keys: `${mod}+,`, action: t.settings || 'Settings' },
+    { keys: `${mod}+P`, action: t.projects || 'Projects' },
+    { keys: `${mod}+B`, action: 'Toggle sidebar' },
+    { keys: `${mod}+\\`, action: 'Toggle right panel' },
+    { keys: `${mod}+Shift+F`, action: t.search || 'Search chats' },
+    { keys: `${mod}+T`, action: 'Toggle browser' },
+    { keys: `${mod}+/`, action: 'Show shortcuts' },
+    { keys: 'Escape', action: t.close || 'Close modal' },
+    { keys: 'Enter', action: t.send || 'Send message (in composer)' },
+    { keys: 'Shift+Enter', action: 'New line (in composer)' },
+  ];
+
+  return (
+    <div className="modal-backdrop" onClick={onClose}>
+      <div
+        ref={modalRef}
+        tabIndex={-1}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Keyboard Shortcuts"
+        className="modal-container"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <header className="modal-header">
+          <div>
+            <h2>Keyboard Shortcuts</h2>
+            <p>Quick actions to navigate faster</p>
+          </div>
+          <button type="button" onClick={onClose} className="icon-button" title={t.close || "Close"} aria-label={t.close || "Close"}>
+            <X size={20} />
+          </button>
+        </header>
+        <div className="modal-body">
+          <div className="shortcuts-grid">
+            {shortcuts.map((shortcut, i) => (
+              <div key={i} className="shortcut-row">
+                <kbd className="shortcut-keys">{shortcut.keys}</kbd>
+                <span className="shortcut-action">{shortcut.action}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
