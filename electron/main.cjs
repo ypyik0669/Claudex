@@ -6,6 +6,23 @@ const { spawn } = require("node:child_process");
 
 const DEFAULT_SYSTEM_PROMPT =
   "你是一名务实的资深编程助手。回答要简洁、准确，并专注于可执行的实现。";
+const OPENAI_COMPATIBLE_PROVIDERS = new Set([
+  "openai-compatible",
+  "openrouter",
+  "deepseek",
+  "minimax",
+  "xiaomi-mimo",
+  "lm-studio",
+]);
+const PROVIDER_ENV_KEYS = {
+  anthropic: ["ANTHROPIC_API_KEY"],
+  "openai-compatible": ["OPENAI_API_KEY"],
+  openrouter: ["OPENROUTER_API_KEY", "OPENAI_API_KEY"],
+  deepseek: ["DEEPSEEK_API_KEY", "OPENAI_API_KEY"],
+  minimax: ["MINIMAX_API_KEY", "OPENAI_API_KEY"],
+  "xiaomi-mimo": ["MIMO_API_KEY", "XIAOMI_MIMO_API_KEY", "OPENAI_API_KEY"],
+  "lm-studio": [],
+};
 const DEFAULT_CAPABILITIES = {
   "project-context": true,
   "code-review": true,
@@ -44,6 +61,29 @@ const CLAUDE_CODE_SETTINGS = {
   claudeCommand: "claude",
   permissionMode: "default",
   outputFormat: "json",
+  effort: "",
+  agent: "",
+  allowedTools: "",
+  disallowedTools: "",
+  tools: "",
+  addDirs: "",
+  mcpConfig: "",
+  pluginDir: "",
+  pluginUrl: "",
+  settings: "",
+  settingSources: "",
+  fallbackModel: "",
+  maxBudgetUsd: "",
+  sessionName: "",
+  extraArgs: "",
+  safeMode: false,
+  bareMode: false,
+  ide: false,
+  chromeMode: "default",
+  strictMcpConfig: false,
+  noSessionPersistence: false,
+  axScreenReader: false,
+  verbose: false,
 };
 const GENERIC_SESSION_TITLES = new Set(["", "claudex", "new chat", "new coding session", "新聊天"]);
 
@@ -706,6 +746,10 @@ function sanitizeStore(store) {
         anthropicBaseUrl: envValue("ANTHROPIC_BASE_URL"),
         openaiKey: Boolean(envValue("OPENAI_API_KEY")),
         openaiBaseUrl: envValue("OPENAI_BASE_URL"),
+        openrouterKey: Boolean(envValue("OPENROUTER_API_KEY")),
+        deepseekKey: Boolean(envValue("DEEPSEEK_API_KEY")),
+        minimaxKey: Boolean(envValue("MINIMAX_API_KEY")),
+        mimoKey: Boolean(envValue("MIMO_API_KEY") || envValue("XIAOMI_MIMO_API_KEY")),
         envFileDirs: [process.cwd(), path.dirname(process.execPath)],
       },
     },
@@ -732,9 +776,24 @@ function isLocalBaseUrl(baseUrl) {
   return /^https?:\/\/(127\.0\.0\.1|localhost|\[::1\])/i.test(baseUrl || "");
 }
 
+function isOpenAiCompatibleProvider(provider) {
+  return OPENAI_COMPATIBLE_PROVIDERS.has(provider || "openai-compatible");
+}
+
+function providerEnvKey(provider) {
+  const keys = PROVIDER_ENV_KEYS[provider] || PROVIDER_ENV_KEYS["openai-compatible"];
+  return keys.map((key) => envValue(key)).find(Boolean) || "";
+}
+
+function providerAuthHeaders(provider, apiKey) {
+  if (!apiKey) return {};
+  if (provider === "xiaomi-mimo") return { "api-key": apiKey };
+  return { Authorization: `Bearer ${apiKey}` };
+}
+
 function requireKeyIfNeeded(provider, baseUrl, apiKey) {
   if (provider === "ollama") return;
-  if (provider === "openai-compatible" && isLocalBaseUrl(baseUrl)) return;
+  if (isOpenAiCompatibleProvider(provider) && isLocalBaseUrl(baseUrl)) return;
   if (!apiKey) {
     throw new Error("缺少 API 密钥。请打开设置，并为当前服务商保存密钥。");
   }
@@ -777,13 +836,13 @@ function buildSystemPrompt(store, session) {
 }
 
 async function requestOpenAiCompatible(store, session, apiKey, requestId) {
-  const { model, baseUrl, temperature } = store.settings;
-  requireKeyIfNeeded("openai-compatible", baseUrl, apiKey);
+  const { provider, model, baseUrl, temperature } = store.settings;
+  requireKeyIfNeeded(provider, baseUrl, apiKey);
   const response = await fetchWithTimeout(joinUrl(baseUrl, "/chat/completions"), {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      ...(apiKey ? { Authorization: `Bearer ${apiKey}` } : {}),
+      ...providerAuthHeaders(provider, apiKey),
     },
     body: JSON.stringify({
       model,
@@ -866,31 +925,95 @@ async function requestAssistant(store, session, requestId) {
   const provider = store.settings.provider;
   const apiKey =
     decryptSecret(store.settings.apiKeys?.[provider]) ||
-    (provider === "anthropic" ? envValue("ANTHROPIC_API_KEY") : envValue("OPENAI_API_KEY"));
+    providerEnvKey(provider);
   if (provider === "anthropic") return requestAnthropic(store, session, apiKey, requestId);
   if (provider === "ollama") return requestOllama(store, session, requestId);
   return requestOpenAiCompatible(store, session, apiKey, requestId);
+}
+
+function cleanOption(value) {
+  return String(value ?? "").trim();
+}
+
+function splitLineValues(value) {
+  return String(value || "")
+    .split(/\r?\n/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function pushOption(args, flag, value) {
+  const next = cleanOption(value);
+  if (next) args.push(flag, next);
+}
+
+function pushFlag(args, flag, enabled) {
+  if (enabled) args.push(flag);
+}
+
+function pushRepeatable(args, flag, value) {
+  for (const item of splitLineValues(value)) args.push(flag, item);
+}
+
+function pushVariadic(args, flag, value) {
+  const items = splitLineValues(value);
+  if (items.length) args.push(flag, ...items);
+}
+
+function appendClaudeCodeOptions(args, store, session, { stream = false } = {}) {
+  const claudeCode = { ...CLAUDE_CODE_SETTINGS, ...(store.settings.claudeCode || {}) };
+  pushOption(args, "--model", store.settings.model || "claude-sonnet-4-5-20250929");
+  pushOption(args, "--permission-mode", claudeCode.permissionMode || "default");
+  pushOption(args, "--append-system-prompt", buildSystemPrompt(store, session));
+  pushOption(args, "--effort", claudeCode.effort);
+  pushOption(args, "--agent", claudeCode.agent);
+  pushOption(args, "--allowedTools", claudeCode.allowedTools);
+  pushOption(args, "--disallowedTools", claudeCode.disallowedTools);
+  pushOption(args, "--tools", claudeCode.tools);
+  pushOption(args, "--fallback-model", claudeCode.fallbackModel);
+  pushOption(args, "--max-budget-usd", claudeCode.maxBudgetUsd);
+  pushOption(args, "--name", claudeCode.sessionName);
+  pushOption(args, "--settings", claudeCode.settings);
+  pushOption(args, "--setting-sources", claudeCode.settingSources);
+  pushVariadic(args, "--add-dir", claudeCode.addDirs);
+  pushVariadic(args, "--mcp-config", claudeCode.mcpConfig);
+  pushRepeatable(args, "--plugin-dir", claudeCode.pluginDir);
+  pushRepeatable(args, "--plugin-url", claudeCode.pluginUrl);
+  pushFlag(args, "--strict-mcp-config", claudeCode.strictMcpConfig);
+  pushFlag(args, "--safe-mode", claudeCode.safeMode);
+  pushFlag(args, "--bare", claudeCode.bareMode);
+  pushFlag(args, "--ide", claudeCode.ide);
+  pushFlag(args, "--no-session-persistence", claudeCode.noSessionPersistence);
+  pushFlag(args, "--ax-screen-reader", claudeCode.axScreenReader);
+  if (claudeCode.chromeMode === "on") args.push("--chrome");
+  if (claudeCode.chromeMode === "off") args.push("--no-chrome");
+  if (claudeCode.verbose && !args.includes("--verbose")) args.push("--verbose");
+  if (session.claudeSessionId) args.push("--resume", session.claudeSessionId);
+  const extraArgs = splitArgs(claudeCode.extraArgs);
+  if (extraArgs.length) args.push(...extraArgs);
+  if (stream && !args.includes("--verbose")) args.push("--verbose");
+  return claudeCode;
+}
+
+function buildClaudeChatArgs(store, session, { stream = false } = {}) {
+  const args = [
+    "-p",
+    session.messages[session.messages.length - 1]?.content || "",
+    "--output-format",
+    stream ? "stream-json" : "json",
+  ];
+  if (stream) {
+    args.push("--include-partial-messages", "--include-hook-events");
+  }
+  appendClaudeCodeOptions(args, store, session, { stream });
+  return args;
 }
 
 async function requestClaudeCode(store, session, requestId) {
   const project = store.activeProject || { path: session.projectPath || "" };
   const cwd = project.path && fs.existsSync(project.path) ? project.path : app.getPath("home");
   const claudeCode = { ...CLAUDE_CODE_SETTINGS, ...(store.settings.claudeCode || {}) };
-  const args = [
-    "-p",
-    session.messages[session.messages.length - 1]?.content || "",
-    "--output-format",
-    "json",
-    "--model",
-    store.settings.model || "claude-sonnet-4-5-20250929",
-    "--permission-mode",
-    claudeCode.permissionMode || "default",
-    "--append-system-prompt",
-    buildSystemPrompt(store, session),
-  ];
-  if (session.claudeSessionId) {
-    args.push("--resume", session.claudeSessionId);
-  }
+  const args = buildClaudeChatArgs(store, session);
   const result = await runClaudeCommand(claudeCode.claudeCommand || "claude", args, {
     cwd,
     requestId,
@@ -993,24 +1116,7 @@ async function requestClaudeCodeStream(store, session, requestId, sender) {
   const project = store.activeProject || { path: session.projectPath || "" };
   const cwd = project.path && fs.existsSync(project.path) ? project.path : app.getPath("home");
   const claudeCode = { ...CLAUDE_CODE_SETTINGS, ...(store.settings.claudeCode || {}) };
-  const args = [
-    "-p",
-    session.messages[session.messages.length - 1]?.content || "",
-    "--output-format",
-    "stream-json",
-    "--include-partial-messages",
-    "--include-hook-events",
-    "--verbose",
-    "--model",
-    store.settings.model || "claude-sonnet-4-5-20250929",
-    "--permission-mode",
-    claudeCode.permissionMode || "default",
-    "--append-system-prompt",
-    buildSystemPrompt(store, session),
-  ];
-  if (session.claudeSessionId) {
-    args.push("--resume", session.claudeSessionId);
-  }
+  const args = buildClaudeChatArgs(store, session, { stream: true });
 
   let finalPayload = null;
   const result = await runStreamingProcess(commandCandidates(claudeCode.claudeCommand || "claude")[0], args, {

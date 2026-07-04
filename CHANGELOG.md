@@ -1,5 +1,18 @@
 # 变更记录
 
+## v0.1.3 - Provider 和 Claude Code 参数完善
+
+### 新增
+
+- 直接 API 模式新增 OpenRouter、DeepSeek、MiniMax、Xiaomi MiMo 和 LM Studio 预设。
+- Provider 兼容层支持 OpenAI Chat Completions、Anthropic Messages、Ollama、本地无密钥端点，以及 MiMo 的 `api-key` 请求头。
+- 高级 Claude Code 设置新增 `--effort`、agent、工具白名单/黑名单、工具集、额外目录、MCP 配置、插件目录/URL、settings、setting sources、fallback model、预算、会话名、safe mode、bare mode、IDE、Chrome、strict MCP、不保存会话、屏幕阅读器和 verbose 输出。
+- 右侧 Claude Code 面板新增命令参考快捷入口，并保留自由命令框运行任意 `claude ...` 子命令。
+
+### 说明
+
+- `/model`、`/effort`、`/resume` 等 slash command 仍由真实交互式 Claude Code TUI 承接；Claudex 的非交互聊天使用对应 CLI flags。
+
 ## v0.1.2 - 中文化收尾
 
 ### 调整

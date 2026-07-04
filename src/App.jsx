@@ -47,13 +47,62 @@ const providers = [
   {
     id: "openai-compatible",
     name: "OpenAI-compatible",
+    apiStyle: "openai-chat",
+    authMode: "bearer",
     baseUrl: "https://api.openai.com/v1",
     model: "gpt-4.1",
-    note: "支持 OpenAI、OpenRouter、LM Studio 和兼容网关。",
+    note: "通用 OpenAI Chat Completions 兼容网关，使用 Authorization: Bearer。",
+  },
+  {
+    id: "openrouter",
+    name: "OpenRouter",
+    apiStyle: "openai-chat",
+    authMode: "bearer",
+    baseUrl: "https://openrouter.ai/api/v1",
+    model: "anthropic/claude-sonnet-4.5",
+    note: "OpenAI-compatible 多模型网关，模型 ID 可直接改成 OpenRouter 上的任意 slug。",
+  },
+  {
+    id: "deepseek",
+    name: "DeepSeek",
+    apiStyle: "openai-chat",
+    authMode: "bearer",
+    baseUrl: "https://api.deepseek.com",
+    model: "deepseek-v4-flash",
+    note: "DeepSeek OpenAI Chat Completions 兼容端点，默认走 Bearer API Key。",
+  },
+  {
+    id: "minimax",
+    name: "MiniMax",
+    apiStyle: "openai-chat",
+    authMode: "bearer",
+    baseUrl: "https://api.minimax.io/v1",
+    model: "MiniMax-M3",
+    note: "MiniMax M 系列 OpenAI-compatible 端点。",
+  },
+  {
+    id: "xiaomi-mimo",
+    name: "Xiaomi MiMo",
+    apiStyle: "openai-chat",
+    authMode: "api-key",
+    baseUrl: "https://api.xiaomimimo.com/v1",
+    model: "mimo-v2.5-pro",
+    note: "MiMo OpenAI-compatible 端点，默认使用 api-key 请求头。",
+  },
+  {
+    id: "lm-studio",
+    name: "LM Studio",
+    apiStyle: "openai-chat",
+    authMode: "none",
+    baseUrl: "http://localhost:1234/v1",
+    model: "local-model",
+    note: "本地 LM Studio OpenAI-compatible 服务器，默认不需要 API 密钥。",
   },
   {
     id: "anthropic",
     name: "Anthropic",
+    apiStyle: "anthropic-messages",
+    authMode: "x-api-key",
     baseUrl: "https://api.anthropic.com/v1",
     model: "claude-sonnet-4-5-20250929",
     note: "通过 Electron 主进程直接调用 Anthropic Messages API。",
@@ -61,6 +110,8 @@ const providers = [
   {
     id: "ollama",
     name: "Ollama / local",
+    apiStyle: "ollama-chat",
+    authMode: "none",
     baseUrl: "http://localhost:11434",
     model: "qwen2.5-coder:latest",
     note: "通过 Ollama 运行本地模型，不需要 API 密钥。",
@@ -270,6 +321,56 @@ const copy = {
     settingsAdvancedClaude: "高级 Claude Code",
     settingsAdvancedApi: "高级 API 选项",
     claudeModel: "Claude 模型",
+    providerPresetHint: "该预设使用 {style}，认证方式：{auth}。{note}",
+    providerAuthBearer: "Bearer",
+    providerAuthApiKey: "api-key 请求头",
+    providerAuthNone: "无密钥",
+    effort: "推理强度",
+    effortDefault: "默认",
+    effortLow: "低",
+    effortMedium: "中",
+    effortHigh: "高",
+    effortXhigh: "很高",
+    effortMax: "最高",
+    claudeAgent: "Agent",
+    claudeAgentPlaceholder: "例如 reviewer / planner",
+    allowedTools: "允许工具",
+    disallowedTools: "禁止工具",
+    toolsList: "可用工具",
+    toolsListPlaceholder: "例如 Bash,Edit,Read 或 default",
+    toolsPlaceholder: "逗号分隔或保持为空",
+    addDirs: "额外目录",
+    addDirsPlaceholder: "每行一个 --add-dir 路径",
+    mcpConfig: "MCP 配置",
+    mcpConfigPlaceholder: "每行一个 JSON 文件路径或 JSON 字符串",
+    pluginDir: "插件目录",
+    pluginDirPlaceholder: "每行一个插件目录或 zip",
+    pluginUrl: "插件 URL",
+    pluginUrlPlaceholder: "每行一个插件 zip URL",
+    settingsFile: "设置文件",
+    settingsFilePlaceholder: "settings JSON 路径或 JSON 字符串",
+    settingSources: "设置来源",
+    settingSourcesPlaceholder: "user,project,local",
+    fallbackModel: "备用模型",
+    fallbackModelPlaceholder: "只在 -p 模式生效，例如 sonnet,opus",
+    maxBudgetUsd: "预算上限 USD",
+    sessionName: "会话名称",
+    sessionNamePlaceholder: "显示在 Claude Code 会话里",
+    extraClaudeArgs: "额外 Claude 参数",
+    extraClaudeArgsPlaceholder: "例如 --betas beta-a --debug api",
+    cliFlagsHint: "这些选项会自动追加到 Claudex 的非交互 Claude Code 调用；没有一等控件的 CLI flag 也可以放在额外参数里。",
+    slashCommandHint: "/model、/effort、/resume 等交互式 slash commands 需要打开真实 Claude Code TUI；非交互聊天会使用这里对应的 --model、--effort 等 CLI 参数。",
+    safeMode: "安全模式",
+    bareMode: "极简模式",
+    autoIde: "自动连接 IDE",
+    chromeMode: "Chrome 集成",
+    chromeDefault: "默认",
+    chromeOn: "开启",
+    chromeOff: "关闭",
+    strictMcpConfig: "仅使用指定 MCP",
+    noSessionPersistence: "不保存会话",
+    axScreenReader: "屏幕阅读器输出",
+    verboseOutput: "详细输出",
     settingsPrompt: "提示词",
     settingsStorage: "存储",
     close: "关闭",
@@ -349,7 +450,7 @@ const copy = {
     claudeCodeTool: "Claude Code",
     claudeCodeHelp: "在当前项目里运行真实 Claude Code 命令。",
     interactiveClaude: "交互式 Claude",
-    interactiveClaudeHelp: "遇到原生权限确认或 slash command 流程时，打开真正的 Claude Code TUI。",
+    interactiveClaudeHelp: "遇到原生权限确认、/model、/effort、/resume 等 slash command 流程时，打开真正的 Claude Code TUI；非交互聊天会使用设置里的 CLI 参数。",
     permissionDeniedNotice: "当前模式下，有一部分任务因权限确认而未能完成。",
     openInteractiveClaude: "打开交互式 Claude",
     claudeArgs: "Claude 参数",
@@ -376,6 +477,13 @@ const copy = {
     enablePlugin: "启用",
     runStreaming: "正在运行，输出会实时显示在下面。",
     doctor: "诊断",
+    help: "帮助",
+    agents: "Agents",
+    projectCommand: "项目命令",
+    pluginHelp: "插件帮助",
+    mcpHelp: "MCP 帮助",
+    marketplaceHelp: "市场帮助",
+    commandReference: "命令参考",
     commandPalette: "命令面板",
     commandHint: "搜索操作、工具、技能和提示词...",
     noCommands: "没有匹配的命令。",
@@ -563,6 +671,12 @@ function useFocusTrap(containerRef, active = true) {
 
 function providerDefaults(providerId) {
   return providers.find((provider) => provider.id === providerId) || providers[0];
+}
+
+function providerAuthLabel(provider, t) {
+  if (provider?.authMode === "api-key") return t.providerAuthApiKey;
+  if (provider?.authMode === "none") return t.providerAuthNone;
+  return t.providerAuthBearer;
 }
 
 function capabilityEnabled(settings, id) {
@@ -879,6 +993,29 @@ function fallbackState() {
         executionMode: "claude-code",
         claudeCommand: "claude",
         permissionMode: "default",
+        effort: "",
+        agent: "",
+        allowedTools: "",
+        disallowedTools: "",
+        tools: "",
+        addDirs: "",
+        mcpConfig: "",
+        pluginDir: "",
+        pluginUrl: "",
+        settings: "",
+        settingSources: "",
+        fallbackModel: "",
+        maxBudgetUsd: "",
+        sessionName: "",
+        extraArgs: "",
+        safeMode: false,
+        bareMode: false,
+        ide: false,
+        chromeMode: "default",
+        strictMcpConfig: false,
+        noSessionPersistence: false,
+        axScreenReader: false,
+        verbose: false,
       },
       capabilities: Object.fromEntries(capabilityCatalog.map((item) => [item.id, item.defaultEnabled])),
       customMarketplaces: [],
@@ -2252,9 +2389,11 @@ function ToolsPanel({
     ? `${t.loading}...`
     : [statusText, displayModelLabel(settings?.model), projectLabel(activeProject, t)].filter(Boolean).join(" · ");
   const quickClaudeCommands = [
+    { label: t.help, args: "--help" },
     { label: t.auth, args: "auth status" },
     { label: t.plugins, args: "plugin list" },
     { label: "MCP", args: "mcp list" },
+    { label: t.agents, args: "agents --help" },
     { label: t.doctor, args: "doctor" },
   ];
   const workspaceLiveEntry = workspaceBusy && commandRequestId
@@ -2659,12 +2798,18 @@ function ToolsPanel({
               {statusBaseUrl && <div><dt>{t.cliEnvSource}</dt><dd title={statusBaseUrl}>{compactPath(statusBaseUrl, 38)}</dd></div>}
             </dl>
             <details className="tool-subsection">
-              <summary>{t.diagnostics}</summary>
+              <summary>{t.commandReference}</summary>
               <div className="tool-actions">
+                <button type="button" className="plain-action" onClick={() => runClaude("--help")} disabled={claudeBusy} title={claudeBusy ? t.workingHint : undefined}>{t.help}</button>
                 <button type="button" className="plain-action" onClick={() => runClaude("auth status")} disabled={claudeBusy} title={claudeBusy ? t.workingHint : undefined}>{t.auth}</button>
+                <button type="button" className="plain-action" onClick={() => runClaude("agents --help")} disabled={claudeBusy} title={claudeBusy ? t.workingHint : undefined}>{t.agents}</button>
+                <button type="button" className="plain-action" onClick={() => runClaude("project --help")} disabled={claudeBusy} title={claudeBusy ? t.workingHint : undefined}>{t.projectCommand}</button>
                 <button type="button" className="plain-action" onClick={() => runClaude("plugin list")} disabled={claudeBusy} title={claudeBusy ? t.workingHint : undefined}>{t.plugins}</button>
+                <button type="button" className="plain-action" onClick={() => runClaude("plugin --help")} disabled={claudeBusy} title={claudeBusy ? t.workingHint : undefined}>{t.pluginHelp}</button>
+                <button type="button" className="plain-action" onClick={() => runClaude("plugin marketplace --help")} disabled={claudeBusy} title={claudeBusy ? t.workingHint : undefined}>{t.marketplaceHelp}</button>
                 <button type="button" className="plain-action" onClick={() => runClaude("plugin marketplace list")} disabled={claudeBusy} title={claudeBusy ? t.workingHint : undefined}>{t.marketplace}</button>
                 <button type="button" className="plain-action" onClick={() => runClaude("mcp list")} disabled={claudeBusy} title={claudeBusy ? t.workingHint : undefined}>MCP</button>
+                <button type="button" className="plain-action" onClick={() => runClaude("mcp --help")} disabled={claudeBusy} title={claudeBusy ? t.workingHint : undefined}>{t.mcpHelp}</button>
                 <button type="button" className="plain-action" onClick={() => runClaude("doctor")} disabled={claudeBusy} title={claudeBusy ? t.workingHint : undefined}>{t.doctor}</button>
               </div>
             </details>
@@ -2863,6 +3008,29 @@ function SettingsModal({ state, lang, t, onClose, onSaved, surface = false }) {
       executionMode: state.settings.claudeCode?.executionMode || "claude-code",
       claudeCommand: state.settings.claudeCode?.claudeCommand || "claude",
       permissionMode: state.settings.claudeCode?.permissionMode || "default",
+      effort: state.settings.claudeCode?.effort || "",
+      agent: state.settings.claudeCode?.agent || "",
+      allowedTools: state.settings.claudeCode?.allowedTools || "",
+      disallowedTools: state.settings.claudeCode?.disallowedTools || "",
+      tools: state.settings.claudeCode?.tools || "",
+      addDirs: state.settings.claudeCode?.addDirs || "",
+      mcpConfig: state.settings.claudeCode?.mcpConfig || "",
+      pluginDir: state.settings.claudeCode?.pluginDir || "",
+      pluginUrl: state.settings.claudeCode?.pluginUrl || "",
+      settings: state.settings.claudeCode?.settings || "",
+      settingSources: state.settings.claudeCode?.settingSources || "",
+      fallbackModel: state.settings.claudeCode?.fallbackModel || "",
+      maxBudgetUsd: state.settings.claudeCode?.maxBudgetUsd || "",
+      sessionName: state.settings.claudeCode?.sessionName || "",
+      extraArgs: state.settings.claudeCode?.extraArgs || "",
+      safeMode: Boolean(state.settings.claudeCode?.safeMode),
+      bareMode: Boolean(state.settings.claudeCode?.bareMode),
+      ide: Boolean(state.settings.claudeCode?.ide),
+      chromeMode: state.settings.claudeCode?.chromeMode || "default",
+      strictMcpConfig: Boolean(state.settings.claudeCode?.strictMcpConfig),
+      noSessionPersistence: Boolean(state.settings.claudeCode?.noSessionPersistence),
+      axScreenReader: Boolean(state.settings.claudeCode?.axScreenReader),
+      verbose: Boolean(state.settings.claudeCode?.verbose),
     },
     apiKey: "",
     customMarketplaces: Array.isArray(state.settings.customMarketplaces) ? state.settings.customMarketplaces : [],
@@ -2880,9 +3048,10 @@ function SettingsModal({ state, lang, t, onClose, onSaved, surface = false }) {
   const activeProvider = providerDefaults(form.provider);
   const directApiActive = form.claudeCode.executionMode === "api";
   const savedKey = Boolean(state.settings.apiKeys?.[form.provider]);
+  const providerNeedsApiKey = activeProvider.authMode !== "none";
   const runtimeModelLabel = form.model || activeProvider.model;
   const runtimeAuthLabel = directApiActive
-    ? form.provider === "ollama"
+    ? !providerNeedsApiKey
       ? t.apiKeyNone
       : savedKey
         ? t.savedKey
@@ -3104,14 +3273,111 @@ function SettingsModal({ state, lang, t, onClose, onSaved, surface = false }) {
                     <input value={form.model} onChange={(event) => setForm((current) => ({ ...current, model: event.target.value }))} placeholder={activeProvider.model} />
                   </label>
                   <label>
+                    <span>{t.effort}</span>
+                    <select value={form.claudeCode.effort} onChange={(event) => setForm((current) => ({ ...current, claudeCode: { ...current.claudeCode, effort: event.target.value } }))}>
+                      <option value="">{t.effortDefault}</option>
+                      <option value="low">{t.effortLow}</option>
+                      <option value="medium">{t.effortMedium}</option>
+                      <option value="high">{t.effortHigh}</option>
+                      <option value="xhigh">{t.effortXhigh}</option>
+                      <option value="max">{t.effortMax}</option>
+                    </select>
+                  </label>
+                  <label>
                     <span>{t.claudeCommand}</span>
                     <input value={form.claudeCode.claudeCommand} onChange={(event) => setForm((current) => ({ ...current, claudeCode: { ...current.claudeCode, claudeCommand: event.target.value } }))} placeholder="claude" />
+                  </label>
+                  <label>
+                    <span>{t.claudeAgent}</span>
+                    <input value={form.claudeCode.agent} onChange={(event) => setForm((current) => ({ ...current, claudeCode: { ...current.claudeCode, agent: event.target.value } }))} placeholder={t.claudeAgentPlaceholder} />
                   </label>
                   <label>
                     <span>{t.timeout}</span>
                     <input type="number" min="1000" step="1000" value={form.timeoutMs} onChange={(event) => setForm((current) => ({ ...current, timeoutMs: event.target.value }))} />
                   </label>
+                  <label>
+                    <span>{t.sessionName}</span>
+                    <input value={form.claudeCode.sessionName} onChange={(event) => setForm((current) => ({ ...current, claudeCode: { ...current.claudeCode, sessionName: event.target.value } }))} placeholder={t.sessionNamePlaceholder} />
+                  </label>
+                  <label>
+                    <span>{t.allowedTools}</span>
+                    <input value={form.claudeCode.allowedTools} onChange={(event) => setForm((current) => ({ ...current, claudeCode: { ...current.claudeCode, allowedTools: event.target.value } }))} placeholder={t.toolsPlaceholder} />
+                  </label>
+                  <label>
+                    <span>{t.disallowedTools}</span>
+                    <input value={form.claudeCode.disallowedTools} onChange={(event) => setForm((current) => ({ ...current, claudeCode: { ...current.claudeCode, disallowedTools: event.target.value } }))} placeholder={t.toolsPlaceholder} />
+                  </label>
+                  <label>
+                    <span>{t.toolsList}</span>
+                    <input value={form.claudeCode.tools} onChange={(event) => setForm((current) => ({ ...current, claudeCode: { ...current.claudeCode, tools: event.target.value } }))} placeholder={t.toolsListPlaceholder} />
+                  </label>
+                  <label>
+                    <span>{t.fallbackModel}</span>
+                    <input value={form.claudeCode.fallbackModel} onChange={(event) => setForm((current) => ({ ...current, claudeCode: { ...current.claudeCode, fallbackModel: event.target.value } }))} placeholder={t.fallbackModelPlaceholder} />
+                  </label>
+                  <label>
+                    <span>{t.maxBudgetUsd}</span>
+                    <input type="number" min="0" step="0.01" value={form.claudeCode.maxBudgetUsd} onChange={(event) => setForm((current) => ({ ...current, claudeCode: { ...current.claudeCode, maxBudgetUsd: event.target.value } }))} placeholder="0.00" />
+                  </label>
+                  <label>
+                    <span>{t.chromeMode}</span>
+                    <select value={form.claudeCode.chromeMode} onChange={(event) => setForm((current) => ({ ...current, claudeCode: { ...current.claudeCode, chromeMode: event.target.value } }))}>
+                      <option value="default">{t.chromeDefault}</option>
+                      <option value="on">{t.chromeOn}</option>
+                      <option value="off">{t.chromeOff}</option>
+                    </select>
+                  </label>
+                  <label>
+                    <span>{t.settingSources}</span>
+                    <input value={form.claudeCode.settingSources} onChange={(event) => setForm((current) => ({ ...current, claudeCode: { ...current.claudeCode, settingSources: event.target.value } }))} placeholder={t.settingSourcesPlaceholder} />
+                  </label>
+                  <label className="span-2">
+                    <span>{t.settingsFile}</span>
+                    <input value={form.claudeCode.settings} onChange={(event) => setForm((current) => ({ ...current, claudeCode: { ...current.claudeCode, settings: event.target.value } }))} placeholder={t.settingsFilePlaceholder} />
+                  </label>
+                  <label className="span-2">
+                    <span>{t.addDirs}</span>
+                    <textarea value={form.claudeCode.addDirs} onChange={(event) => setForm((current) => ({ ...current, claudeCode: { ...current.claudeCode, addDirs: event.target.value } }))} placeholder={t.addDirsPlaceholder} />
+                  </label>
+                  <label className="span-2">
+                    <span>{t.mcpConfig}</span>
+                    <textarea value={form.claudeCode.mcpConfig} onChange={(event) => setForm((current) => ({ ...current, claudeCode: { ...current.claudeCode, mcpConfig: event.target.value } }))} placeholder={t.mcpConfigPlaceholder} />
+                  </label>
+                  <label className="span-2">
+                    <span>{t.pluginDir}</span>
+                    <textarea value={form.claudeCode.pluginDir} onChange={(event) => setForm((current) => ({ ...current, claudeCode: { ...current.claudeCode, pluginDir: event.target.value } }))} placeholder={t.pluginDirPlaceholder} />
+                  </label>
+                  <label className="span-2">
+                    <span>{t.pluginUrl}</span>
+                    <textarea value={form.claudeCode.pluginUrl} onChange={(event) => setForm((current) => ({ ...current, claudeCode: { ...current.claudeCode, pluginUrl: event.target.value } }))} placeholder={t.pluginUrlPlaceholder} />
+                  </label>
+                  <label className="span-2">
+                    <span>{t.extraClaudeArgs}</span>
+                    <textarea value={form.claudeCode.extraArgs} onChange={(event) => setForm((current) => ({ ...current, claudeCode: { ...current.claudeCode, extraArgs: event.target.value } }))} placeholder={t.extraClaudeArgsPlaceholder} />
+                  </label>
                 </div>
+                <div className="settings-grid checkbox-settings-grid">
+                  {[
+                    ["safeMode", t.safeMode],
+                    ["bareMode", t.bareMode],
+                    ["ide", t.autoIde],
+                    ["strictMcpConfig", t.strictMcpConfig],
+                    ["noSessionPersistence", t.noSessionPersistence],
+                    ["axScreenReader", t.axScreenReader],
+                    ["verbose", t.verboseOutput],
+                  ].map(([key, label]) => (
+                    <label className="settings-checkbox" key={key}>
+                      <input
+                        type="checkbox"
+                        checked={Boolean(form.claudeCode[key])}
+                        onChange={(event) => setForm((current) => ({ ...current, claudeCode: { ...current.claudeCode, [key]: event.target.checked } }))}
+                      />
+                      <span>{label}</span>
+                    </label>
+                  ))}
+                </div>
+                <p className="settings-section-copy">{t.cliFlagsHint}</p>
+                <p className="settings-section-copy">{t.slashCommandHint}</p>
               </details>
             )}
           </section>
@@ -3125,6 +3391,14 @@ function SettingsModal({ state, lang, t, onClose, onSaved, surface = false }) {
               <em>{directApiActive ? t.enabled : t.inactiveInClaudeCode}</em>
             </summary>
             <p className="settings-section-copy">{directApiActive ? t.settingsDirectApiHint : t.settingsDirectApiInactiveHint}</p>
+            {directApiActive && (
+              <p className="settings-section-copy">
+                {t.providerPresetHint
+                  .replace("{style}", activeProvider.apiStyle || "OpenAI-compatible")
+                  .replace("{auth}", providerAuthLabel(activeProvider, t))
+                  .replace("{note}", activeProvider.note || "")}
+              </p>
+            )}
             <div className="settings-grid direct-api-grid">
               <label>
                 <span>{t.provider}</span>
@@ -3150,9 +3424,9 @@ function SettingsModal({ state, lang, t, onClose, onSaved, surface = false }) {
                   type="password"
                   value={form.apiKey}
                   onChange={(event) => setForm((current) => ({ ...current, apiKey: event.target.value }))}
-                  placeholder={form.provider === "ollama" ? t.apiKeyNone : savedKey ? t.apiKeySaved : t.apiKeyPlaceholder}
-                  disabled={!directApiActive || form.provider === "ollama"}
-                  title={!directApiActive ? t.inactiveInClaudeCode : form.provider === "ollama" ? t.apiKeyNone : undefined}
+                  placeholder={!providerNeedsApiKey ? t.apiKeyNone : savedKey ? t.apiKeySaved : t.apiKeyPlaceholder}
+                  disabled={!directApiActive || !providerNeedsApiKey}
+                  title={!directApiActive ? t.inactiveInClaudeCode : !providerNeedsApiKey ? t.apiKeyNone : undefined}
                 />
               </label>
             </div>
@@ -3689,6 +3963,7 @@ function SettingsBackedStatus({
       [t.fontSize, form.appearance?.fontSize || t.fontSizeCompact],
       [t.density, form.appearance?.density || t.densityCompact],
       [t.defaultPermissions, permissionModeLabel(form.claudeCode?.permissionMode, t)],
+      [t.effort, form.claudeCode?.effort || t.effortDefault],
     ],
     git: [
       [t.activeProject, projectLabel(activeProject, t)],
@@ -3725,6 +4000,7 @@ function SettingsBackedStatus({
       [t.claudeCommand, form.claudeCode?.claudeCommand || "claude"],
       [t.cliStatus, claudeStatus?.available ? t.ready : t.needsKey],
       [t.model, displayModelLabel(form.model)],
+      [t.effort, form.claudeCode?.effort || t.effortDefault],
     ],
     worktrees: [
       [t.settingsWorktrees, t.settingsRouteThroughCli],

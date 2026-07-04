@@ -4445,6 +4445,33 @@ kbd {
   grid-column: span 2;
 }
 
+.checkbox-settings-grid {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  padding: 0 10px 10px;
+}
+
+.settings-grid label.settings-checkbox {
+  display: flex;
+  min-height: 39px;
+  align-items: center;
+  gap: 8px;
+  border: 1px solid #2b2b2b;
+  border-radius: var(--radius-sm);
+  background: #111111;
+  padding: 8px 10px;
+}
+
+.settings-grid label.settings-checkbox input {
+  width: 14px;
+  min-width: 14px;
+  height: 14px;
+  padding: 0;
+}
+
+.settings-grid label.settings-checkbox span {
+  color: #d8d8d4;
+}
+
 .settings-grid label span {
   color: var(--muted);
   font-size: 12px;

@@ -16,13 +16,20 @@ claude --version
 claude auth login
 ```
 
-这个模式会继承本机 Claude Code 的登录、插件、技能、MCP、权限模式和项目目录。遇到需要原生权限确认或 slash command 的任务时，点击“交互式 Claude”打开真实 Claude Code TUI。
+这个模式会继承本机 Claude Code 的登录、插件、技能、MCP、权限模式和项目目录。设置页可以配置 `--model`、`--effort`、agent、tools、MCP config、plugin dir/url、safe/bare、IDE、Chrome、fallback model、预算和额外 CLI 参数。
+
+遇到需要原生权限确认或 slash command 的任务时，点击“交互式 Claude”打开真实 Claude Code TUI。`/model`、`/effort`、`/resume` 属于交互式行为；Claudex 非交互聊天使用对应 CLI flags。
 
 ## 直接 API 模式
 
 如果不想依赖 Claude Code CLI，可以在设置里把执行方式切换为“直接 API”。支持：
 
-- OpenAI 兼容接口
+- OpenAI-compatible
+- OpenRouter
+- DeepSeek
+- MiniMax
+- Xiaomi MiMo
+- LM Studio 本地 OpenAI-compatible 服务
 - Anthropic
 - Ollama 本地模型
 
