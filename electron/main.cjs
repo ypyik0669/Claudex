@@ -52,6 +52,22 @@ const CAPABILITY_CONTEXT = {
 const activeRequests = new Map();
 const IGNORED_DIRS = new Set([".git", "node_modules", "dist", "build", "release", ".npm-cache", ".next", "coverage"]);
 const IGNORED_DIR_PATTERNS = [/^release/i, /^out$/i, /^tmp$/i, /^temp$/i];
+const PROJECT_MARKERS = [
+  ".git",
+  "AGENTS.md",
+  "CLAUDE.md",
+  "GEMINI.md",
+  "CONTEXT.md",
+  "package.json",
+  "package-lock.json",
+  "pnpm-lock.yaml",
+  "yarn.lock",
+  "pyproject.toml",
+  "Cargo.toml",
+  "go.mod",
+  "pom.xml",
+  "build.gradle",
+];
 const MAX_TEXT_FILE_BYTES = 2 * 1024 * 1024;
 const MAX_COMMAND_OUTPUT_CHARS = 30000;
 const CLAUDE_TIMEOUT_MS = 10 * 60 * 1000;
@@ -172,6 +188,58 @@ function legacyDataPath() {
   return path.join(app.getPath("appData"), "Claude Code App", "desktop-data.json");
 }
 
+function localWorkspaceProject() {
+  return {
+    name: "本地工作区",
+    path: "",
+  };
+}
+
+function isPlaceholderProject(project) {
+  const name = String(project?.name || "").trim().toLowerCase();
+  return !project?.path && (!name || name === "本地工作区" || name === "local workspace");
+}
+
+function projectMarkerScore(folder) {
+  try {
+    if (!folder || !fs.existsSync(folder) || !fs.statSync(folder).isDirectory()) return 0;
+    return PROJECT_MARKERS.reduce(
+      (score, marker) => score + (fs.existsSync(path.join(folder, marker)) ? 1 : 0),
+      0,
+    );
+  } catch {
+    return 0;
+  }
+}
+
+function launchProjectFromContext() {
+  const candidates = [];
+  for (const arg of process.argv.slice(1)) {
+    if (!arg || String(arg).startsWith("-")) continue;
+    const resolved = path.resolve(process.cwd(), String(arg));
+    candidates.push(resolved);
+  }
+  if (!app.isPackaged) candidates.push(process.cwd());
+
+  const appPath = path.resolve(app.getAppPath());
+  const uniqueCandidates = [...new Set(candidates.map((candidate) => path.resolve(candidate)))];
+  for (const candidate of uniqueCandidates) {
+    if (app.isPackaged && (candidate === appPath || candidate.startsWith(`${appPath}${path.sep}`))) {
+      continue;
+    }
+    if (projectMarkerScore(candidate) > 0) {
+      return projectFromPath(candidate);
+    }
+  }
+  return null;
+}
+
+function storeHasRealProject(store) {
+  return Boolean(store.activeProject?.path)
+    || (store.projects || []).some((project) => Boolean(project?.path))
+    || (store.sessions || []).some((session) => Boolean(session?.projectPath));
+}
+
 function defaultStore() {
   const createdAt = now();
   const env = envBag();
@@ -180,10 +248,7 @@ function defaultStore() {
   );
   const hasOpenAiEnv = Boolean(env.OPENAI_API_KEY || env.OPENAI_BASE_URL || env.OPENAI_MODEL);
   const provider = hasAnthropicEnv ? "anthropic" : "openai-compatible";
-  const activeProject = {
-    name: "本地工作区",
-    path: "",
-  };
+  const activeProject = launchProjectFromContext() || localWorkspaceProject();
   return {
     version: 1,
     settings: {
@@ -236,11 +301,19 @@ function effectiveStoredModel(storedModel, fallbackModel) {
 
 function normalizeStore(store) {
   const fallback = defaultStore();
-  const activeProject = store.activeProject || {
+  const launchProject = launchProjectFromContext();
+  const sessions = Array.isArray(store.sessions) ? store.sessions : [];
+  const shouldAdoptLaunchProject = Boolean(launchProject)
+    && !storeHasRealProject(store)
+    && !sessions.some((session) => hasSessionMessages(session));
+  const activeProject = shouldAdoptLaunchProject ? launchProject : store.activeProject || {
     name: store.sessions?.[0]?.project || fallback.activeProject.name,
     path: store.sessions?.[0]?.projectPath || "",
   };
-  const projects = Array.isArray(store.projects) && store.projects.length ? store.projects : [activeProject];
+  const storedProjects = Array.isArray(store.projects) && store.projects.length ? store.projects : [activeProject];
+  const projects = shouldAdoptLaunchProject
+    ? [launchProject, ...storedProjects.filter((project) => !isPlaceholderProject(project))]
+    : storedProjects;
   const mergedSettings = {
     ...fallback.settings,
     ...(store.settings || {}),
@@ -267,12 +340,18 @@ function normalizeStore(store) {
     settings: mergedSettings,
     activeProject,
     projects,
-    sessions: (store.sessions || fallback.sessions).map((session) => ({
-      ...session,
-      project: session.project || activeProject.name,
-      projectPath: session.projectPath || activeProject.path || "",
-      messages: Array.isArray(session.messages) ? session.messages : [],
-    })),
+    sessions: (store.sessions || fallback.sessions).map((session) => {
+      const adoptSessionProject = shouldAdoptLaunchProject
+        && !hasSessionMessages(session)
+        && !session.projectPath
+        && isGenericSessionTitle(session.title);
+      return {
+        ...session,
+        project: adoptSessionProject ? launchProject.name : session.project || activeProject.name,
+        projectPath: adoptSessionProject ? launchProject.path : session.projectPath || activeProject.path || "",
+        messages: Array.isArray(session.messages) ? session.messages : [],
+      };
+    }),
   };
 }
 
@@ -332,6 +411,39 @@ function emitProcessChunk(sender, channel, requestId, stream, text) {
   });
 }
 
+function killChildProcess(child) {
+  if (!child || child.killed) return;
+  if (process.platform === "win32" && child.pid) {
+    try {
+      spawn("taskkill", ["/pid", String(child.pid), "/t", "/f"], {
+        windowsHide: true,
+        stdio: "ignore",
+      });
+      return;
+    } catch {
+      // Fall through to child.kill().
+    }
+  }
+  child.kill();
+}
+
+function hashBuffer(buffer) {
+  return crypto.createHash("sha256").update(buffer).digest("hex");
+}
+
+function fileSnapshot(target, content) {
+  const stat = fs.statSync(target);
+  const buffer = Buffer.isBuffer(content) ? content : fs.readFileSync(target);
+  return {
+    path: "",
+    name: path.basename(target),
+    content: buffer.toString("utf8"),
+    size: stat.size,
+    updatedAt: stat.mtime.toISOString(),
+    sha256: hashBuffer(buffer),
+  };
+}
+
 function runProcess(command, args = [], options = {}) {
   const timeoutMs = Number(options.timeoutMs || CLAUDE_TIMEOUT_MS);
   return new Promise((resolve) => {
@@ -378,7 +490,7 @@ function runProcess(command, args = [], options = {}) {
       });
     };
     const timeout = setTimeout(() => {
-      child.kill();
+      killChildProcess(child);
       finish({ code: 124, stderr: trimOutput(`${stderr}\n命令运行超过 ${timeoutMs} 毫秒，已停止。`) });
     }, timeoutMs);
 
@@ -446,7 +558,7 @@ function runStreamingProcess(command, args = [], options = {}) {
       });
     };
     const timeout = setTimeout(() => {
-      child.kill();
+      killChildProcess(child);
       finish({ code: 124, stderr: trimOutput(`${stderr}\n命令运行超过 ${timeoutMs} 毫秒，已停止。`) });
     }, timeoutMs);
 
@@ -632,15 +744,58 @@ function ideOptions() {
 
 function parseGitEnvironment(result) {
   const output = stripAnsi(`${result.stdout || ""}\n${result.stderr || ""}`).trim();
+  if (result.code !== 0) {
+    return {
+      available: false,
+      branch: "",
+      changes: 0,
+      files: [],
+      raw: output,
+    };
+  }
   const lines = output.split(/\r?\n/).filter(Boolean);
   const first = lines[0] || "";
   const branch = first.startsWith("## ") ? first.slice(3).split("...")[0].trim() : "";
-  const changes = lines.filter((line) => !line.startsWith("## ")).length;
+  const files = parseGitStatusFiles(lines.filter((line) => !line.startsWith("## ")));
+  const changes = files.length;
   return {
     available: result.code === 0,
     branch,
     changes,
+    files,
     raw: output,
+  };
+}
+
+function parseGitStatusFiles(lines) {
+  return lines.map((line) => {
+    const code = line.slice(0, 2);
+    const pathPart = line.slice(3).trim();
+    const [from, to] = pathPart.split(/\s+->\s+/);
+    return {
+      status: code.trim() || code,
+      staged: code[0] && code[0] !== " " && code[0] !== "?",
+      unstaged: code[1] && code[1] !== " ",
+      path: to || from || pathPart,
+      previousPath: to ? from : "",
+    };
+  }).filter((item) => item.path);
+}
+
+async function loadGitEnvironment(cwd) {
+  const status = parseGitEnvironment(await runProcess("git", ["status", "--short", "--branch"], { cwd, timeoutMs: 8000 }));
+  if (!status.available) return status;
+  const [worktreeStat, stagedStat] = await Promise.all([
+    runProcess("git", ["diff", "--stat", "--no-ext-diff"], { cwd, timeoutMs: 8000 }),
+    runProcess("git", ["diff", "--cached", "--stat", "--no-ext-diff"], { cwd, timeoutMs: 8000 }),
+  ]);
+  const statParts = [
+    stripAnsi(stagedStat.stdout || stagedStat.stderr).trim(),
+    stripAnsi(worktreeStat.stdout || worktreeStat.stderr).trim(),
+  ].filter(Boolean);
+  return {
+    ...status,
+    stat: statParts.join("\n"),
   };
 }
 
@@ -683,7 +838,7 @@ function readStore() {
 
   try {
     const parsed = JSON.parse(fs.readFileSync(file, "utf8"));
-    return normalizeStore({ ...defaultStore(), ...parsed });
+    return normalizeStore(parsed);
   } catch {
     const backup = `${file}.broken-${Date.now()}`;
     fs.copyFileSync(file, backup);
@@ -1402,7 +1557,7 @@ ipcMain.handle("app:open-ide", async (_event, { projectPath, ideId } = {}) => {
 
 ipcMain.handle("app:get-environment", async (_event, { projectPath } = {}) => {
   const cwd = projectPath && fs.existsSync(projectPath) ? projectPath : app.getPath("home");
-  const git = parseGitEnvironment(await runProcess("git", ["status", "--short", "--branch"], { cwd, timeoutMs: 8000 }));
+  const git = await loadGitEnvironment(cwd);
   return {
     cwd,
     git,
@@ -1504,28 +1659,48 @@ ipcMain.handle("workspace:read-file", (_event, { projectPath, relativePath } = {
   const buffer = fs.readFileSync(target);
   if (buffer.includes(0)) throw new Error("这里不能编辑二进制文件。");
   return {
+    ...fileSnapshot(target, buffer),
     path: relative,
-    name: path.basename(target),
-    content: buffer.toString("utf8"),
-    size: stat.size,
-    updatedAt: stat.mtime.toISOString(),
   };
 });
 
-ipcMain.handle("workspace:save-file", (_event, { projectPath, relativePath, content } = {}) => {
+ipcMain.handle("workspace:save-file", (_event, { projectPath, relativePath, content, baseUpdatedAt, baseSha256 } = {}) => {
   const { target, relative } = resolveInsideProject(projectPath, relativePath);
   const stat = fs.existsSync(target) ? fs.statSync(target) : null;
   if (stat && !stat.isFile()) throw new Error("所选路径不是文件。");
+  if (stat && (baseUpdatedAt || baseSha256)) {
+    const currentBuffer = fs.readFileSync(target);
+    const currentUpdatedAt = stat.mtime.toISOString();
+    const currentSha256 = hashBuffer(currentBuffer);
+    const mtimeChanged = baseUpdatedAt && baseUpdatedAt !== currentUpdatedAt;
+    const hashChanged = baseSha256 && baseSha256 !== currentSha256;
+    if (mtimeChanged || hashChanged) {
+      const error = new Error("文件已被外部修改。请重新读取后再保存，避免覆盖别人的改动。");
+      error.code = "WORKSPACE_FILE_CONFLICT";
+      error.details = {
+        currentUpdatedAt,
+        currentSha256,
+      };
+      throw error;
+    }
+  }
   fs.mkdirSync(path.dirname(target), { recursive: true });
   fs.writeFileSync(target, String(content ?? ""), "utf8");
-  const nextStat = fs.statSync(target);
   return {
+    ...fileSnapshot(target),
     path: relative,
-    name: path.basename(target),
-    content: String(content ?? ""),
-    size: nextStat.size,
-    updatedAt: nextStat.mtime.toISOString(),
   };
+});
+
+ipcMain.handle("workspace:cancel-command", (_event, { requestId } = {}) => {
+  if (!String(requestId || "").startsWith("workspace_")) return { cancelled: false };
+  const request = activeRequests.get(requestId);
+  if (request) {
+    if (typeof request.abort === "function") request.abort();
+    else if (typeof request.kill === "function") request.kill();
+    activeRequests.delete(requestId);
+  }
+  return { cancelled: Boolean(request) };
 });
 
 ipcMain.handle("workspace:run-command", async (_event, { projectPath, command, requestId } = {}) => {
@@ -1543,8 +1718,17 @@ ipcMain.handle("workspace:run-command", async (_event, { projectPath, command, r
     });
     let stdout = "";
     let stderr = "";
+    let cancelled = false;
+    if (requestId) {
+      activeRequests.set(requestId, {
+        kill: () => {
+          cancelled = true;
+          killChildProcess(child);
+        },
+      });
+    }
     const timeout = setTimeout(() => {
-      child.kill();
+      killChildProcess(child);
       stderr += "\n命令运行超过 120 秒，已停止。";
     }, 120000);
 
@@ -1560,24 +1744,28 @@ ipcMain.handle("workspace:run-command", async (_event, { projectPath, command, r
     });
     child.on("error", (error) => {
       clearTimeout(timeout);
+      if (requestId) activeRequests.delete(requestId);
       resolve({
         command: cmd,
         cwd,
-        code: 1,
+        code: cancelled ? 130 : 1,
         stdout,
-        stderr: trimOutput(`${stderr}\n${error.message}`),
+        stderr: trimOutput(cancelled ? `${stderr}\n命令已取消。` : `${stderr}\n${error.message}`),
         durationMs: Date.now() - startedAt,
+        cancelled,
       });
     });
     child.on("close", (code) => {
       clearTimeout(timeout);
+      if (requestId) activeRequests.delete(requestId);
       resolve({
         command: cmd,
         cwd,
-        code,
+        code: cancelled ? 130 : code,
         stdout,
-        stderr,
+        stderr: trimOutput(cancelled ? `${stderr}\n命令已取消。` : stderr),
         durationMs: Date.now() - startedAt,
+        cancelled,
       });
     });
   });

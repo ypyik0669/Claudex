@@ -33,6 +33,7 @@ const desktopApi = {
   readWorkspaceFile: (payload) => ipcRenderer.invoke("workspace:read-file", payload),
   saveWorkspaceFile: (payload) => ipcRenderer.invoke("workspace:save-file", payload),
   runWorkspaceCommand: (payload) => ipcRenderer.invoke("workspace:run-command", payload),
+  cancelWorkspaceCommand: (payload) => ipcRenderer.invoke("workspace:cancel-command", payload),
   onWorkspaceCommandStream: (handler) => {
     const listener = (_event, payload) => handler(payload);
     ipcRenderer.on("workspace:command-stream-event", listener);

@@ -260,6 +260,7 @@ const copy = {
     you: "你",
     requestError: "请求错误",
     waiting: "正在等待模型回复...",
+    composerShortcutHint: "Enter 发送 · Shift+Enter 换行 · Ctrl+/ 快捷键",
     desktopOnly: "请打开打包后的 .exe，真实模型调用和本地加密设置只在桌面端可用。",
     settingsTitle: "设置",
     settingsSubtitle: "运行方式、登录状态和本地偏好",
@@ -555,6 +556,8 @@ const copy = {
     browserExternalHint: "登录页、下载和阻止嵌入的网站，请用外部打开。",
     openExternal: "外部打开",
     commandRunning: "运行中",
+    cancelCommand: "停止命令",
+    commandCancelled: "命令已停止",
     commandSucceeded: "已完成",
     commandFailed: "失败",
     commandHistory: "最近运行",
@@ -596,6 +599,9 @@ const copy = {
     reviewChanges: "查看改动",
     diffPreview: "差异预览",
     diffPreviewSkippedLarge: "文件超过 1MB，已禁用差异预览以保持输入流畅。",
+    fileConflictReload: "重新读取文件",
+    gitDiffStat: "Diff 统计",
+    noGitDiff: "当前没有可显示的 diff 统计。",
     runCommand: "运行命令",
     runCommandShort: "运行",
     commandPlaceholder: "输入 shell 命令",
@@ -667,6 +673,16 @@ function useFocusTrap(containerRef, active = true) {
       }
     };
   }, [containerRef, active]);
+}
+
+function isEditableTarget(target) {
+  if (!target || !(target instanceof HTMLElement)) return false;
+  const tagName = target.tagName;
+  return tagName === "INPUT"
+    || tagName === "TEXTAREA"
+    || tagName === "SELECT"
+    || target.isContentEditable
+    || Boolean(target.closest?.("[contenteditable='true']"));
 }
 
 function providerDefaults(providerId) {
@@ -918,8 +934,20 @@ function prependCommandHistory(current, entry) {
   return [entry, ...current.filter((item) => item.id !== entry.id)].slice(0, COMMAND_HISTORY_LIMIT);
 }
 
+function prependRunEvent(current, entry) {
+  return [{
+    id: `${Date.now()}_${Math.random().toString(16).slice(2)}`,
+    createdAt: new Date().toISOString(),
+    ...entry,
+  }, ...current].slice(0, 14);
+}
+
 function isPermissionDeniedError(message) {
   return /\bEACCES\b|\bEPERM\b/.test(String(message || ""));
+}
+
+function isFileConflictError(message) {
+  return /外部修改|WORKSPACE_FILE_CONFLICT/i.test(String(message || ""));
 }
 
 const LARGE_FILE_DIFF_LIMIT_BYTES = 1024 * 1024;
@@ -1265,6 +1293,7 @@ function WelcomeComposer({
             <span>{t.defaultPermissionsShort}</span>
             <ChevronDown size={14} />
           </button>
+          <span className="composer-hint">{t.composerShortcutHint}</span>
         </div>
         <div className="prompt-right">
           <button type="button" className={cx("model-pill", needsProviderSetup && "needs-setup")} onClick={onSettings} title={modelTitle} aria-label={`${t.model}: ${modelTitle}`}>
@@ -1312,6 +1341,7 @@ function Conversation({
   busy,
   streamingAssistant,
   optimisticUser,
+  runEvents,
   draft,
   setDraft,
   environment,
@@ -1362,6 +1392,8 @@ function Conversation({
   const gitChangesLabel = gitAvailable ? String(git.changes || 0) : t.gitUnavailable;
   const branchLabel = git?.branch || t.gitUnavailable;
   const rawGitStatus = String(git?.raw || "").trim();
+  const gitFiles = Array.isArray(git?.files) ? git.files : [];
+  const gitStat = String(git?.stat || "").trim();
   const contextTabs = [
     { id: "environment", label: t.environment, icon: HardDrive, meta: branchLabel },
     { id: "outputs", label: t.outputs, icon: FileText, meta: busy ? t.commandRunning : "" },
@@ -1563,24 +1595,27 @@ function Conversation({
           </div>
           <div className="bottom-panel-body">
             {bottomPanel === "outputs" && (
-              <div className="bottom-panel-grid">
-                <div>
-                  <span>{t.outputs}</span>
-                  <strong>{busy ? streamingAssistant?.status || t.commandRunning : t.noActiveRun}</strong>
-                  <p>{t.outputsPanelHint}</p>
-                  {busy && streamingAssistant?.activities?.length > 0 && (
-                    <ul className="activity-lines compact-activity-lines" aria-label={t.outputs}>
-                      {streamingAssistant.activities.map((activity) => (
-                        <li key={activity.id}>{activity.text}</li>
-                      ))}
-                    </ul>
-                  )}
+              <div className="bottom-panel-stack">
+                <div className="bottom-panel-grid">
+                  <div>
+                    <span>{t.outputs}</span>
+                    <strong>{busy ? streamingAssistant?.status || t.commandRunning : t.noActiveRun}</strong>
+                    <p>{t.outputsPanelHint}</p>
+                    {busy && streamingAssistant?.activities?.length > 0 && (
+                      <ul className="activity-lines compact-activity-lines" aria-label={t.outputs}>
+                        {streamingAssistant.activities.map((activity) => (
+                          <li key={activity.id}>{activity.text}</li>
+                        ))}
+                      </ul>
+                    )}
+                  </div>
+                  <dl>
+                    <div><dt>{t.activeProject}</dt><dd title={activeProject?.path || t.noProjectPath}>{projectLabel(activeProject, t)}</dd></div>
+                    <div><dt>{t.branch}</dt><dd>{environment?.git?.branch || t.gitUnavailable}</dd></div>
+                    <div><dt>{t.changes}</dt><dd>{environment?.git?.available ? environment.git.changes || 0 : t.gitUnavailable}</dd></div>
+                  </dl>
                 </div>
-                <dl>
-                  <div><dt>{t.activeProject}</dt><dd title={activeProject?.path || t.noProjectPath}>{projectLabel(activeProject, t)}</dd></div>
-                  <div><dt>{t.branch}</dt><dd>{environment?.git?.branch || t.gitUnavailable}</dd></div>
-                  <div><dt>{t.changes}</dt><dd>{environment?.git?.available ? environment.git.changes || 0 : t.gitUnavailable}</dd></div>
-                </dl>
+                <RunTimeline events={runEvents} t={t} />
               </div>
             )}
             {bottomPanel === "environment" && (
@@ -1632,6 +1667,17 @@ function Conversation({
                     </button>
                   </div>
                 </div>
+                {gitFiles.length > 0 && (
+                  <div className="git-change-list" aria-label={t.changes}>
+                    {gitFiles.slice(0, 12).map((item) => (
+                      <div className="git-change-item" key={`${item.status}-${item.path}`}>
+                        <span className="git-change-status">{item.status}</span>
+                        <strong title={item.previousPath ? `${item.previousPath} -> ${item.path}` : item.path}>{item.path}</strong>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <pre className="git-status-preview git-stat-preview" aria-label={t.gitDiffStat}>{gitStat || t.noGitDiff}</pre>
                 <pre className="git-status-preview">{rawGitStatus || t.noGitProject}</pre>
               </div>
             )}
@@ -1720,10 +1766,10 @@ function Conversation({
   );
 }
 
-function CommandOutputCard({ commandLine, cwd, code, durationMs, stdout = "", stderr = "", live = false, t }) {
+function CommandOutputCard({ commandLine, cwd, code, durationMs, stdout = "", stderr = "", live = false, cancelled = false, t }) {
   const [copied, setCopied] = useState(false);
   const statusClass = live ? "live" : code === 0 ? "ok" : "error";
-  const statusLabel = live ? t.commandRunning : code === 0 ? t.commandSucceeded : t.commandFailed;
+  const statusLabel = live ? t.commandRunning : cancelled ? t.commandCancelled : code === 0 ? t.commandSucceeded : t.commandFailed;
   const hasStdout = Boolean(String(stdout || "").trim());
   const hasStderr = Boolean(String(stderr || "").trim());
   const clipboardText = [
@@ -1804,13 +1850,37 @@ function CommandHistory({ title, liveEntry, entries, onClear, t }) {
                 <span className="command-history-dot" />
                 <strong title={entry.commandLine}>{entry.commandLine}</strong>
                 <em>
-                  {entry.code === 0 ? t.commandSucceeded : t.commandFailed}
+                  {entry.cancelled ? t.commandCancelled : entry.code === 0 ? t.commandSucceeded : t.commandFailed}
                   {typeof entry.durationMs === "number" ? ` · ${entry.durationMs}ms` : ""}
                 </em>
               </summary>
               <CommandOutputCard {...entry} t={t} />
             </details>
           )
+        ))}
+      </div>
+    </section>
+  );
+}
+
+function RunTimeline({ events = [], t }) {
+  if (!events.length) return null;
+  return (
+    <section className="run-timeline" aria-label={t.outputs}>
+      <div className="run-timeline-head">
+        <span>{t.outputs}</span>
+        <strong>{events.length}</strong>
+      </div>
+      <div className="run-timeline-list">
+        {events.map((event) => (
+          <div className={cx("run-timeline-row", event.status)} key={event.id}>
+            <span className="run-timeline-dot" />
+            <div className="run-timeline-main">
+              <strong>{event.title}</strong>
+              {event.detail && <p>{event.detail}</p>}
+            </div>
+            <time>{formatDate(event.createdAt)}</time>
+          </div>
         ))}
       </div>
     </section>
@@ -1890,6 +1960,63 @@ function EnvironmentOverview({
   );
 }
 
+function ToolRail({
+  activeProject,
+  environment,
+  selectedTool,
+  onActivateTool,
+  onSettings,
+  onCapabilities,
+  busy,
+  t,
+}) {
+  const gitChanges = environment?.git?.available ? Number(environment.git.changes || 0) : 0;
+  const items = [
+    { id: "workspace", label: t.workspaceTool, icon: Folder, badge: gitChanges > 0 ? String(gitChanges) : "" },
+    { id: "claude", label: t.claudeCodeTool, icon: Bot, badge: busy ? "●" : "" },
+    { id: "browser", label: t.browser, icon: Globe2, badge: "" },
+    { id: "terminal", label: t.terminal, icon: SquareTerminal, badge: "" },
+  ];
+  return (
+    <aside className="tool-rail app-rail" aria-label={t.tools}>
+      <button
+        type="button"
+        className="tool-rail-button rail-button primary rail-toggle"
+        onClick={() => onActivateTool(selectedTool || "workspace")}
+        title={`${t.openSidePanel} Ctrl+\\`}
+        aria-label={t.openSidePanel}
+      >
+        <PanelRight size={17} />
+      </button>
+      <div className="tool-rail-stack" role="list" aria-label={t.tools}>
+        {items.map(({ id, label, icon: Icon, badge }) => (
+          <button
+            type="button"
+            key={id}
+            className={cx("tool-rail-button rail-button", selectedTool === id && "active", badge === "●" && "running")}
+            data-tool={id}
+            onClick={() => onActivateTool(id)}
+            title={badge && badge !== "●" ? `${label} · ${badge}` : label}
+            aria-label={badge && badge !== "●" ? `${label}: ${badge}` : label}
+          >
+            <Icon size={17} />
+            {badge && <em>{badge}</em>}
+          </button>
+        ))}
+      </div>
+      <div className="tool-rail-footer">
+        <button type="button" className="tool-rail-button rail-button" onClick={onCapabilities} title={t.capabilities} aria-label={t.capabilities}>
+          <Blocks size={16} />
+        </button>
+        <button type="button" className="tool-rail-button rail-button" onClick={onSettings} title={t.settings} aria-label={t.settings}>
+          <Settings size={16} />
+        </button>
+      </div>
+      <span className={cx("tool-rail-project-dot", activeProject?.path && "ready")} title={activeProject?.path || t.noProjectPath} />
+    </aside>
+  );
+}
+
 function ToolsPanel({
   activeProject,
   settings,
@@ -1906,6 +2033,7 @@ function ToolsPanel({
   onOpenTerminal,
   onOpenBrowserUrl,
   onCapabilities,
+  onRunEvent,
   onClose,
   t,
 }) {
@@ -2123,7 +2251,7 @@ function ToolsPanel({
     }
   }
 
-  async function openFile(item) {
+  async function openFile(item, options = {}) {
     if (!item || item.type !== "file") return;
     if (!desktopApi?.readWorkspaceFile) {
       setWorkspaceError(t.desktopOnly);
@@ -2131,7 +2259,7 @@ function ToolsPanel({
     }
     const cacheKey = `${activeProject?.path || ""}::${item.path}`;
     const cached = fileCacheRef.current.get(cacheKey);
-    if (cached) {
+    if (cached && !options.force) {
       cacheFileRead(fileCacheRef, cacheKey, cached);
       setWorkspaceError("");
       setWorkspaceErrorRetry(null);
@@ -2176,16 +2304,31 @@ function ToolsPanel({
         projectPath: activeProject.path,
         relativePath: file.path,
         content: fileDraft,
+        baseUpdatedAt: file.updatedAt,
+        baseSha256: file.sha256,
       });
       cacheFileRead(fileCacheRef, `${activeProject?.path || ""}::${file.path}`, result);
       setFile(result);
       setFileDraft(result.content || "");
       setFileView("edit");
       setSaveStatus("saved");
+      onRefreshEnvironment?.();
+      onRunEvent?.({
+        type: "file-save",
+        status: "ok",
+        title: `${t.saveFile}: ${file.path}`,
+        detail: changeSummary,
+      });
     } catch (error) {
       setWorkspaceError(error.message || String(error));
-      setWorkspaceErrorRetry(() => () => saveFile());
+      setWorkspaceErrorRetry(() => () => openFile({ type: "file", path: file.path }, { force: true }));
       setSaveStatus("error");
+      onRunEvent?.({
+        type: "file-save",
+        status: "error",
+        title: `${t.saveFile}: ${file.path}`,
+        detail: error.message || String(error),
+      });
     } finally {
       setWorkspaceBusy(false);
     }
@@ -2223,6 +2366,12 @@ function ToolsPanel({
     setCommandRequestId(requestId);
     setCommandStream({ stdout: "", stderr: "" });
     setCommandResult(null);
+    onRunEvent?.({
+      type: "workspace-command",
+      status: "running",
+      title: `${t.runCommand}: ${nextCommand}`,
+      detail: activeProject.path,
+    });
     try {
       const result = await desktopApi.runWorkspaceCommand({ projectPath: activeProject.path, command: nextCommand, requestId });
       setCommandResult(result);
@@ -2234,14 +2383,42 @@ function ToolsPanel({
         durationMs: result.durationMs,
         stdout: result.stdout || "",
         stderr: result.stderr || "",
+        cancelled: Boolean(result.cancelled),
       }));
+      onRefreshEnvironment?.();
+      onRunEvent?.({
+        type: "workspace-command",
+        status: result.cancelled ? "cancelled" : result.code === 0 ? "ok" : "error",
+        title: `${t.runCommand}: ${result.command || nextCommand}`,
+        detail: result.cancelled ? t.commandCancelled : `${t.commandExit}: ${result.code}`,
+      });
     } catch (error) {
       setWorkspaceError(error.message || String(error));
       setWorkspaceErrorRetry(() => () => runCommand());
+      onRunEvent?.({
+        type: "workspace-command",
+        status: "error",
+        title: `${t.runCommand}: ${nextCommand}`,
+        detail: error.message || String(error),
+      });
     } finally {
       setWorkspaceBusy(false);
       commandRequestRef.current = "";
       setCommandRequestId("");
+    }
+  }
+
+  async function cancelWorkspaceCommand() {
+    const requestId = commandRequestRef.current || commandRequestId;
+    if (!requestId) return;
+    try {
+      if (desktopApi?.cancelWorkspaceCommand) {
+        await desktopApi.cancelWorkspaceCommand({ requestId });
+      } else {
+        await desktopApi?.cancelRequest?.(requestId);
+      }
+    } catch (error) {
+      setWorkspaceError(error.message || String(error));
     }
   }
 
@@ -2260,6 +2437,12 @@ function ToolsPanel({
     setClaudeRunningArgs(nextArgs);
     setClaudeStream({ stdout: "", stderr: "" });
     setClaudeResult(null);
+    onRunEvent?.({
+      type: "claude-command",
+      status: "running",
+      title: `${t.runClaude}: claude ${nextArgs}`,
+      detail: activeProject?.path || "",
+    });
     try {
       const result = await desktopApi.runClaudeCommand({ projectPath: activeProject?.path, args: nextArgs, requestId });
       setClaudeResult(result);
@@ -2272,8 +2455,20 @@ function ToolsPanel({
         stdout: result.stdout || "",
         stderr: result.stderr || "",
       }));
+      onRunEvent?.({
+        type: "claude-command",
+        status: result.code === 0 ? "ok" : "error",
+        title: `${t.runClaude}: claude ${result.args?.join(" ") || nextArgs}`,
+        detail: `${t.commandExit}: ${result.code}`,
+      });
     } catch (error) {
       setStatusError(error.message || String(error));
+      onRunEvent?.({
+        type: "claude-command",
+        status: "error",
+        title: `${t.runClaude}: claude ${nextArgs}`,
+        detail: error.message || String(error),
+      });
     } finally {
       setClaudeBusy(false);
       claudeRequestRef.current = "";
@@ -2405,6 +2600,7 @@ function ToolsPanel({
       stderr: commandStream.stderr,
     }
     : null;
+  const commandIsRunning = Boolean(commandRequestId);
   const claudeLiveEntry = claudeBusy && claudeRequestId
     ? {
       id: claudeRequestId,
@@ -2523,7 +2719,7 @@ function ToolsPanel({
                     }}
                   >
                     <RefreshCw size={13} />
-                    {t.retry}
+                    {isFileConflictError(workspaceError) ? t.fileConflictReload : t.retry}
                   </button>
                 )}
               </div>
@@ -2671,11 +2867,17 @@ function ToolsPanel({
             <div className="command-runner">
               <label>
                 <span>{t.runCommand}</span>
-                <input value={command} onChange={(event) => setCommand(event.target.value)} placeholder={t.commandPlaceholder} />
+                <input value={command} onChange={(event) => setCommand(event.target.value)} placeholder={t.commandPlaceholder} disabled={commandIsRunning} />
               </label>
-              <button type="button" className="plain-action" onClick={runCommand} disabled={workspaceBusy || !command.trim()} title={workspaceBusy ? t.workingHint : !command.trim() ? t.commandPlaceholder : t.runCommand}>
-                <SquareTerminal size={14} />
-                {t.runCommandShort}
+              <button
+                type="button"
+                className={cx("plain-action", commandIsRunning && "danger-action")}
+                onClick={commandIsRunning ? cancelWorkspaceCommand : runCommand}
+                disabled={!commandIsRunning && (workspaceBusy || !command.trim())}
+                title={commandIsRunning ? t.cancelCommand : workspaceBusy ? t.workingHint : !command.trim() ? t.commandPlaceholder : t.runCommand}
+              >
+                {commandIsRunning ? <X size={14} /> : <SquareTerminal size={14} />}
+                {commandIsRunning ? t.cancelCommand : t.runCommandShort}
               </button>
             </div>
             <div className="command-history-slot" ref={workspaceOutputRef}>
@@ -4233,6 +4435,7 @@ export function App() {
   const [environment, setEnvironment] = useState(null);
   const [ideOptions, setIdeOptions] = useState([]);
   const [selectedIdeId, setSelectedIdeId] = useState("");
+  const [runEvents, setRunEvents] = useState([]);
 
   useEffect(() => {
     let cancelled = false;
@@ -4335,6 +4538,10 @@ export function App() {
     showToast.timer = window.setTimeout(() => setToast(""), 2200);
   }
 
+  function recordRunEvent(entry) {
+    setRunEvents((current) => prependRunEvent(current, entry));
+  }
+
   async function createSession() {
     if (!desktopApi) return;
     const next = await desktopApi.createSession();
@@ -4350,10 +4557,30 @@ export function App() {
     setOptimisticUser({ sessionId: activeSession.id, content: content.trim(), createdAt: new Date().toISOString() });
     setStreamingAssistant({ requestId, content: "", status: t.waiting, activities: [] });
     setBusy(true);
+    recordRunEvent({
+      type: "chat",
+      status: "running",
+      title: `${t.activeThread}: ${activeSession.title || "Claudex"}`,
+      detail: content.trim().slice(0, 140),
+    });
     try {
       const next = await desktopApi.sendMessage({ sessionId: activeSession.id, content, requestId });
       setState(next);
       setActiveSessionId(activeSession.id);
+      recordRunEvent({
+        type: "chat",
+        status: "ok",
+        title: `${t.activeThread}: ${activeSession.title || "Claudex"}`,
+        detail: t.commandSucceeded,
+      });
+    } catch (error) {
+      recordRunEvent({
+        type: "chat",
+        status: "error",
+        title: `${t.activeThread}: ${activeSession.title || "Claudex"}`,
+        detail: error.message || String(error),
+      });
+      throw error;
     } finally {
       setBusy(false);
       setCurrentRequestId("");
@@ -4460,6 +4687,13 @@ export function App() {
 
   useEffect(() => {
     const onKeyDown = (event) => {
+      if (isEditableTarget(event.target)) {
+        if ((event.ctrlKey || event.metaKey) && event.key === "/") {
+          event.preventDefault();
+          setShortcutsOpen(true);
+        }
+        return;
+      }
       // Cmd/Ctrl+K：命令面板
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
@@ -4623,6 +4857,7 @@ export function App() {
           busy={busy}
           streamingAssistant={streamingAssistant}
           optimisticUser={optimisticUser?.sessionId === activeSession?.id ? optimisticUser : null}
+          runEvents={runEvents}
           draft={draft}
           setDraft={setDraft}
           environment={environment}
@@ -4634,6 +4869,18 @@ export function App() {
           lang={lang}
           t={t}
         />
+        )}
+        {!surfaceOpen && !rightPanelVisible && (
+          <ToolRail
+            activeProject={activeProject}
+            environment={environment}
+            selectedTool={selectedTool}
+            onActivateTool={activateTool}
+            onSettings={openSettingsSurface}
+            onCapabilities={openCapabilitiesSurface}
+            busy={busy}
+            t={t}
+          />
         )}
         {!surfaceOpen && (
         <ToolsPanel
@@ -4652,6 +4899,7 @@ export function App() {
           onOpenTerminal={openTerminal}
           onOpenBrowserUrl={openBrowserUrl}
           onCapabilities={openCapabilitiesSurface}
+          onRunEvent={recordRunEvent}
           onClose={() => setRightPanelVisible(false)}
           t={t}
         />

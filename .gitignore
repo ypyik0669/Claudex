@@ -16,6 +16,7 @@ release-*/
 tmp-*.txt
 tmp-*.log
 latest
+.agents/
 
 qa/*.png
 qa/*.webp

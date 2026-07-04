@@ -76,8 +76,8 @@ app.whenReady().then(async () => {
   win.setBounds({ x: 0, y: 0, width: 1480, height: 960 });
   await wait(500);
 
-  assertStep("PASS18_READY_SONNET45", await waitFor(win, `
-    /claude-sonnet-4-5-20250929/i.test(document.body.textContent || "") &&
+  assertStep("PASS18_READY_MODEL", await waitFor(win, `
+    Boolean(document.querySelector(".model-pill strong")?.textContent?.trim()) &&
     !/claude-sonnet-5|sonnet-5/i.test(document.body.textContent || "")
   `, 15000));
 

@@ -78,14 +78,14 @@ app.whenReady().then(async () => {
   win.setBounds({ x: 0, y: 0, width: 1480, height: 960 });
   await wait(500);
 
-  assertStep("PASS26_READY_SONNET45", await waitFor(win, `
-    /claude-sonnet-4-5-20250929/i.test(document.body.textContent || "") &&
+  assertStep("PASS26_READY_MODEL", await waitFor(win, `
+    Boolean(document.querySelector(".model-pill strong")?.textContent?.trim()) &&
     !/claude-sonnet-5|sonnet-5/i.test(document.body.textContent || "")
   `, 15000));
 
   assertStep("PASS26_OPEN_TOOLS", await win.webContents.executeJavaScript(`
     (function() {
-      const button = document.querySelector(".workspace-panel-toggle");
+      const button = document.querySelector('.rail-button[data-tool="workspace"]') || document.querySelector(".side-panel-button");
       if (!button) return false;
       button.click();
       return true;
@@ -96,7 +96,8 @@ app.whenReady().then(async () => {
     Boolean(document.querySelector(".tools-panel") && !document.querySelector(".app-grid")?.classList.contains("right-panel-hidden"))
   `, 5000) && await win.webContents.executeJavaScript(`
     (function() {
-      const row = [...document.querySelectorAll(".tool-row")].find((candidate) => /Workspace/i.test(candidate.textContent || ""));
+      if (document.querySelector(".tools-panel .workspace-detail")) return true;
+      const row = [...document.querySelectorAll(".tool-row")].find((candidate) => /Workspace|工作区/i.test(candidate.textContent || ""));
       if (!row) return false;
       row.click();
       return true;

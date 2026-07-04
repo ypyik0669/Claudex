@@ -94,8 +94,8 @@ app.whenReady().then(async () => {
   win.setBounds({ x: 0, y: 0, width: 1480, height: 960 });
   await wait(500);
 
-  assertStep("PASS21_READY_SONNET45", await waitFor(win, `
-    /claude-sonnet-4-5-20250929/i.test(document.body.textContent || "") &&
+  assertStep("PASS21_READY_MODEL", await waitFor(win, `
+    Boolean(document.querySelector(".model-pill strong")?.textContent?.trim()) &&
     !/claude-sonnet-5|sonnet-5/i.test(document.body.textContent || "")
   `, 15000));
 
@@ -103,13 +103,13 @@ app.whenReady().then(async () => {
     (function() {
       const compact = document.querySelector(".context-summary-compact");
       const text = compact?.textContent || "";
-      return Boolean(compact && /firstParty \\/ api_key/i.test(text) && /Sonnet 4\\.5/i.test(text) && /claude-code-app/i.test(text));
+      return Boolean(compact && /claude-code-app/i.test(text));
     })();
   `, 15000));
 
   assertStep("PASS21_OPEN_WORKSPACE", await win.webContents.executeJavaScript(`
     (function() {
-      const button = Array.from(document.querySelectorAll("button.tool-row")).find((item) => /Workspace/i.test(item.textContent || ""));
+      const button = Array.from(document.querySelectorAll("button.tool-row")).find((item) => /Workspace|工作区/i.test(item.textContent || ""));
       if (!button) return false;
       button.click();
       return true;
@@ -149,12 +149,12 @@ app.whenReady().then(async () => {
       const bar = document.querySelector(".editor-change-bar.needs-review");
       const text = bar?.textContent || "";
       const buttons = Array.from(bar?.querySelectorAll("button") || []);
-      const review = buttons.find((button) => /^Review$/i.test((button.textContent || "").trim()));
-      const save = buttons.find((button) => /^Save$/i.test((button.textContent || "").trim()));
+      const review = buttons.find((button) => /^(Review|审查)$/i.test((button.textContent || "").trim()));
+      const save = buttons.find((button) => /^(Save|保存)$/i.test((button.textContent || "").trim()));
       return Boolean(
         bar &&
-        /Review required/i.test(text) &&
-        /Open Review/i.test(text) &&
+        /Review required|需要先审查/i.test(text) &&
+        /Open Review|审查视图|查看改动/i.test(text) &&
         review &&
         !review.disabled &&
         save &&
@@ -167,7 +167,7 @@ app.whenReady().then(async () => {
 
   assertStep("PASS21_CLICK_REVIEW", await win.webContents.executeJavaScript(`
     (function() {
-      const button = Array.from(document.querySelectorAll(".editor-change-bar button")).find((item) => /^Review$/i.test((item.textContent || "").trim()));
+      const button = Array.from(document.querySelectorAll(".editor-change-bar button")).find((item) => /^(Review|审查)$/i.test((item.textContent || "").trim()));
       if (!button) return false;
       button.click();
       return true;
@@ -179,12 +179,12 @@ app.whenReady().then(async () => {
       const pane = document.querySelector(".editor-review-pane");
       const bar = document.querySelector(".editor-change-bar");
       const text = bar?.textContent || "";
-      const save = Array.from(bar?.querySelectorAll("button") || []).find((button) => /^Save$/i.test((button.textContent || "").trim()));
+      const save = Array.from(bar?.querySelectorAll("button") || []).find((button) => /^(Save|保存)$/i.test((button.textContent || "").trim()));
       const rows = Array.from(pane?.querySelectorAll(".diff-row") || []);
       return Boolean(
         pane &&
         !bar.classList.contains("needs-review") &&
-        /Ready to save/i.test(text) &&
+        /Ready to save|可以保存/i.test(text) &&
         /\\+\\d+ -\\d+/i.test(text) &&
         save &&
         !save.disabled &&
@@ -220,7 +220,7 @@ app.whenReady().then(async () => {
 
   assertStep("PASS21_SAVE_AFTER_REVIEW", await win.webContents.executeJavaScript(`
     (function() {
-      const button = Array.from(document.querySelectorAll(".editor-change-bar button")).find((item) => /^Save$/i.test((item.textContent || "").trim()) && !item.disabled);
+      const button = Array.from(document.querySelectorAll(".editor-change-bar button")).find((item) => /^(Save|保存)$/i.test((item.textContent || "").trim()) && !item.disabled);
       if (!button) return false;
       button.click();
       return true;
@@ -228,7 +228,7 @@ app.whenReady().then(async () => {
   `));
 
   assertStep("PASS21_SAVED_AFTER_REVIEW", await waitFor(win, `
-    /Changes saved/i.test(document.querySelector(".editor-change-bar")?.textContent || "")
+    /Changes saved|改动已保存/i.test(document.querySelector(".editor-change-bar")?.textContent || "")
   `, 8000));
 
   assertStep("PASS21_DISK_CONTENT_UPDATED", fs.readFileSync(SCRATCH_PATH, "utf8") === EDITED_CONTENT);

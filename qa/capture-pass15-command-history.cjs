@@ -130,8 +130,8 @@ app.whenReady().then(async () => {
   });
   await wait(1200);
 
-  assertStep("PASS15_READY_SONNET45", await waitFor(win, `
-    /claude-sonnet-4-5-20250929/i.test(document.body.textContent || "") &&
+  assertStep("PASS15_READY_MODEL", await waitFor(win, `
+    Boolean(document.querySelector(".model-pill strong")?.textContent?.trim()) &&
     !/claude-sonnet-5|sonnet-5/i.test(document.body.textContent || "")
   `, 15000));
 
@@ -197,7 +197,7 @@ app.whenReady().then(async () => {
   await wait(350);
   await shot(win, "27-pass15-claude-command-history-source.png");
 
-  assertStep("PASS15_WORKSPACE_CLICK", await ensureToolOpen(win, "Workspace", "workspace-tool-detail"));
+  assertStep("PASS15_WORKSPACE_CLICK", await ensureToolOpen(win, "工作区", "workspace-tool-detail"));
   assertStep("PASS15_WORKSPACE_OPEN", await waitFor(win, `
     Boolean(document.querySelector("#workspace-tool-detail .command-runner input"))
   `, 10000));

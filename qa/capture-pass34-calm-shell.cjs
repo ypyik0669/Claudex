@@ -116,7 +116,7 @@ app.whenReady().then(async () => {
   await wait(500);
 
   assertStep("PASS34_READY", await waitFor(win, "Boolean(document.querySelector('.app-grid'))", 15000));
-  assertStep("PASS34_NO_RAIL", await waitFor(win, "Boolean(!document.querySelector('.app-rail') && !document.querySelector('.rail-button'))", 5000));
+  assertStep("PASS34_RAIL_VISIBLE", await waitFor(win, "Boolean(document.querySelector('.app-rail') && document.querySelector('.rail-button[data-tool=\"workspace\"]'))", 5000));
   assertStep("PASS34_DEFAULT_RIGHT_PANEL_CLOSED", await waitFor(win, `
     Boolean(
       document.querySelector('.app-grid.right-panel-hidden') &&

@@ -180,7 +180,8 @@ async function main() {
     assertStep("PACKAGED_PASS34_READY", await waitForEval(cdp, "Boolean(document.querySelector('.app-grid'))", 15000));
     assertStep("PACKAGED_PASS34_DEFAULT_CALM", await waitForEval(cdp, `
       Boolean(
-        !document.querySelector('.app-rail') &&
+        document.querySelector('.app-rail') &&
+        document.querySelector('.rail-button[data-tool="workspace"]') &&
         document.querySelector('.app-grid.right-panel-hidden') &&
         getComputedStyle(document.querySelector('.tools-panel')).display === 'none' &&
         document.querySelector('.app-shell.font-compact') &&
