@@ -70,6 +70,7 @@ const PROJECT_MARKERS = [
 ];
 const MAX_TEXT_FILE_BYTES = 2 * 1024 * 1024;
 const MAX_COMMAND_OUTPUT_CHARS = 30000;
+const MAX_GIT_DIFF_CHARS = 80000;
 const CLAUDE_TIMEOUT_MS = 10 * 60 * 1000;
 
 const CLAUDE_CODE_SETTINGS = {
@@ -395,10 +396,10 @@ function resolveInsideProject(projectPath, relativePath = "") {
   return { root, target, relative: slashPath(relative) };
 }
 
-function trimOutput(value) {
+function trimOutput(value, maxChars = MAX_COMMAND_OUTPUT_CHARS) {
   const text = String(value || "");
-  if (text.length <= MAX_COMMAND_OUTPUT_CHARS) return text;
-  return `${text.slice(0, MAX_COMMAND_OUTPUT_CHARS)}\n\n[输出已截断]`;
+  if (text.length <= maxChars) return text;
+  return `${text.slice(0, maxChars)}\n\n[输出已截断]`;
 }
 
 function emitProcessChunk(sender, channel, requestId, stream, text) {
@@ -446,6 +447,7 @@ function fileSnapshot(target, content) {
 
 function runProcess(command, args = [], options = {}) {
   const timeoutMs = Number(options.timeoutMs || CLAUDE_TIMEOUT_MS);
+  const maxOutputChars = Number(options.maxOutputChars || MAX_COMMAND_OUTPUT_CHARS);
   return new Promise((resolve) => {
     const startedAt = Date.now();
     let child;
@@ -484,25 +486,25 @@ function runProcess(command, args = [], options = {}) {
         args,
         cwd: options.cwd || app.getPath("home"),
         durationMs: Date.now() - startedAt,
-        stdout: trimOutput(stdout),
-        stderr: trimOutput(stderr),
+        stdout: trimOutput(stdout, maxOutputChars),
+        stderr: trimOutput(stderr, maxOutputChars),
         ...result,
       });
     };
     const timeout = setTimeout(() => {
       killChildProcess(child);
-      finish({ code: 124, stderr: trimOutput(`${stderr}\n命令运行超过 ${timeoutMs} 毫秒，已停止。`) });
+      finish({ code: 124, stderr: trimOutput(`${stderr}\n命令运行超过 ${timeoutMs} 毫秒，已停止。`, maxOutputChars) });
     }, timeoutMs);
 
     if (options.requestId) activeRequests.set(options.requestId, child);
     child.stdout.on("data", (chunk) => {
-      stdout = trimOutput(stdout + chunk.toString("utf8"));
+      stdout = trimOutput(stdout + chunk.toString("utf8"), maxOutputChars);
     });
     child.stderr.on("data", (chunk) => {
-      stderr = trimOutput(stderr + chunk.toString("utf8"));
+      stderr = trimOutput(stderr + chunk.toString("utf8"), maxOutputChars);
     });
     child.on("error", (error) => {
-      finish({ code: 1, stderr: trimOutput(`${stderr}\n${error.message}`) });
+      finish({ code: 1, stderr: trimOutput(`${stderr}\n${error.message}`, maxOutputChars) });
     });
     child.on("close", (code) => {
       finish({ code });
@@ -782,20 +784,44 @@ function parseGitStatusFiles(lines) {
   }).filter((item) => item.path);
 }
 
+function gitText(result) {
+  return stripAnsi(result.stdout || result.stderr).trim();
+}
+
 async function loadGitEnvironment(cwd) {
   const status = parseGitEnvironment(await runProcess("git", ["status", "--short", "--branch"], { cwd, timeoutMs: 8000 }));
   if (!status.available) return status;
-  const [worktreeStat, stagedStat] = await Promise.all([
+  const [worktreeStat, stagedStat, worktreeDiff, stagedDiff] = await Promise.all([
     runProcess("git", ["diff", "--stat", "--no-ext-diff"], { cwd, timeoutMs: 8000 }),
     runProcess("git", ["diff", "--cached", "--stat", "--no-ext-diff"], { cwd, timeoutMs: 8000 }),
+    runProcess("git", ["diff", "--no-ext-diff", "--find-renames", "--unified=3", "--"], {
+      cwd,
+      timeoutMs: 10000,
+      maxOutputChars: MAX_GIT_DIFF_CHARS,
+    }),
+    runProcess("git", ["diff", "--cached", "--no-ext-diff", "--find-renames", "--unified=3", "--"], {
+      cwd,
+      timeoutMs: 10000,
+      maxOutputChars: MAX_GIT_DIFF_CHARS,
+    }),
   ]);
   const statParts = [
-    stripAnsi(stagedStat.stdout || stagedStat.stderr).trim(),
-    stripAnsi(worktreeStat.stdout || worktreeStat.stderr).trim(),
+    gitText(stagedStat),
+    gitText(worktreeStat),
   ].filter(Boolean);
+  const diffSections = [
+    { label: "Staged changes", text: gitText(stagedDiff) },
+    { label: "Working tree changes", text: gitText(worktreeDiff) },
+  ].filter((section) => section.text);
+  const diffText = diffSections.map((section) => `# ${section.label}\n${section.text}`).join("\n\n");
   return {
     ...status,
     stat: statParts.join("\n"),
+    diff: {
+      text: trimOutput(diffText, MAX_GIT_DIFF_CHARS),
+      truncated: diffText.length > MAX_GIT_DIFF_CHARS || /\[输出已截断\]/.test(diffText),
+      files: status.files.length,
+    },
   };
 }
 

@@ -5164,6 +5164,87 @@ kbd {
   max-height: 96px;
 }
 
+.git-diff-preview {
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+  border: 1px solid #252525;
+  border-radius: var(--radius-sm);
+  background: #0c0c0c;
+  padding: 9px;
+}
+
+.git-diff-head,
+.git-raw-status summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: #8f918f;
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.git-diff-head em {
+  color: #d9b18d;
+  font-style: normal;
+  text-transform: none;
+}
+
+.git-diff-lines {
+  max-height: 260px;
+  overflow: auto;
+  display: grid;
+  border: 1px solid #1f1f1f;
+  border-radius: 7px;
+  background: #080808;
+  padding: 7px 0;
+}
+
+.git-diff-row {
+  min-width: max-content;
+  display: block;
+  padding: 1px 11px;
+  color: #c9c9c2;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.55;
+  white-space: pre;
+}
+
+.git-diff-row.meta {
+  color: #a8b2be;
+}
+
+.git-diff-row.hunk {
+  background: rgba(93, 130, 177, 0.16);
+  color: #bcd3f1;
+}
+
+.git-diff-row.add {
+  background: rgba(84, 150, 111, 0.14);
+  color: #9bdcb4;
+}
+
+.git-diff-row.delete {
+  background: rgba(185, 91, 83, 0.13);
+  color: #eda09b;
+}
+
+.git-raw-status {
+  display: grid;
+  gap: 7px;
+}
+
+.git-raw-status summary {
+  cursor: pointer;
+  list-style: none;
+}
+
+.git-raw-status summary::-webkit-details-marker {
+  display: none;
+}
+
 .git-change-list {
   display: grid;
   gap: 6px;

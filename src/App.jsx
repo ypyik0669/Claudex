@@ -601,6 +601,9 @@ const copy = {
     diffPreviewSkippedLarge: "文件超过 1MB，已禁用差异预览以保持输入流畅。",
     fileConflictReload: "重新读取文件",
     gitDiffStat: "Diff 统计",
+    gitDiffPreview: "Git Diff",
+    gitDiffTruncated: "Diff 已截断，仅显示前面的部分。",
+    gitRawStatus: "Raw Status",
     noGitDiff: "当前没有可显示的 diff 统计。",
     runCommand: "运行命令",
     runCommandShort: "运行",
@@ -996,6 +999,22 @@ function buildLineDiff(before = "", after = "") {
       return nearbyChange;
     }).slice(0, 240),
   };
+}
+
+function buildGitDiffRows(diffText = "") {
+  return String(diffText || "").split(/\r?\n/).slice(0, 900).map((line, index) => {
+    let type = "context";
+    if (line.startsWith("diff --git") || line.startsWith("index ") || line.startsWith("+++ ") || line.startsWith("--- ") || line.startsWith("# ")) {
+      type = "meta";
+    } else if (line.startsWith("@@")) {
+      type = "hunk";
+    } else if (line.startsWith("+")) {
+      type = "add";
+    } else if (line.startsWith("-")) {
+      type = "delete";
+    }
+    return { id: `${index}-${type}`, type, text: line || " " };
+  });
 }
 
 function fallbackState() {
@@ -1394,6 +1413,8 @@ function Conversation({
   const rawGitStatus = String(git?.raw || "").trim();
   const gitFiles = Array.isArray(git?.files) ? git.files : [];
   const gitStat = String(git?.stat || "").trim();
+  const gitDiffText = String(git?.diff?.text || "").trim();
+  const gitDiffRows = useMemo(() => buildGitDiffRows(gitDiffText), [gitDiffText]);
   const contextTabs = [
     { id: "environment", label: t.environment, icon: HardDrive, meta: branchLabel },
     { id: "outputs", label: t.outputs, icon: FileText, meta: busy ? t.commandRunning : "" },
@@ -1678,7 +1699,27 @@ function Conversation({
                   </div>
                 )}
                 <pre className="git-status-preview git-stat-preview" aria-label={t.gitDiffStat}>{gitStat || t.noGitDiff}</pre>
-                <pre className="git-status-preview">{rawGitStatus || t.noGitProject}</pre>
+                <section className="git-diff-preview" aria-label={t.gitDiffPreview}>
+                  <div className="git-diff-head">
+                    <span>{t.gitDiffPreview}</span>
+                    {git?.diff?.truncated && <em>{t.gitDiffTruncated}</em>}
+                  </div>
+                  {gitDiffRows.length ? (
+                    <div className="git-diff-lines" role="list">
+                      {gitDiffRows.map((row) => (
+                        <code className={cx("git-diff-row", row.type)} role="listitem" key={row.id}>
+                          {row.text}
+                        </code>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="empty-list">{t.noGitDiff}</p>
+                  )}
+                </section>
+                <details className="git-raw-status">
+                  <summary>{t.gitRawStatus}</summary>
+                  <pre className="git-status-preview">{rawGitStatus || t.noGitProject}</pre>
+                </details>
               </div>
             )}
             {bottomPanel === "sources" && (
