@@ -49,30 +49,21 @@ const providers = [
     name: "OpenAI-compatible",
     baseUrl: "https://api.openai.com/v1",
     model: "gpt-4.1",
-    note: {
-      en: "OpenAI, OpenRouter, LM Studio, and compatible gateways.",
-      zh: "支持 OpenAI、OpenRouter、LM Studio 和兼容网关。",
-    },
+    note: "支持 OpenAI、OpenRouter、LM Studio 和兼容网关。",
   },
   {
     id: "anthropic",
     name: "Anthropic",
     baseUrl: "https://api.anthropic.com/v1",
     model: "claude-sonnet-4-5-20250929",
-    note: {
-      en: "Direct Anthropic Messages API from the Electron main process.",
-      zh: "通过 Electron 主进程直接调用 Anthropic Messages API。",
-    },
+    note: "通过 Electron 主进程直接调用 Anthropic Messages API。",
   },
   {
     id: "ollama",
     name: "Ollama / local",
     baseUrl: "http://localhost:11434",
     model: "qwen2.5-coder:latest",
-    note: {
-      en: "Local models through Ollama. No API key required.",
-      zh: "通过 Ollama 运行本地模型，不需要 API key。",
-    },
+    note: "通过 Ollama 运行本地模型，不需要 API 密钥。",
   },
 ];
 
@@ -81,442 +72,82 @@ const capabilityCatalog = [
     id: "project-context",
     type: "tool",
     defaultEnabled: true,
-    name: { en: "Project context", zh: "项目上下文" },
-    description: { en: "Keep the selected workspace visible in every request.", zh: "每次请求都记住当前工作区。" },
+    name: "项目上下文",
+    description: "每次请求都记住当前工作区。",
   },
   {
     id: "code-review",
     type: "skill",
     defaultEnabled: true,
-    name: { en: "Code review", zh: "代码审查" },
-    description: { en: "Bias replies toward risks, regressions, and missing tests.", zh: "优先找风险、回归和缺失测试。" },
+    name: "代码审查",
+    description: "优先找风险、回归和缺失测试。",
   },
   {
     id: "implementation-plan",
     type: "skill",
     defaultEnabled: true,
-    name: { en: "Implementation plan", zh: "实现计划" },
-    description: { en: "Ask for concrete steps and verification before large edits.", zh: "大改动前先形成可验证步骤。" },
+    name: "实现计划",
+    description: "大改动前先形成可验证步骤。",
   },
   {
     id: "terminal-helper",
     type: "tool",
     defaultEnabled: true,
-    name: { en: "Terminal helper", zh: "终端助手" },
-    description: { en: "Open a shell directly inside the active project.", zh: "直接在当前项目文件夹里打开终端。" },
+    name: "终端助手",
+    description: "直接在当前项目文件夹里打开终端。",
   },
   {
     id: "mcp-runtime",
     type: "tool",
     defaultEnabled: true,
-    name: { en: "MCP runtime", zh: "MCP 运行时" },
-    description: { en: "Expose Claude Code MCP status and commands in Claudex.", zh: "在 Claudex 里显示 Claude Code MCP 状态和命令。" },
+    name: "MCP 运行时",
+    description: "在 Claudex 里显示 Claude Code MCP 状态和命令。",
   },
   {
     id: "plugin-router",
     type: "plugin",
     defaultEnabled: true,
-    name: { en: "Plugin router", zh: "插件路由" },
-    description: { en: "Remember enabled plugins instead of slash commands.", zh: "启用一次后不用每次输入 slash command。" },
+    name: "插件路由",
+    description: "启用一次后不用每次输入斜杠命令。",
   },
   {
     id: "marketplace-router",
     type: "plugin",
     defaultEnabled: true,
-    name: { en: "Marketplace router", zh: "Marketplace 路由" },
-    description: { en: "Use Claude Code marketplace commands without leaving the app.", zh: "不用离开应用就能运行 Claude Code marketplace 命令。" },
+    name: "市场路由",
+    description: "不用离开应用就能运行 Claude Code 插件市场命令。",
   },
   {
     id: "custom-marketplaces",
     type: "plugin",
     defaultEnabled: false,
-    name: { en: "Custom marketplaces", zh: "自定义 marketplace" },
-    description: { en: "Keep extra marketplace URLs as local sources for plugin work.", zh: "把额外 marketplace URL 保存成本地插件来源。" },
+    name: "自定义市场",
+    description: "把额外插件市场 URL 保存成本地插件来源。",
   },
   {
     id: "debugger",
     type: "skill",
     defaultEnabled: false,
-    name: { en: "Debugger", zh: "调试模式" },
-    description: { en: "Prefer reproduction, hypotheses, and root-cause fixes.", zh: "优先复现、假设验证和根因修复。" },
+    name: "调试模式",
+    description: "优先复现、假设验证和根因修复。",
   },
   {
     id: "docs-writer",
     type: "skill",
     defaultEnabled: false,
-    name: { en: "Docs writer", zh: "文档助手" },
-    description: { en: "Turn finished work into concise usage notes.", zh: "把完成的功能整理成使用说明。" },
+    name: "文档助手",
+    description: "把完成的功能整理成使用说明。",
   },
   {
     id: "test-writer",
     type: "skill",
     defaultEnabled: false,
-    name: { en: "Test writer", zh: "测试助手" },
-    description: { en: "Prefer behavior tests through public interfaces.", zh: "优先写覆盖真实行为的测试。" },
+    name: "测试助手",
+    description: "优先写覆盖真实行为的测试。",
   },
 ];
 
 const copy = {
-  en: {
-    appSubtitle: "desktop coding agent",
-    newChat: "New chat",
-    search: "Search",
-    scheduled: "Automations",
-    plugins: "Plugins",
-    skills: "Skills",
-    mcps: "MCPs",
-    marketplace: "Marketplace",
-    projects: "Projects",
-    chats: "Chats",
-    showMore: "Show more",
-    more: "More",
-    accountPlan: "Local",
-    promptTitle: "What should we work on?",
-    selectedEmptyTitle: "What should we work on?",
-    selectedEmptyHint: "",
-    noSessionTitle: "No chat selected",
-    noSessionHint: "Create a new chat or choose one from the sidebar.",
-    placeholder: "Do anything",
-    chooseProject: "Choose project",
-    customMode: "Custom",
-    defaultPermissions: "Default permissions",
-    defaultPermissionsShort: "Default",
-    projectContext: "Project",
-    browser: "Browser",
-    terminal: "Terminal",
-    provider: "Provider",
-    executionMode: "Execution",
-    claudeCodeMode: "Claude Code",
-    apiMode: "Direct API",
-    claudeCodeManagedTitle: "Claude Code mode",
-    claudeCodeManagedHint: "Messages run through the installed Claude Code CLI. The active CLI auth and env are shown in the right panel; Direct API fields are only used after switching execution to Direct API.",
-    directApiManagedHint: "Direct API mode uses the provider, base URL, model, and API key saved here.",
-    cliEnvSource: "CLI env",
-    storedDirectApi: "Stored Direct API settings",
-    inactiveInClaudeCode: "Inactive in Claude Code mode",
-    claudeCommand: "Claude command",
-    permissionMode: "Permission mode",
-    claudeStatus: "Claude Code status",
-    auth: "Auth",
-    pluginsAndMcp: "Plugins and MCP",
-    refreshStatus: "Refresh status",
-    model: "Model",
-    settings: "Settings",
-    data: "Data",
-    ready: "Ready",
-    needsKey: "Needs key",
-    sending: "Sending",
-    send: "Send",
-    cancel: "Stop",
-    assistant: "Assistant",
-    you: "You",
-    requestError: "Request error",
-    waiting: "Waiting for the model response...",
-    desktopOnly: "Open the packaged .exe for real model calls and encrypted local settings.",
-    settingsTitle: "Settings",
-    settingsSubtitle: "Runtime, auth, and local preferences",
-    backToApp: "Back to app",
-    searchSettings: "Search settings...",
-    settingsGeneral: "General",
-    settingsProfile: "Profile",
-    settingsAppearance: "Appearance",
-    settingsConfiguration: "Configuration",
-    settingsPersonalization: "Personalization",
-    settingsMcpServers: "MCP servers",
-    settingsBrowser: "Browser",
-    settingsComputerUse: "Computer use",
-    settingsHooks: "Hooks",
-    settingsConnections: "Connections",
-    settingsGit: "Git",
-    settingsEnvironments: "Environments",
-    settingsWorktrees: "Worktrees",
-    settingsArchivedChats: "Archived chats",
-    notImplementedYet: "Not implemented yet",
-    notImplementedHint: "This section is visible for parity, but Claudex only enables controls backed by real local state.",
-    backedLocalState: "Backed by local state",
-    localRuntime: "Local runtime",
-    toggleSidebar: "Toggle sidebar",
-    toggleRightPanel: "Toggle right panel",
-    toggleBrowser: "Toggle browser",
-    showShortcuts: "Show shortcuts",
-    closeModal: "Close modal",
-    sendMessageShortcut: "Send message in composer",
-    newLineShortcut: "New line in composer",
-    shortcutsTitle: "Keyboard Shortcuts",
-    shortcutsSubtitle: "Quick actions to navigate faster",
-    cliStatus: "CLI status",
-    refreshCliStatus: "Refresh CLI status",
-    cliPluginOutput: "Claude Code plugin output",
-    cliMcpOutput: "Claude Code MCP output",
-    marketplaceOutput: "Marketplace output",
-    fetchMarketplace: "Fetch marketplace",
-    customMarketplaces: "Custom marketplaces",
-    marketplaceUrl: "Marketplace URL",
-    addMarketplace: "Add marketplace",
-    remove: "Remove",
-    noCustomMarketplaces: "No custom marketplaces yet.",
-    localCapability: "Local capability",
-    installedCliState: "Installed CLI state",
-    settingsStatusHint: "This page reflects local Claudex state and Claude Code CLI output.",
-    settingsRouteThroughCli: "This flow is routed through Claude Code CLI or the interactive Claude terminal when native prompts are required.",
-    noCliOutputYet: "No CLI output yet.",
-    noGitProject: "Select a Git project to see branch and changes.",
-    defaultFileOpenDestination: "Default file open destination",
-    agentEnvironment: "Agent environment",
-    integratedShell: "Integrated terminal shell",
-    settingsRuntime: "Runtime",
-    activeRuntime: "Active runtime",
-    settingsDirectApi: "Direct API",
-    settingsDirectApiHint: "Only used when Execution is set to Direct API. Claude Code mode keeps using the CLI environment shown in the context panel.",
-    settingsDirectApiInactive: "Inactive until Execution is Direct API",
-    settingsDirectApiInactiveHint: "Changing these fields will not affect Claude Code CLI runs until Execution is switched to Direct API.",
-    settingsAdvancedClaude: "Advanced Claude Code",
-    settingsAdvancedApi: "Advanced API options",
-    claudeModel: "Claude model",
-    settingsPrompt: "Prompting",
-    settingsStorage: "Storage",
-    close: "Close",
-    save: "Save",
-    saving: "Saving",
-    saved: "Saved",
-    unsavedChanges: "Unsaved",
-    unsavedChangesHint: "You have changes that have not been saved yet.",
-    unsavedChangesWarning: "You have unsaved changes. Discard them or keep editing?",
-    keepEditing: "Keep editing",
-    discardChanges: "Discard changes",
-    workingHint: "Working - please wait for the current task to finish.",
-    noChangesToSave: "No changes to save yet.",
-    pluginNameRequired: "Enter a plugin name first.",
-    baseUrl: "Base URL",
-    apiKey: "API key",
-    apiKeyPlaceholder: "Paste key",
-    apiKeySaved: "Saved - leave blank to keep",
-    apiKeyNone: "Not required",
-    claudeCodeDefaultEnv: "Claude Code default",
-    temperature: "Temperature",
-    timeout: "Timeout ms",
-    systemPrompt: "System prompt",
-    language: "Language",
-    interfaceLanguage: "Interface language",
-    fontSize: "Font size",
-    fontSizeCompact: "Compact",
-    fontSizeDefault: "Default",
-    fontSizeLarge: "Large",
-    density: "Density",
-    densityCompact: "Compact",
-    densityComfortable: "Comfortable",
-    followSystem: "Follow system",
-    english: "English",
-    chinese: "中文",
-    encryption: "Encryption",
-    dataFile: "Data file",
-    env: "Env fallback",
-    openData: "Open data file",
-    savedKey: "saved",
-    missingKey: "missing",
-    noMessages: "No messages yet.",
-    quickReview: "Review this code and identify the highest risk.",
-    quickPlan: "Draft an implementation plan with verification steps.",
-    quickExplain: "Explain the next concrete coding step.",
-    activeThread: "Active thread",
-    localWorkspace: "local workspace",
-    providerNote: "Current provider",
-    localHistory: "Local history",
-    tools: "Tools",
-    contextPanel: "Context",
-    environment: "Environment",
-    outputs: "输出",
-    bottomPanel: "Bottom panel",
-    openSidePanel: "Open side panel",
-    outputsPanelHint: "Command output, Claude progress, and environment summaries stay visible here while you keep chatting.",
-    terminalPanelHint: "Use the real project shell for commands that need terminal interaction.",
-    browserPanelHint: "Preview a URL from the side panel when you need a live page alongside the chat.",
-    noActiveRun: "No active run.",
-    changes: "Changes",
-    local: "Local",
-    branch: "Branch",
-    commitOrPush: "Commit or push",
-    sources: "Sources",
-    subagents: "子代理",
-    noSourcesYet: "No sources yet",
-    noSubagentsYet: "No active subagents",
-    files: "Files",
-    openInIde: "Open in IDE",
-    openIde: "Open IDE",
-    ideUnavailable: "No IDE command found",
-    gitUnavailable: "Git unavailable",
-    runtimeDetails: "Runtime details",
-    primaryActions: "Primary actions",
-    diagnostics: "Diagnostics",
-    workspaceTool: "Workspace",
-    claudeCodeTool: "Claude Code",
-    claudeCodeHelp: "Run real Claude Code commands inside the selected project.",
-    interactiveClaude: "Interactive Claude",
-    interactiveClaudeHelp: "Open the real Claude Code TUI when a task needs native permission prompts or slash-command flows.",
-    permissionDeniedNotice: "This mode couldn't complete part of the task without a permission prompt.",
-    openInteractiveClaude: "Open Interactive Claude",
-    claudeArgs: "Claude args",
-    claudeArgsPlaceholder: "Type a Claude Code command",
-    quickClaudeCommands: "Quick commands",
-    runClaude: "Run Claude",
-    installPlugin: "Install plugin",
-    updatePlugin: "Update",
-    disablePlugin: "Disable",
-    pluginName: "Plugin name",
-    pluginNamePlaceholder: "github@openai or plugin@marketplace",
-    pluginActions: "Plugin actions",
-    confirmDisableTitle: "Disable this plugin?",
-    confirmDisableWarning: "This will disable \"{name}\". You can re-enable it later by installing or updating it again.",
-    confirmDisableButton: "Yes, disable",
-    dismissAction: "Cancel",
-    installedPlugins: "Installed plugins",
-    pluginRefresh: "Refresh",
-    pluginsLoading: "Loading plugins...",
-    pluginsEmpty: "No plugins installed yet.",
-    pluginsLoadError: "Could not load plugin list.",
-    pluginStatusEnabled: "Enabled",
-    pluginStatusDisabled: "Disabled",
-    enablePlugin: "Enable",
-    runStreaming: "Running - output streams below.",
-    doctor: "Doctor",
-    commandPalette: "Command palette",
-    commandHint: "Search actions, tools, skills, and prompts...",
-    noCommands: "No matching command.",
-    selectProject: "Select project folder",
-    openProject: "Open project folder",
-    openFolderShort: "Open folder",
-    openTerminal: "Open terminal",
-    openBrowser: "Open URL",
-    capabilities: "Plugins, skills, tools",
-    capabilitiesSubtitle: "Enable once, then Claudex remembers them for every chat.",
-    capabilitySearch: "Search capabilities",
-    searchPlugins: "Search plugins",
-    searchSkills: "Search skills",
-    searchMarketplace: "Search marketplace",
-    capabilityAll: "All",
-    capabilityEnabled: "Enabled",
-    capabilityDisabled: "Disabled",
-    capabilitySummary: "{enabled} enabled · {total} total",
-    installed: "Installed",
-    installedLocal: "Installed locally",
-    marketplaceHint: "Marketplace commands are backed by Claude Code CLI. Use the Claude Code panel to fetch live marketplace output before installing.",
-    marketplaceSourceClaude: "Claude Code marketplace",
-    marketplaceSourceCustom: "Custom marketplace",
-    managePlugins: "Manage",
-    openClaudePanel: "Open Claude panel",
-    noCapabilities: "No matching capabilities.",
-    enabled: "Enabled",
-    disabled: "Disabled",
-    activeProject: "Active project",
-    noProjectPath: "No folder selected yet.",
-    urlPlaceholder: "Paste a URL",
-    openSettings: "Open settings",
-    setupProvider: "Set up provider",
-    setupProviderHint: "Save an API key or switch to Ollama before sending.",
-    copy: "Copy",
-    copied: "Copied",
-    copyPath: "Copy path",
-    copiedPath: "Path copied",
-    retry: "Retry",
-    projectSelected: "Project selected",
-    terminalOpened: "Terminal opened",
-    browserOpened: "URL opened",
-    dataOpened: "Data file opened",
-    scheduledTitle: "Scheduled prompts",
-    scheduledSubtitle: "Save prompts to run later. Use Run now when you are ready.",
-    schedulePrompt: "Prompt",
-    schedulePromptPlaceholder: "What should Claude Code run later?",
-    scheduleTime: "When",
-    addSchedule: "Add schedule",
-    scheduleQueue: "Queue",
-    scheduleCount: "{count} saved",
-    scheduleAnytime: "Anytime",
-    runNow: "Run now",
-    delete: "Delete",
-    emptySchedule: "No scheduled prompts yet.",
-    emptyScheduleHint: "Save a prompt here when you want to park a task without starting a new chat.",
-    copiedPrompt: "Prompt loaded",
-    browserHelp: "Preview docs, provider consoles, or project URLs without leaving the workspace.",
-    browserPreview: "Preview",
-    browserBack: "Back",
-    browserForward: "Forward",
-    browserReload: "Reload",
-    browserLoading: "Loading page...",
-    browserReady: "Preview loaded",
-    browserIdle: "No preview loaded",
-    browserEmptyTitle: "No page open",
-    browserEmptyHint: "Paste a docs, issue, local app, or provider URL, then preview it here. Use external open for sign-in, downloads, or blocked pages.",
-    browserFailed: "Could not load this page in the embedded browser.",
-    browserExternalHint: "Use external open for sign-in pages, downloads, and sites that block embedding.",
-    openExternal: "Open external",
-    commandRunning: "Running",
-    commandSucceeded: "Succeeded",
-    commandFailed: "Failed",
-    commandHistory: "Recent runs",
-    clearHistory: "Clear",
-    runningNow: "Running now",
-    completedRuns: "{count} saved",
-    commandLine: "Command",
-    commandCwd: "cwd",
-    commandExit: "Exit",
-    commandDuration: "Duration",
-    commandStdout: "stdout",
-    commandStderr: "stderr",
-    liveOutput: "Live output",
-    noOutput: "No output",
-    copyOutput: "Copy output",
-    outputCopied: "Output copied",
-    terminalHelp: "Launch a shell directly inside the selected project folder.",
-    opensExternalTerminal: "Opens the system terminal with this project as cwd.",
-    path: "Path",
-    workspaceHelp: "Browse source files, edit safely, and run a command only when you ask.",
-    refresh: "Refresh",
-    saveFile: "Save file",
-    saveChanges: "Save changes",
-    savedChanges: "Changes saved",
-    editFile: "Edit",
-    reviewFile: "Review",
-    fileSize: "Size",
-    fileUpdatedAt: "Updated",
-    changedLines: "Changed lines",
-    reviewUnsavedChanges: "Review unsaved changes before saving.",
-    reviewRequiredTitle: "Review required",
-    reviewRequiredHint: "Open Review to inspect the diff before saving.",
-    reviewingChanges: "Reviewing changes",
-    readyToSave: "Ready to save",
-    reviewFirstToSave: "Review changes before saving.",
-    noFileChanges: "No changes in this file.",
-    noChangesToReview: "Make an edit to review a diff here.",
-    revertChanges: "Revert",
-    reviewChanges: "Review changes",
-    diffPreview: "Diff preview",
-    diffPreviewSkippedLarge: "Diff preview is disabled for files over 1MB to keep typing responsive.",
-    runCommand: "Run command",
-    runCommandShort: "Run",
-    commandPlaceholder: "Type a shell command",
-    noFileSelected: "Choose a source file from the tree.",
-    noFileOpenTitle: "No file open",
-    noFileOpenHint: "Select a file to edit, then review changes before saving.",
-    noProjectSelected: "Select a project first.",
-    fileSaved: "File saved",
-    commandFinished: "Command finished",
-    loading: "Loading",
-    uxReady: "Ready for work",
-    savedAt: "Saved",
-    draftThread: "Draft",
-    threadNoMessages: "No messages yet",
-    threadMessageCount: "{count} messages",
-    threadRunning: "Running",
-    loadingChats: "Loading chats...",
-    chatsLoadError: "Couldn't load chats.",
-    noChatsYet: "No chats yet - start one above.",
-    noChatsMatch: "No chats match your search.",
-    threadNeedsPermission: "This thread needs a permission prompt in Interactive Claude.",
-    voiceInputUnavailable: "Voice input isn't available in this build.",
-    messageSent: "Sent",
-    permissionErrorHint: "Permission denied - this file or folder may be read-only or restricted.",
-    openingFile: "Opening file...",
-  },
   zh: {
     appSubtitle: "桌面编程助手",
     newChat: "新聊天",
@@ -556,6 +187,12 @@ const copy = {
     inactiveInClaudeCode: "Claude Code 模式下不生效",
     claudeCommand: "Claude 命令",
     permissionMode: "权限模式",
+    permissionModeDefault: "默认",
+    permissionModeAcceptEdits: "自动接受编辑",
+    permissionModeAuto: "自动",
+    permissionModePlan: "计划",
+    permissionModeDontAsk: "不再询问",
+    permissionModeBypassPermissions: "绕过权限",
     claudeStatus: "Claude Code 状态",
     auth: "登录",
     pluginsAndMcp: "插件和 MCP",
@@ -1061,11 +698,23 @@ function compactPath(value, max = 54) {
 }
 
 function authLabel(auth, settings) {
-  if (settings?.env?.anthropicApiKey) return "firstParty / api_key";
-  if (settings?.env?.anthropicAuthToken) return "firstParty / auth_token";
+  if (settings?.env?.anthropicApiKey) return "第一方 / API 密钥";
+  if (settings?.env?.anthropicAuthToken) return "第一方 / 授权令牌";
   if (!auth) return "检查中";
   if (!auth.loggedIn) return "未登录";
   return `${auth.apiProvider || "Claude"} / ${auth.authMethod || "已登录"}`;
+}
+
+function permissionModeLabel(mode, t) {
+  const labels = {
+    default: t.permissionModeDefault,
+    acceptEdits: t.permissionModeAcceptEdits,
+    auto: t.permissionModeAuto,
+    plan: t.permissionModePlan,
+    dontAsk: t.permissionModeDontAsk,
+    bypassPermissions: t.permissionModeBypassPermissions,
+  };
+  return labels[mode] || mode || t.permissionModeDefault;
 }
 
 function cliBaseUrl(settings) {
@@ -1079,16 +728,15 @@ function normalizeBrowserUrl(value) {
   return `https://${raw}`;
 }
 
-function resolveLanguage(language, appLocale) {
-  if (language === "zh") return "zh";
+function resolveLanguage() {
   return "zh";
 }
 
-function formatDate(value, lang) {
+function formatDate(value) {
   if (!value) return "";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
-  return date.toLocaleString(lang === "zh" ? "zh-CN" : "en-US", {
+  return date.toLocaleString("zh-CN", {
     month: "short",
     day: "numeric",
     hour: "2-digit",
@@ -1096,7 +744,7 @@ function formatDate(value, lang) {
   });
 }
 
-function formatRelativeTime(value, lang) {
+function formatRelativeTime(value) {
   if (!value) return "";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
@@ -1107,21 +755,13 @@ function formatRelativeTime(value, lang) {
   const diffWeek = Math.floor(diffDay / 7);
   const diffMonth = Math.floor(diffDay / 30);
   const diffYear = Math.floor(diffDay / 365);
-  if (diffSec < 60) return lang === "zh" ? "刚刚" : "now";
-  if (lang === "zh") {
-    if (diffMin < 60) return `${diffMin} 分钟前`;
-    if (diffHour < 24) return `${diffHour} 小时前`;
-    if (diffDay < 7) return `${diffDay} 天前`;
-    if (diffWeek < 5) return `${diffWeek} 周前`;
-    if (diffMonth < 12) return `${diffMonth} 个月前`;
-    return `${diffYear} 年前`;
-  }
-  if (diffMin < 60) return `${diffMin}m`;
-  if (diffHour < 24) return `${diffHour}h`;
-  if (diffDay < 7) return `${diffDay}d`;
-  if (diffWeek < 5) return `${diffWeek}w`;
-  if (diffMonth < 12) return `${diffMonth}mo`;
-  return `${diffYear}y`;
+  if (diffSec < 60) return "刚刚";
+  if (diffMin < 60) return `${diffMin} 分钟前`;
+  if (diffHour < 24) return `${diffHour} 小时前`;
+  if (diffDay < 7) return `${diffDay} 天前`;
+  if (diffWeek < 5) return `${diffWeek} 周前`;
+  if (diffMonth < 12) return `${diffMonth} 个月前`;
+  return `${diffYear} 年前`;
 }
 
 function formatBytes(value) {
@@ -1136,7 +776,7 @@ function formatFileTimestamp(value) {
   if (!value) return "";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "";
-  return date.toLocaleString([], {
+  return date.toLocaleString("zh-CN", {
     month: "short",
     day: "numeric",
     hour: "2-digit",
@@ -1147,7 +787,7 @@ function formatFileTimestamp(value) {
 function trimLog(value, limit = 30000) {
   const text = String(value || "");
   if (text.length <= limit) return text;
-  return `${text.slice(text.length - limit)}\n\n[earlier output trimmed]`;
+  return `${text.slice(text.length - limit)}\n\n[前面的输出已截断]`;
 }
 
 function appendStreamChunk(current, stream, text) {
@@ -1299,7 +939,7 @@ function Sidebar({
   return (
     <aside className="sidebar">
       <div className="sidebar-content">
-        <nav className="nav-stack" aria-label="Main">
+        <nav className="nav-stack" aria-label="主导航">
           <div className="sidebar-top-row">
             <button type="button" className="nav-primary" onClick={onNewChat} disabled={loading} title={loading ? t.loadingChats : t.newChat}>
               <MessageSquarePlus size={17} />
@@ -2750,7 +2390,7 @@ function ToolsPanel({
               </div>
             )}
             <div className="workspace-grid">
-              <div className="file-tree" aria-label="Project files">
+              <div className="file-tree" aria-label={t.files}>
                 {workspaceBusy && !tree.length && (
                   <div className="thread-skeleton" aria-busy="true" aria-label={t.loading}>
                     <div className="thread-skeleton-row" />
@@ -3023,7 +2663,7 @@ function ToolsPanel({
               <div className="tool-actions">
                 <button type="button" className="plain-action" onClick={() => runClaude("auth status")} disabled={claudeBusy} title={claudeBusy ? t.workingHint : undefined}>{t.auth}</button>
                 <button type="button" className="plain-action" onClick={() => runClaude("plugin list")} disabled={claudeBusy} title={claudeBusy ? t.workingHint : undefined}>{t.plugins}</button>
-                <button type="button" className="plain-action" onClick={() => runClaude("plugin marketplace list")} disabled={claudeBusy} title={claudeBusy ? t.workingHint : undefined}>Marketplace</button>
+                <button type="button" className="plain-action" onClick={() => runClaude("plugin marketplace list")} disabled={claudeBusy} title={claudeBusy ? t.workingHint : undefined}>{t.marketplace}</button>
                 <button type="button" className="plain-action" onClick={() => runClaude("mcp list")} disabled={claudeBusy} title={claudeBusy ? t.workingHint : undefined}>MCP</button>
                 <button type="button" className="plain-action" onClick={() => runClaude("doctor")} disabled={claudeBusy} title={claudeBusy ? t.workingHint : undefined}>{t.doctor}</button>
               </div>
@@ -3443,12 +3083,12 @@ function SettingsModal({ state, lang, t, onClose, onSaved, surface = false }) {
               <label>
                 <span>{t.permissionMode}</span>
                 <select value={form.claudeCode.permissionMode} onChange={(event) => setForm((current) => ({ ...current, claudeCode: { ...current.claudeCode, permissionMode: event.target.value } }))}>
-                  <option value="default">default</option>
-                  <option value="acceptEdits">acceptEdits</option>
-                  <option value="auto">auto</option>
-                  <option value="plan">plan</option>
-                  <option value="dontAsk">dontAsk</option>
-                  <option value="bypassPermissions">bypassPermissions</option>
+                  <option value="default">{t.permissionModeDefault}</option>
+                  <option value="acceptEdits">{t.permissionModeAcceptEdits}</option>
+                  <option value="auto">{t.permissionModeAuto}</option>
+                  <option value="plan">{t.permissionModePlan}</option>
+                  <option value="dontAsk">{t.permissionModeDontAsk}</option>
+                  <option value="bypassPermissions">{t.permissionModeBypassPermissions}</option>
                 </select>
               </label>
             </div>
@@ -3559,7 +3199,7 @@ function SettingsModal({ state, lang, t, onClose, onSaved, surface = false }) {
             <div className="settings-note">
               <KeyRound size={15} />
               <span>
-                {t.encryption}: {state.settings.encryptionAvailable ? "yes" : "no"} · {t.dataFile}: {state.settings.dataFile}
+                {t.encryption}: {state.settings.encryptionAvailable ? "是" : "否"} · {t.dataFile}: {state.settings.dataFile}
               </span>
             </div>
             <div className="settings-note">
@@ -3669,7 +3309,7 @@ function SettingsModal({ state, lang, t, onClose, onSaved, surface = false }) {
   );
 }
 
-function ShellModal({ title, subtitle, onClose, children, className = "", closeLabel = "Close", surface = false }) {
+function ShellModal({ title, subtitle, onClose, children, className = "", closeLabel = "关闭", surface = false }) {
   const modalRef = useRef(null);
   useFocusTrap(modalRef, !surface);
   const shellBody = (
@@ -3734,7 +3374,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
   }));
   const normalizedQuery = query.trim().toLowerCase();
   const visibleRows = capabilityRows.filter((item) => {
-    const matchesQuery = !normalizedQuery || [item.id, item.type, item.name[lang], item.description[lang]]
+    const matchesQuery = !normalizedQuery || [item.id, item.type, item.name, item.description]
       .join(" ")
       .toLowerCase()
       .includes(normalizedQuery);
@@ -3749,7 +3389,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
   const tabRows = {
     plugins: visibleRows.filter((item) => item.type === "plugin"),
     skills: visibleRows.filter((item) => item.type === "skill"),
-    mcp: visibleRows.filter((item) => item.type === "tool" && /mcp/i.test(item.id + item.name.en + item.description.en)),
+    mcp: visibleRows.filter((item) => item.type === "tool" && /mcp/i.test(item.id + item.name + item.description)),
   };
   const searchPlaceholder =
     activeTab === "skills" ? t.searchSkills : activeTab === "marketplace" ? t.searchMarketplace : t.searchPlugins;
@@ -3818,9 +3458,9 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
             type="button"
             key={item.id}
             className={cx("installed-capability-icon", item.type)}
-            title={item.name[lang]}
+            title={item.name}
             onClick={() => {
-              setQuery(item.name[lang]);
+              setQuery(item.name);
               setActiveTab(item.type === "skill" ? "skills" : item.type === "plugin" ? "plugins" : "mcp");
             }}
           >
@@ -3936,8 +3576,8 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
             <PluginManagerRow
               key={item.id}
               icon={item.type === "plugin" ? <Plug size={17} /> : item.type === "skill" ? <Blocks size={17} /> : <SquareTerminal size={17} />}
-              title={item.name[lang]}
-              subtitle={item.description[lang]}
+              title={item.name}
+              subtitle={item.description}
               enabled={item.enabled}
               onToggle={() => onToggle(item.id, !item.enabled)}
               t={t}
@@ -4048,7 +3688,7 @@ function SettingsBackedStatus({
       [t.interfaceLanguage, form.language === "system" ? t.followSystem : t.chinese],
       [t.fontSize, form.appearance?.fontSize || t.fontSizeCompact],
       [t.density, form.appearance?.density || t.densityCompact],
-      [t.defaultPermissions, form.claudeCode?.permissionMode || "default"],
+      [t.defaultPermissions, permissionModeLabel(form.claudeCode?.permissionMode, t)],
     ],
     git: [
       [t.activeProject, projectLabel(activeProject, t)],
@@ -4059,7 +3699,7 @@ function SettingsBackedStatus({
     environments: [
       ["cwd", environment?.cwd || activeProject.path || t.noProjectPath],
       [t.defaultFileOpenDestination, ideNames],
-      [t.agentEnvironment, "Windows native"],
+      [t.agentEnvironment, "Windows 原生"],
       [t.integratedShell, "PowerShell / cmd"],
     ],
     connections: [
@@ -4069,15 +3709,15 @@ function SettingsBackedStatus({
       [t.env, `Anthropic ${env.anthropicKey ? "已找到" : "缺失"} · OpenAI ${env.openaiKey ? "已找到" : "缺失"}`],
     ],
     browser: [
-      [t.browserPreview, "Electron webview"],
-      [t.openExternal, "System browser"],
+      [t.browserPreview, "Electron 内嵌浏览器"],
+      [t.openExternal, "系统浏览器"],
       [t.activeProject, projectLabel(activeProject, t)],
       [t.localCapability, capabilityEnabled(state.settings, "terminal-helper") ? t.enabled : t.disabled],
     ],
     computer: [
       [t.settingsComputerUse, t.settingsRouteThroughCli],
       [t.executionMode, t.claudeCodeMode],
-      [t.permissionMode, form.claudeCode?.permissionMode || "default"],
+      [t.permissionMode, permissionModeLabel(form.claudeCode?.permissionMode, t)],
       [t.interactiveClaude, t.enabled],
     ],
     hooks: [
@@ -4096,7 +3736,7 @@ function SettingsBackedStatus({
       [t.settingsArchivedChats, `${state.sessions?.filter((session) => session.archived).length || 0}`],
       [t.localHistory, `${state.sessions?.length || 0}`],
       [t.dataFile, state.settings.dataFile || t.desktopOnly],
-      [t.encryption, state.settings.encryptionAvailable ? "yes" : "no"],
+      [t.encryption, state.settings.encryptionAvailable ? "是" : "否"],
     ],
     mcp: [
       [t.cliStatus, claudeStatus?.available ? t.ready : t.needsKey],
@@ -4386,7 +4026,7 @@ export function App() {
   }, []);
 
   const lang = resolveLanguage(state.settings.language, state.settings.appLocale);
-  const t = copy[lang];
+  const t = copy.zh;
   const activeSession = state.sessions.find((session) => session.id === activeSessionId) || state.sessions[0];
   const activeProject = state.activeProject || {
     name: activeSession?.project || t.localWorkspace,
@@ -4544,54 +4184,54 @@ export function App() {
 
   useEffect(() => {
     const onKeyDown = (event) => {
-      // Cmd/Ctrl+K: Command palette
+      // Cmd/Ctrl+K：命令面板
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
         setCommandsOpen(true);
       }
-      // Cmd/Ctrl+N: New chat
+      // Cmd/Ctrl+N：新聊天
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "n") {
         event.preventDefault();
         createSession();
       }
-      // Cmd/Ctrl+,: Settings
+      // Cmd/Ctrl+,：设置
       if ((event.ctrlKey || event.metaKey) && event.key === ",") {
         event.preventDefault();
         openSettingsSurface();
       }
-      // Cmd/Ctrl+P: Projects
+      // Cmd/Ctrl+P：项目
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "p") {
         event.preventDefault();
         setProjectsOpen(true);
       }
-      // Cmd/Ctrl+B: Toggle sidebar
+      // Cmd/Ctrl+B：打开/关闭左侧栏
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "b") {
         event.preventDefault();
         setSidebarVisible((v) => !v);
       }
-      // Cmd/Ctrl+\: Toggle right panel
+      // Cmd/Ctrl+\：打开/关闭右侧面板
       if ((event.ctrlKey || event.metaKey) && event.key === "\\") {
         event.preventDefault();
         setRightPanelVisible((v) => !v);
       }
-      // Cmd/Ctrl+Shift+F: Search chats
+      // Cmd/Ctrl+Shift+F：搜索聊天
       if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === "f") {
         event.preventDefault();
         // Focus search input if exists
         document.querySelector('.nav-search input')?.focus();
       }
-      // Cmd/Ctrl+/: Keyboard shortcuts help
+      // Cmd/Ctrl+/：快捷键帮助
       if ((event.ctrlKey || event.metaKey) && event.key === "/") {
         event.preventDefault();
         setShortcutsOpen(true);
       }
-      // Cmd/Ctrl+T: Toggle browser (existing)
+      // Cmd/Ctrl+T：打开/关闭浏览器
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "t") {
         event.preventDefault();
         setRightPanelVisible(true);
         setSelectedTool((current) => (current === "browser" ? "" : "browser"));
       }
-      // Escape: Close modals
+      // Escape：关闭弹窗
       if (event.key === "Escape") {
         setCommandsOpen(false);
         setProjectsOpen(false);

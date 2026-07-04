@@ -132,20 +132,20 @@ app.whenReady().then(async () => {
   await win.webContents.executeJavaScript(`document.querySelector('.workspace-left-actions button')?.click()`);
   await waitFor(win, "Boolean(!document.querySelector('.app-grid.sidebar-hidden'))", 5000);
 
-  assertStep("PASS33_ENVIRONMENT_PANEL", await clickContextTab(win, "Environment"));
+  assertStep("PASS33_ENVIRONMENT_PANEL", await clickContextTab(win, "环境"));
   assertStep("PASS33_ENVIRONMENT_VISIBLE", await waitFor(win, "Boolean(document.querySelector('.bottom-work-panel') && document.querySelector('.bottom-panel-body'))", 5000));
   await shot(win, "pass33-bottom-environment.png");
 
-  assertStep("PASS33_CHANGES_PANEL", await clickContextTab(win, "Changes"));
+  assertStep("PASS33_CHANGES_PANEL", await clickContextTab(win, "变更"));
   assertStep("PASS33_CHANGES_VISIBLE", await waitFor(win, "Boolean(document.querySelector('.git-status-preview'))", 5000));
   await shot(win, "pass33-bottom-changes.png");
 
-  assertStep("PASS33_SOURCES_PANEL", await clickContextTab(win, "Sources"));
-  assertStep("PASS33_SOURCES_VISIBLE", await waitFor(win, "Boolean(document.querySelector('.bottom-work-panel') && /Files/.test(document.body.textContent || ''))", 5000));
+  assertStep("PASS33_SOURCES_PANEL", await clickContextTab(win, "来源"));
+  assertStep("PASS33_SOURCES_VISIBLE", await waitFor(win, "Boolean(document.querySelector('.bottom-work-panel') && /文件/.test(document.body.textContent || ''))", 5000));
   await shot(win, "pass33-bottom-sources.png");
 
-  assertStep("PASS33_SUBAGENTS_PANEL", await clickContextTab(win, "Subagents"));
-  assertStep("PASS33_SUBAGENTS_VISIBLE", await waitFor(win, "Boolean(document.querySelector('.bottom-work-panel') && /No active subagents/.test(document.body.textContent || ''))", 5000));
+  assertStep("PASS33_SUBAGENTS_PANEL", await clickContextTab(win, "子代理"));
+  assertStep("PASS33_SUBAGENTS_VISIBLE", await waitFor(win, "Boolean(document.querySelector('.bottom-work-panel') && /没有运行中的子代理/.test(document.body.textContent || ''))", 5000));
   await shot(win, "pass33-bottom-subagents.png");
 
   console.log("PASS33_DONE");

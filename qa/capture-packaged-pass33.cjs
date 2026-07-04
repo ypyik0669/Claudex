@@ -184,7 +184,7 @@ async function main() {
     assertStep("PACKAGED_PASS33_ENVIRONMENT_CLICK", await evalInPage(cdp, `
       (function() {
         const button = [...document.querySelectorAll('.workspace-context-button')]
-          .find((candidate) => (candidate.getAttribute('aria-label') || '').startsWith('Environment'));
+          .find((candidate) => (candidate.getAttribute('aria-label') || '').startsWith('环境'));
         if (!button) return false;
         button.click();
         return true;
@@ -196,7 +196,7 @@ async function main() {
     assertStep("PACKAGED_PASS33_CHANGES_CLICK", await evalInPage(cdp, `
       (function() {
         const button = [...document.querySelectorAll('.workspace-context-button')]
-          .find((candidate) => (candidate.getAttribute('aria-label') || '').startsWith('Changes'));
+          .find((candidate) => (candidate.getAttribute('aria-label') || '').startsWith('变更'));
         if (!button) return false;
         button.click();
         return true;

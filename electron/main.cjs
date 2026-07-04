@@ -25,9 +25,9 @@ const CAPABILITY_CONTEXT = {
   "implementation-plan": "非平凡实现工作需要给出具体步骤和验证命令。",
   "terminal-helper": "建议终端命令时，要写清楚命令并绑定到当前项目路径。",
   "mcp-runtime": "暴露 Claude Code MCP 状态，并通过 Claude Code CLI 命令处理 MCP 配置工作。",
-  "plugin-router": "自动考虑已启用的插件、技能和工具，不要求用户手动输入 slash command。",
+  "plugin-router": "自动考虑已启用的插件、技能和工具，不要求用户手动输入斜杠命令。",
   "marketplace-router": "用户要发现或安装插件时，使用 Claude Code 插件市场命令。",
-  "custom-marketplaces": "把已保存的自定义 marketplace URL 作为用户提供的插件来源。",
+  "custom-marketplaces": "把已保存的自定义插件市场 URL 作为用户提供的插件来源。",
   debugger: "调试时先复现问题、形成假设，并聚焦根因修复。",
   "docs-writer": "需要文档时，写简洁、可操作的使用说明。",
   "test-writer": "需要测试时，优先通过公开接口写行为测试。",
@@ -279,7 +279,7 @@ function resolveInsideProject(projectPath, relativePath = "") {
 function trimOutput(value) {
   const text = String(value || "");
   if (text.length <= MAX_COMMAND_OUTPUT_CHARS) return text;
-  return `${text.slice(0, MAX_COMMAND_OUTPUT_CHARS)}\n\n[output truncated]`;
+  return `${text.slice(0, MAX_COMMAND_OUTPUT_CHARS)}\n\n[输出已截断]`;
 }
 
 function emitProcessChunk(sender, channel, requestId, stream, text) {
@@ -339,7 +339,7 @@ function runProcess(command, args = [], options = {}) {
     };
     const timeout = setTimeout(() => {
       child.kill();
-      finish({ code: 124, stderr: trimOutput(`${stderr}\nCommand timed out after ${timeoutMs}ms.`) });
+      finish({ code: 124, stderr: trimOutput(`${stderr}\n命令运行超过 ${timeoutMs} 毫秒，已停止。`) });
     }, timeoutMs);
 
     if (options.requestId) activeRequests.set(options.requestId, child);
@@ -407,7 +407,7 @@ function runStreamingProcess(command, args = [], options = {}) {
     };
     const timeout = setTimeout(() => {
       child.kill();
-      finish({ code: 124, stderr: trimOutput(`${stderr}\nCommand timed out after ${timeoutMs}ms.`) });
+      finish({ code: 124, stderr: trimOutput(`${stderr}\n命令运行超过 ${timeoutMs} 毫秒，已停止。`) });
     }, timeoutMs);
 
     if (options.requestId) activeRequests.set(options.requestId, child);
@@ -736,7 +736,7 @@ function requireKeyIfNeeded(provider, baseUrl, apiKey) {
   if (provider === "ollama") return;
   if (provider === "openai-compatible" && isLocalBaseUrl(baseUrl)) return;
   if (!apiKey) {
-    throw new Error("缺少 API key。请打开设置，并为当前服务商保存密钥。");
+    throw new Error("缺少 API 密钥。请打开设置，并为当前服务商保存密钥。");
   }
 }
 
@@ -899,7 +899,7 @@ async function requestClaudeCode(store, session, requestId) {
   });
   const payload = parseJsonOutput(result.stdout);
   if (result.code !== 0 || payload?.is_error) {
-    const message = payload?.result || payload?.error || result.stderr || result.stdout || `Claude Code exited with ${result.code}`;
+    const message = payload?.result || payload?.error || result.stderr || result.stdout || `Claude Code 已退出，代码 ${result.code}`;
     throw new Error(stripAnsi(message));
   }
   if (!payload?.result) {
@@ -938,9 +938,9 @@ function emitClaudeStreamLine(sender, requestId, session, line) {
     sender.send("chat:stream-event", {
       ...base,
       type: "status",
-      text: payload.status || "working",
+      text: payload.status || "正在处理",
     });
-    emitActivity(payload.status || "working");
+    emitActivity(payload.status || "正在处理");
     return;
   }
   if (payload.type === "system" && payload.subtype) {
@@ -970,7 +970,7 @@ function emitClaudeStreamLine(sender, requestId, session, line) {
     return;
   }
   if (payload.type === "hook_event") {
-    emitActivity(payload.hook_event_name || payload.name || "hook event");
+    emitActivity(payload.hook_event_name || payload.name || "钩子事件");
     return;
   }
   if (payload.type === "tool_result") {
@@ -1134,7 +1134,7 @@ ipcMain.handle("app:save-capabilities", (_event, capabilities) => {
 
 ipcMain.handle("app:select-project", async () => {
   const result = await dialog.showOpenDialog({
-    title: "Select project folder",
+    title: "选择项目文件夹",
     properties: ["openDirectory"],
   });
   if (result.canceled || !result.filePaths[0]) return null;
@@ -1439,7 +1439,7 @@ ipcMain.handle("workspace:run-command", async (_event, { projectPath, command, r
     let stderr = "";
     const timeout = setTimeout(() => {
       child.kill();
-      stderr += "\nCommand timed out after 120s.";
+      stderr += "\n命令运行超过 120 秒，已停止。";
     }, 120000);
 
     child.stdout.on("data", (chunk) => {

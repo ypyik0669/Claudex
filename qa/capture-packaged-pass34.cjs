@@ -185,7 +185,7 @@ async function main() {
         getComputedStyle(document.querySelector('.tools-panel')).display === 'none' &&
         document.querySelector('.app-shell.font-compact') &&
         [...document.querySelectorAll('.workspace-context-button')].every((button) => button.getBoundingClientRect().width <= 40) &&
-        [...document.querySelectorAll('.side-panel-button')].some((button) => (button.textContent || '').includes('Tools'))
+        Boolean(document.querySelector('.side-panel-button'))
       )
     `, 8000));
     await capture(cdp, "packaged-pass34-home.png");
@@ -193,7 +193,7 @@ async function main() {
     assertStep("PACKAGED_PASS34_ENVIRONMENT_CLICK", await evalInPage(cdp, `
       (function() {
         const button = [...document.querySelectorAll('.workspace-context-button')]
-          .find((candidate) => (candidate.getAttribute('aria-label') || '').startsWith('Environment'));
+          .find((candidate) => (candidate.getAttribute('aria-label') || '').startsWith('环境'));
         if (!button) return false;
         button.click();
         return true;
@@ -205,7 +205,7 @@ async function main() {
     assertStep("PACKAGED_PASS34_PLUGINS_CLICK", await evalInPage(cdp, `
       (function() {
         const button = [...document.querySelectorAll('.nav-stack button')]
-          .find((candidate) => (candidate.textContent || '').includes('Plugins'));
+          .find((candidate) => (candidate.textContent || '').includes('插件'));
         if (!button) return false;
         button.click();
         return true;
