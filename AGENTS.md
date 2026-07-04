@@ -1,9 +1,11 @@
-# Prototype Instructions
+# 原型开发说明
 
-Run the local server yourself and open the preview in the in-app browser. Do not give the user server-start instructions when you can run it.
+本项目是 Claudex 桌面应用。改动时请遵守以下约束：
 
-Before making substantial visual changes, use the Product Design plugin's `get-context` skill when the visual source is unclear or no longer matches the current goal. When the user gives durable prototype-specific design feedback, preferences, or decisions, record them in `AGENTS.md`.
-
-When implementing from a selected generated mock, treat that image as the source of truth for layout, component anatomy, density, spacing, color, typography, visible content, and hierarchy.
-
-Prototype feedback: Claudex must not be a static UI shell. Treat UX completeness as real local state, visible running/loading/error states, useful empty states, streamed command output where possible, safe file-change review before save, and direct escape hatches to the real Claude Code TUI for flows that require native permission prompts or slash commands.
+- 修改前先运行或阅读现有代码，不要凭空猜架构。
+- 视觉和交互要接近 Codex App 的桌面工作区，而不是普通网页。
+- Claudex 不是静态壳：聊天、项目、文件、命令、插件、MCP、设置和错误状态都必须有真实本地状态支撑。
+- 需要原生权限确认、slash command 或完整 TUI 时，使用真实 Claude Code 终端入口承接。
+- 保存文件前必须能看到改动审查或差异预览。
+- 不提交 `.env`、API 密钥、构建产物、临时截图或本机缓存。
+- 完成后至少运行 `npm run build`；涉及桌面桥接时同时运行相关 QA 脚本。

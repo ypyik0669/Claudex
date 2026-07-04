@@ -236,6 +236,14 @@ const copy = {
     backedLocalState: "Backed by local state",
     localRuntime: "Local runtime",
     toggleSidebar: "Toggle sidebar",
+    toggleRightPanel: "Toggle right panel",
+    toggleBrowser: "Toggle browser",
+    showShortcuts: "Show shortcuts",
+    closeModal: "Close modal",
+    sendMessageShortcut: "Send message in composer",
+    newLineShortcut: "New line in composer",
+    shortcutsTitle: "Keyboard Shortcuts",
+    shortcutsSubtitle: "Quick actions to navigate faster",
     cliStatus: "CLI status",
     refreshCliStatus: "Refresh CLI status",
     cliPluginOutput: "Claude Code plugin output",
@@ -317,7 +325,7 @@ const copy = {
     tools: "Tools",
     contextPanel: "Context",
     environment: "Environment",
-    outputs: "Outputs",
+    outputs: "输出",
     bottomPanel: "Bottom panel",
     openSidePanel: "Open side panel",
     outputsPanelHint: "Command output, Claude progress, and environment summaries stay visible here while you keep chatting.",
@@ -329,7 +337,7 @@ const copy = {
     branch: "Branch",
     commitOrPush: "Commit or push",
     sources: "Sources",
-    subagents: "Subagents",
+    subagents: "子代理",
     noSourcesYet: "No sources yet",
     noSubagentsYet: "No active subagents",
     files: "Files",
@@ -542,7 +550,7 @@ const copy = {
     apiMode: "直接 API",
     claudeCodeManagedTitle: "Claude Code 模式",
     claudeCodeManagedHint: "消息会通过本机 Claude Code CLI 运行。右侧显示当前 CLI 登录和环境状态；下面的直接 API 字段只有切换到直接 API 后才会生效。",
-    directApiManagedHint: "直接 API 模式会使用这里保存的服务商、Base URL、模型和 API key。",
+    directApiManagedHint: "直接 API 模式会使用这里保存的服务商、基础 URL、模型和 API 密钥。",
     cliEnvSource: "CLI 环境",
     storedDirectApi: "已保存的直接 API 设置",
     inactiveInClaudeCode: "Claude Code 模式下不生效",
@@ -588,17 +596,25 @@ const copy = {
     backedLocalState: "本地状态支撑",
     localRuntime: "本地运行时",
     toggleSidebar: "打开/关闭左侧栏",
+    toggleRightPanel: "打开/关闭右侧面板",
+    toggleBrowser: "打开/关闭浏览器",
+    showShortcuts: "显示快捷键",
+    closeModal: "关闭弹窗",
+    sendMessageShortcut: "在输入框中发送消息",
+    newLineShortcut: "在输入框中换行",
+    shortcutsTitle: "键盘快捷键",
+    shortcutsSubtitle: "快速操作和导航",
     cliStatus: "CLI 状态",
     refreshCliStatus: "刷新 CLI 状态",
     cliPluginOutput: "Claude Code 插件输出",
     cliMcpOutput: "Claude Code MCP 输出",
-    marketplaceOutput: "Marketplace 输出",
-    fetchMarketplace: "获取 marketplace",
-    customMarketplaces: "自定义 marketplaces",
-    marketplaceUrl: "Marketplace URL",
-    addMarketplace: "添加 marketplace",
+    marketplaceOutput: "市场输出",
+    fetchMarketplace: "获取市场列表",
+    customMarketplaces: "自定义市场",
+    marketplaceUrl: "市场 URL",
+    addMarketplace: "添加市场",
     remove: "移除",
-    noCustomMarketplaces: "还没有添加自定义 marketplace。",
+    noCustomMarketplaces: "还没有添加自定义市场。",
     localCapability: "本地能力",
     installedCliState: "已安装 CLI 状态",
     settingsStatusHint: "这个页面显示 Claudex 本地状态和 Claude Code CLI 输出。",
@@ -631,13 +647,13 @@ const copy = {
     workingHint: "正在处理，请等待当前任务完成。",
     noChangesToSave: "暂无更改可保存。",
     pluginNameRequired: "请先输入插件名称。",
-    baseUrl: "Base URL",
-    apiKey: "API key",
+    baseUrl: "基础 URL",
+    apiKey: "API 密钥",
     apiKeyPlaceholder: "粘贴密钥",
     apiKeySaved: "已保存，留空则保持不变",
     apiKeyNone: "不需要",
     claudeCodeDefaultEnv: "Claude Code 默认环境",
-    temperature: "Temperature",
+    temperature: "温度",
     timeout: "超时毫秒",
     systemPrompt: "系统提示词",
     language: "语言",
@@ -650,7 +666,7 @@ const copy = {
     densityCompact: "紧凑",
     densityComfortable: "舒适",
     followSystem: "跟随系统",
-    english: "English",
+    english: "英文",
     chinese: "中文",
     encryption: "加密",
     dataFile: "数据文件",
@@ -669,7 +685,7 @@ const copy = {
     tools: "工具",
     contextPanel: "上下文",
     environment: "环境",
-    outputs: "Outputs",
+    outputs: "输出",
     bottomPanel: "底部面板",
     openSidePanel: "打开侧边面板",
     outputsPanelHint: "命令输出、Claude 进度和环境摘要会显示在这里，同时可以继续聊天。",
@@ -681,9 +697,9 @@ const copy = {
     branch: "分支",
     commitOrPush: "提交或推送",
     sources: "来源",
-    subagents: "Subagents",
+    subagents: "子代理",
     noSourcesYet: "暂无来源",
-    noSubagentsYet: "没有运行中的 subagents",
+    noSubagentsYet: "没有运行中的子代理",
     files: "文件",
     openInIde: "用 IDE 打开",
     openIde: "打开 IDE",
@@ -735,17 +751,17 @@ const copy = {
     capabilitiesSubtitle: "启用一次后，Claudex 会在每次聊天里自动记住。",
     capabilitySearch: "搜索能力",
     searchPlugins: "搜索插件",
-    searchSkills: "搜索 skills",
-    searchMarketplace: "搜索 marketplace",
+    searchSkills: "搜索技能",
+    searchMarketplace: "搜索市场",
     capabilityAll: "全部",
     capabilityEnabled: "已启用",
     capabilityDisabled: "已关闭",
     capabilitySummary: "已启用 {enabled} 个 · 总共 {total} 个",
     installed: "已安装",
     installedLocal: "本地已安装",
-    marketplaceHint: "Marketplace 命令由 Claude Code CLI 支撑。安装前请在 Claude Code 面板获取实时 marketplace 输出。",
-    marketplaceSourceClaude: "Claude Code marketplace",
-    marketplaceSourceCustom: "自定义 marketplace",
+    marketplaceHint: "市场命令由 Claude Code CLI 支撑。安装前请在 Claude Code 面板获取实时市场输出。",
+    marketplaceSourceClaude: "Claude Code 市场",
+    marketplaceSourceCustom: "自定义市场",
     managePlugins: "管理",
     openClaudePanel: "打开 Claude 面板",
     noCapabilities: "没有匹配的能力。",
@@ -756,7 +772,7 @@ const copy = {
     urlPlaceholder: "输入网址",
     openSettings: "打开设置",
     setupProvider: "配置服务商",
-    setupProviderHint: "发送前请保存 API key，或者切换到 Ollama。",
+    setupProviderHint: "发送前请保存 API 密钥，或者切换到 Ollama。",
     copy: "复制",
     copied: "已复制",
     copyPath: "复制路径",
@@ -801,17 +817,17 @@ const copy = {
     runningNow: "正在运行",
     completedRuns: "{count} 条记录",
     commandLine: "命令",
-    commandCwd: "cwd",
+    commandCwd: "工作目录",
     commandExit: "退出码",
     commandDuration: "耗时",
-    commandStdout: "stdout",
-    commandStderr: "stderr",
+    commandStdout: "标准输出",
+    commandStderr: "标准错误",
     liveOutput: "实时输出",
     noOutput: "没有输出",
     copyOutput: "复制输出",
     outputCopied: "输出已复制",
     terminalHelp: "直接在当前项目文件夹里启动终端。",
-    opensExternalTerminal: "会打开系统终端，并把当前项目作为 cwd。",
+    opensExternalTerminal: "会打开系统终端，并把当前项目作为工作目录。",
     path: "路径",
     workspaceHelp: "浏览源码、安全编辑；只有你输入命令后才会运行。",
     refresh: "刷新",
@@ -825,16 +841,16 @@ const copy = {
     changedLines: "改动行",
     reviewUnsavedChanges: "保存前先审查未保存改动。",
     reviewRequiredTitle: "需要先审查",
-    reviewRequiredHint: "先打开审查视图确认 diff，再保存。",
+    reviewRequiredHint: "先打开审查视图确认差异，再保存。",
     reviewingChanges: "正在审查改动",
     readyToSave: "可以保存",
     reviewFirstToSave: "保存前请先查看改动。",
     noFileChanges: "这个文件没有改动。",
-    noChangesToReview: "先编辑文件，这里会显示 diff。",
+    noChangesToReview: "先编辑文件，这里会显示差异。",
     revertChanges: "撤销",
     reviewChanges: "查看改动",
-    diffPreview: "Diff 预览",
-    diffPreviewSkippedLarge: "文件超过 1MB，已禁用 Diff 预览以保持输入流畅。",
+    diffPreview: "差异预览",
+    diffPreviewSkippedLarge: "文件超过 1MB，已禁用差异预览以保持输入流畅。",
     runCommand: "运行命令",
     runCommandShort: "运行",
     commandPlaceholder: "输入 shell 命令",
@@ -1047,9 +1063,9 @@ function compactPath(value, max = 54) {
 function authLabel(auth, settings) {
   if (settings?.env?.anthropicApiKey) return "firstParty / api_key";
   if (settings?.env?.anthropicAuthToken) return "firstParty / auth_token";
-  if (!auth) return "Checking";
-  if (!auth.loggedIn) return "Not signed in";
-  return `${auth.apiProvider || "Claude"} / ${auth.authMethod || "logged in"}`;
+  if (!auth) return "检查中";
+  if (!auth.loggedIn) return "未登录";
+  return `${auth.apiProvider || "Claude"} / ${auth.authMethod || "已登录"}`;
 }
 
 function cliBaseUrl(settings) {
@@ -1064,9 +1080,8 @@ function normalizeBrowserUrl(value) {
 }
 
 function resolveLanguage(language, appLocale) {
-  const locale = appLocale || navigator.language || "";
-  if (language === "zh" || language === "en") return language;
-  return locale.toLowerCase().startsWith("zh") ? "zh" : "en";
+  if (language === "zh") return "zh";
+  return "zh";
 }
 
 function formatDate(value, lang) {
@@ -1093,6 +1108,14 @@ function formatRelativeTime(value, lang) {
   const diffMonth = Math.floor(diffDay / 30);
   const diffYear = Math.floor(diffDay / 365);
   if (diffSec < 60) return lang === "zh" ? "刚刚" : "now";
+  if (lang === "zh") {
+    if (diffMin < 60) return `${diffMin} 分钟前`;
+    if (diffHour < 24) return `${diffHour} 小时前`;
+    if (diffDay < 7) return `${diffDay} 天前`;
+    if (diffWeek < 5) return `${diffWeek} 周前`;
+    if (diffMonth < 12) return `${diffMonth} 个月前`;
+    return `${diffYear} 年前`;
+  }
   if (diffMin < 60) return `${diffMin}m`;
   if (diffHour < 24) return `${diffHour}h`;
   if (diffDay < 7) return `${diffDay}d`;
@@ -1195,7 +1218,7 @@ function buildLineDiff(before = "", after = "") {
 
 function fallbackState() {
   const createdAt = new Date().toISOString();
-  const activeProject = { name: "local workspace", path: "" };
+  const activeProject = { name: "本地工作区", path: "" };
   return {
     version: 1,
     settings: {
@@ -1204,13 +1227,13 @@ function fallbackState() {
       baseUrl: "https://api.openai.com/v1",
       temperature: 0.2,
       timeoutMs: 600000,
-      language: "system",
+      language: "zh",
       appearance: {
         fontSize: "compact",
         density: "compact",
       },
       systemPrompt:
-        "You are a pragmatic senior coding assistant. Be concise, factual, and implementation-focused.",
+        "你是一名务实的资深编程助手。回答要简洁、准确，并专注于可执行的实现。",
       apiKeys: {},
       claudeCode: {
         executionMode: "claude-code",
@@ -1220,7 +1243,7 @@ function fallbackState() {
       capabilities: Object.fromEntries(capabilityCatalog.map((item) => [item.id, item.defaultEnabled])),
       customMarketplaces: [],
       appLocale: navigator.language,
-      dataFile: "Electron app required",
+      dataFile: "需要 Electron 应用",
       encryptionAvailable: false,
     },
     activeProject,
@@ -1228,7 +1251,7 @@ function fallbackState() {
     sessions: [
       {
         id: "browser-preview",
-        title: "New chat",
+        title: "新聊天",
         project: activeProject.name,
         projectPath: activeProject.path,
         createdAt,
@@ -3190,7 +3213,7 @@ function SettingsModal({ state, lang, t, onClose, onSaved, surface = false }) {
     baseUrl: state.settings.baseUrl,
     temperature: state.settings.temperature,
     timeoutMs: state.settings.timeoutMs || 600000,
-    language: state.settings.language || "system",
+    language: state.settings.language === "system" ? "system" : "zh",
     appearance: {
       fontSize: state.settings.appearance?.fontSize || "compact",
       density: state.settings.appearance?.density || "compact",
@@ -3408,7 +3431,6 @@ function SettingsModal({ state, lang, t, onClose, onSaved, surface = false }) {
                 <select value={form.language} onChange={(event) => setForm((current) => ({ ...current, language: event.target.value }))}>
                   <option value="system">{t.followSystem}</option>
                   <option value="zh">{t.chinese}</option>
-                  <option value="en">{t.english}</option>
                 </select>
               </label>
               <label>
@@ -3543,7 +3565,7 @@ function SettingsModal({ state, lang, t, onClose, onSaved, surface = false }) {
             <div className="settings-note">
               <Languages size={15} />
               <span>
-                {t.env}: Anthropic {state.settings.env?.anthropicKey ? "found" : "not found"}, OpenAI {state.settings.env?.openaiKey ? "found" : "not found"} · locale {state.settings.appLocale || navigator.language}
+                {t.env}: Anthropic {state.settings.env?.anthropicKey ? "已找到" : "未找到"}, OpenAI {state.settings.env?.openaiKey ? "已找到" : "未找到"} · 系统语言 {state.settings.appLocale || navigator.language}
               </span>
             </div>
           </details>
@@ -3556,7 +3578,7 @@ function SettingsModal({ state, lang, t, onClose, onSaved, surface = false }) {
                 <span>{t.settingsAppearance}</span>
                 <h3>{t.interfaceLanguage}</h3>
               </div>
-              <em className="settings-badge">{form.language === "system" ? t.followSystem : form.language === "zh" ? t.chinese : t.english}</em>
+              <em className="settings-badge">{form.language === "system" ? t.followSystem : t.chinese}</em>
             </div>
             <div className="settings-grid runtime-control-grid">
               <label>
@@ -3564,7 +3586,6 @@ function SettingsModal({ state, lang, t, onClose, onSaved, surface = false }) {
                 <select value={form.language} onChange={(event) => setForm((current) => ({ ...current, language: event.target.value }))}>
                   <option value="system">{t.followSystem}</option>
                   <option value="zh">{t.chinese}</option>
-                  <option value="en">{t.english}</option>
                 </select>
               </label>
               <label>
@@ -4024,7 +4045,7 @@ function SettingsBackedStatus({
       [t.dataFile, state.settings.dataFile || t.desktopOnly],
     ],
     personalization: [
-      [t.interfaceLanguage, form.language === "system" ? t.followSystem : form.language === "zh" ? t.chinese : t.english],
+      [t.interfaceLanguage, form.language === "system" ? t.followSystem : t.chinese],
       [t.fontSize, form.appearance?.fontSize || t.fontSizeCompact],
       [t.density, form.appearance?.density || t.densityCompact],
       [t.defaultPermissions, form.claudeCode?.permissionMode || "default"],
@@ -4045,7 +4066,7 @@ function SettingsBackedStatus({
       [t.executionMode, directApiActive ? t.apiMode : t.claudeCodeMode],
       [t.provider, providerDefaults(form.provider).name],
       [t.baseUrl, directApiActive ? form.baseUrl || providerDefaults(form.provider).baseUrl : cliBaseUrl(state.settings) || t.claudeCodeDefaultEnv],
-      [t.env, `Anthropic ${env.anthropicKey ? "found" : "missing"} · OpenAI ${env.openaiKey ? "found" : "missing"}`],
+      [t.env, `Anthropic ${env.anthropicKey ? "已找到" : "缺失"} · OpenAI ${env.openaiKey ? "已找到" : "缺失"}`],
     ],
     browser: [
       [t.browserPreview, "Electron webview"],
@@ -4312,7 +4333,7 @@ export function App() {
           setLoadError("");
         }
       } catch (error) {
-        if (!cancelled) setLoadError(error.message || "Could not load desktop state.");
+        if (!cancelled) setLoadError(error.message || "无法加载桌面端状态。");
       } finally {
         if (!cancelled) setStateLoading(false);
       }
@@ -4332,7 +4353,7 @@ export function App() {
       setState(next);
       setActiveSessionId(next.sessions[0]?.id || "");
     } catch (error) {
-      setLoadError(error.message || "Could not load desktop state.");
+      setLoadError(error.message || "无法加载桌面端状态。");
     } finally {
       setStateLoading(false);
     }
@@ -4586,18 +4607,18 @@ export function App() {
   });
 
   const commands = [
-    { id: "new", title: t.newChat, subtitle: "Ctrl+N", keywords: "chat session", action: createSession },
-    { id: "project", title: t.selectProject, subtitle: t.activeProject, keywords: "folder workspace", action: () => setProjectsOpen(true) },
-    { id: "terminal", title: t.openTerminal, subtitle: projectLabel(activeProject, t), keywords: "shell powershell", action: openTerminal },
-    { id: "settings", title: t.settings, subtitle: t.setupProvider, keywords: "provider api key model", action: openSettingsSurface },
-    { id: "capabilities", title: t.capabilities, subtitle: t.plugins, keywords: "plugins skills tools", action: openCapabilitiesSurface },
-    { id: "review", title: t.quickReview, subtitle: "Prompt", keywords: "review code", action: () => setDraft(t.quickReview) },
-    { id: "plan", title: t.quickPlan, subtitle: "Prompt", keywords: "plan implementation", action: () => setDraft(t.quickPlan) },
+    { id: "new", title: t.newChat, subtitle: "Ctrl+N", keywords: "聊天 对话 会话", action: createSession },
+    { id: "project", title: t.selectProject, subtitle: t.activeProject, keywords: "文件夹 工作区 项目", action: () => setProjectsOpen(true) },
+    { id: "terminal", title: t.openTerminal, subtitle: projectLabel(activeProject, t), keywords: "终端 shell powershell", action: openTerminal },
+    { id: "settings", title: t.settings, subtitle: t.setupProvider, keywords: "服务商 api key 模型 设置", action: openSettingsSurface },
+    { id: "capabilities", title: t.capabilities, subtitle: t.plugins, keywords: "插件 技能 工具", action: openCapabilitiesSurface },
+    { id: "review", title: t.quickReview, subtitle: t.schedulePrompt, keywords: "审查 代码 风险", action: () => setDraft(t.quickReview) },
+    { id: "plan", title: t.quickPlan, subtitle: t.schedulePrompt, keywords: "计划 实现 验证", action: () => setDraft(t.quickPlan) },
     {
       id: "data",
       title: t.openData,
       subtitle: t.dataFile,
-      keywords: "storage history",
+      keywords: "存储 历史 数据",
       action: async () => {
         await desktopApi?.openDataFile();
         showToast(t.dataOpened);
@@ -4762,18 +4783,18 @@ function KeyboardShortcutsModal({ t, onClose }) {
   useFocusTrap(modalRef);
 
   const shortcuts = [
-    { keys: `${mod}+K`, action: t.commandPalette || 'Command palette' },
-    { keys: `${mod}+N`, action: t.newChat || 'New chat' },
-    { keys: `${mod}+,`, action: t.settings || 'Settings' },
-    { keys: `${mod}+P`, action: t.projects || 'Projects' },
-    { keys: `${mod}+B`, action: 'Toggle sidebar' },
-    { keys: `${mod}+\\`, action: 'Toggle right panel' },
-    { keys: `${mod}+Shift+F`, action: t.search || 'Search chats' },
-    { keys: `${mod}+T`, action: 'Toggle browser' },
-    { keys: `${mod}+/`, action: 'Show shortcuts' },
-    { keys: 'Escape', action: t.close || 'Close modal' },
-    { keys: 'Enter', action: t.send || 'Send message (in composer)' },
-    { keys: 'Shift+Enter', action: 'New line (in composer)' },
+    { keys: `${mod}+K`, action: t.commandPalette },
+    { keys: `${mod}+N`, action: t.newChat },
+    { keys: `${mod}+,`, action: t.settings },
+    { keys: `${mod}+P`, action: t.projects },
+    { keys: `${mod}+B`, action: t.toggleSidebar },
+    { keys: `${mod}+\\`, action: t.toggleRightPanel },
+    { keys: `${mod}+Shift+F`, action: t.search },
+    { keys: `${mod}+T`, action: t.toggleBrowser },
+    { keys: `${mod}+/`, action: t.showShortcuts },
+    { keys: 'Escape', action: t.closeModal },
+    { keys: 'Enter', action: t.sendMessageShortcut },
+    { keys: 'Shift+Enter', action: t.newLineShortcut },
   ];
 
   return (
@@ -4783,16 +4804,16 @@ function KeyboardShortcutsModal({ t, onClose }) {
         tabIndex={-1}
         role="dialog"
         aria-modal="true"
-        aria-label="Keyboard Shortcuts"
+        aria-label={t.shortcutsTitle}
         className="modal-container"
         onClick={(e) => e.stopPropagation()}
       >
         <header className="modal-header">
           <div>
-            <h2>Keyboard Shortcuts</h2>
-            <p>Quick actions to navigate faster</p>
+            <h2>{t.shortcutsTitle}</h2>
+            <p>{t.shortcutsSubtitle}</p>
           </div>
-          <button type="button" onClick={onClose} className="icon-button" title={t.close || "Close"} aria-label={t.close || "Close"}>
+          <button type="button" onClick={onClose} className="icon-button" title={t.close} aria-label={t.close}>
             <X size={20} />
           </button>
         </header>

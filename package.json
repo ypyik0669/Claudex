@@ -1,7 +1,7 @@
 {
   "name": "claudex",
-  "version": "0.1.0",
-  "description": "Desktop coding-agent app for Claude Code CLI with a Codex-inspired workspace.",
+  "version": "0.1.1",
+  "description": "面向 Claude Code CLI 的中文桌面编程助手。",
   "private": true,
   "type": "module",
   "main": "electron/main.cjs",

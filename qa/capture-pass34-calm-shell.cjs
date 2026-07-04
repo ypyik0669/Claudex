@@ -21,7 +21,7 @@ fs.writeFileSync(
         baseUrl: "https://api.example.com",
         temperature: 0.2,
         timeoutMs: 600000,
-        language: "en",
+        language: "zh",
         appearance: { fontSize: "compact", density: "compact" },
         claudeCode: {
           executionMode: "claude-code",
@@ -45,7 +45,7 @@ fs.writeFileSync(
       sessions: [
         {
           id: "default",
-          title: "New chat",
+          title: "新聊天",
           project: "claude-code-app",
           projectPath: PROJECT_PATH,
           createdAt: "2026-07-04T05:00:00.000Z",
@@ -130,7 +130,7 @@ app.whenReady().then(async () => {
   `, 5000));
   await shot(win, "pass34-home-calm.png");
 
-  assertStep("PASS34_CONTEXT_CLICK", await clickByAriaPrefix(win, ".workspace-context-button", "Environment"));
+  assertStep("PASS34_CONTEXT_CLICK", await clickByAriaPrefix(win, ".workspace-context-button", "环境"));
   assertStep("PASS34_CONTEXT_PANEL_VISIBLE", await waitFor(win, "Boolean(document.querySelector('.bottom-work-panel') && document.querySelector('.workspace-context-button.active'))", 5000));
   assertStep("PASS34_ACTIVE_CONTEXT_EXPANDS", await waitFor(win, "document.querySelector('.workspace-context-button.active')?.getBoundingClientRect().width > 40", 5000));
   await shot(win, "pass34-bottom-environment.png");
@@ -176,7 +176,7 @@ app.whenReady().then(async () => {
   assertStep("PASS34_PLUGINS_CLICK", await win.webContents.executeJavaScript(`
     (function() {
       const button = [...document.querySelectorAll('.nav-stack button')]
-        .find((candidate) => (candidate.textContent || '').includes('Plugins'));
+        .find((candidate) => (candidate.textContent || '').includes('插件'));
       if (!button) return false;
       button.click();
       return true;
@@ -194,7 +194,7 @@ app.whenReady().then(async () => {
   assertStep("PASS34_MARKETPLACE_CLICK", await win.webContents.executeJavaScript(`
     (function() {
       const button = [...document.querySelectorAll('.plugin-manager-tabs button')]
-        .find((candidate) => (candidate.textContent || '').includes('Marketplace'));
+        .find((candidate) => (candidate.textContent || '').includes('市场'));
       if (!button) return false;
       button.click();
       return true;

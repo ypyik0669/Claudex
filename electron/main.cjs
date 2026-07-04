@@ -5,7 +5,7 @@ const crypto = require("node:crypto");
 const { spawn } = require("node:child_process");
 
 const DEFAULT_SYSTEM_PROMPT =
-  "You are a pragmatic senior coding assistant. Be concise, factual, and implementation-focused.";
+  "你是一名务实的资深编程助手。回答要简洁、准确，并专注于可执行的实现。";
 const DEFAULT_CAPABILITIES = {
   "project-context": true,
   "code-review": true,
@@ -20,17 +20,17 @@ const DEFAULT_CAPABILITIES = {
   "test-writer": false,
 };
 const CAPABILITY_CONTEXT = {
-  "project-context": "Use the active project folder as the working context when the user asks for coding or file work.",
-  "code-review": "When reviewing code, prioritize bugs, regressions, risks, and missing tests before summaries.",
-  "implementation-plan": "For non-trivial implementation work, give concrete steps and verification commands.",
-  "terminal-helper": "When suggesting terminal commands, make them explicit and tie them to the active project path.",
-  "mcp-runtime": "Expose Claude Code MCP status and route MCP setup work through Claude Code CLI commands.",
-  "plugin-router": "Consider enabled plugins, skills, and tools automatically; do not require the user to type slash commands.",
-  "marketplace-router": "Use Claude Code plugin marketplace commands when the user asks to discover or install plugins.",
-  "custom-marketplaces": "Consider saved custom marketplace URLs as user-provided plugin sources.",
-  debugger: "For debugging, reproduce the issue, form hypotheses, and focus on root-cause fixes.",
-  "docs-writer": "When documentation is requested, write concise operational usage notes.",
-  "test-writer": "When tests are requested, prefer behavior tests through public interfaces.",
+  "project-context": "用户请求代码或文件工作时，把当前项目文件夹作为工作上下文。",
+  "code-review": "做代码审查时，优先指出缺陷、回归风险、实现风险和缺失测试，再给摘要。",
+  "implementation-plan": "非平凡实现工作需要给出具体步骤和验证命令。",
+  "terminal-helper": "建议终端命令时，要写清楚命令并绑定到当前项目路径。",
+  "mcp-runtime": "暴露 Claude Code MCP 状态，并通过 Claude Code CLI 命令处理 MCP 配置工作。",
+  "plugin-router": "自动考虑已启用的插件、技能和工具，不要求用户手动输入 slash command。",
+  "marketplace-router": "用户要发现或安装插件时，使用 Claude Code 插件市场命令。",
+  "custom-marketplaces": "把已保存的自定义 marketplace URL 作为用户提供的插件来源。",
+  debugger: "调试时先复现问题、形成假设，并聚焦根因修复。",
+  "docs-writer": "需要文档时，写简洁、可操作的使用说明。",
+  "test-writer": "需要测试时，优先通过公开接口写行为测试。",
 };
 const activeRequests = new Map();
 const IGNORED_DIRS = new Set([".git", "node_modules", "dist", "build", "release", ".npm-cache", ".next", "coverage"]);
@@ -120,7 +120,7 @@ function sessionProjectKey(session) {
 
 function titleFromUserContent(content) {
   const text = String(content || "").replace(/\s+/g, " ").trim();
-  if (!text) return "New chat";
+  if (!text) return "新聊天";
   return text.length > 64 ? `${text.slice(0, 61)}...` : text;
 }
 
@@ -141,7 +141,7 @@ function defaultStore() {
   const hasOpenAiEnv = Boolean(env.OPENAI_API_KEY || env.OPENAI_BASE_URL || env.OPENAI_MODEL);
   const provider = hasAnthropicEnv ? "anthropic" : "openai-compatible";
   const activeProject = {
-    name: "local workspace",
+    name: "本地工作区",
     path: "",
   };
   return {
@@ -159,7 +159,7 @@ function defaultStore() {
         (hasAnthropicEnv ? "https://api.anthropic.com/v1" : "https://api.openai.com/v1"),
       temperature: 0.2,
       timeoutMs: Number(env.API_TIMEOUT_MS || 600000),
-      language: "system",
+      language: "zh",
       appearance: {
         fontSize: "compact",
         density: "compact",
@@ -175,7 +175,7 @@ function defaultStore() {
     sessions: [
       {
         id: "default",
-        title: "New chat",
+        title: "新聊天",
         project: activeProject.name,
         projectPath: activeProject.path,
         createdAt,
@@ -258,11 +258,11 @@ function resolveProjectRoot(projectPath) {
   const store = readStore();
   const candidate = projectPath || store.activeProject?.path;
   if (!candidate || !fs.existsSync(candidate)) {
-    throw new Error("Select a project folder first.");
+    throw new Error("请先选择项目文件夹。");
   }
   const root = path.resolve(candidate);
   const stat = fs.statSync(root);
-  if (!stat.isDirectory()) throw new Error("Project path is not a folder.");
+  if (!stat.isDirectory()) throw new Error("项目路径不是文件夹。");
   return root;
 }
 
@@ -271,7 +271,7 @@ function resolveInsideProject(projectPath, relativePath = "") {
   const target = path.resolve(root, relativePath || ".");
   const relative = path.relative(root, target);
   if (relative.startsWith("..") || path.isAbsolute(relative)) {
-    throw new Error("Path is outside the selected project.");
+    throw new Error("路径超出了当前项目范围。");
   }
   return { root, target, relative: slashPath(relative) };
 }
@@ -615,7 +615,7 @@ async function runClaudeCommand(command, args = [], options = {}) {
     lastResult = result;
     if (!(result.code === 1 && /ENOENT/i.test(result.stderr || ""))) return result;
   }
-  return lastResult || { code: 1, stdout: "", stderr: "Claude command was not found.", durationMs: 0 };
+  return lastResult || { code: 1, stdout: "", stderr: "未找到 Claude 命令。", durationMs: 0 };
 }
 
 function claudeProcessEnv(extra = {}) {
@@ -736,7 +736,7 @@ function requireKeyIfNeeded(provider, baseUrl, apiKey) {
   if (provider === "ollama") return;
   if (provider === "openai-compatible" && isLocalBaseUrl(baseUrl)) return;
   if (!apiKey) {
-    throw new Error("Missing API key. Open Settings and save a key for this provider.");
+    throw new Error("缺少 API key。请打开设置，并为当前服务商保存密钥。");
   }
 }
 
@@ -752,7 +752,7 @@ function normalizeMessages(store, session) {
 
 function buildSystemPrompt(store, session) {
   const systemPrompt = store.settings.systemPrompt || DEFAULT_SYSTEM_PROMPT;
-  const project = store.activeProject || { name: session.project || "local workspace", path: session.projectPath || "" };
+  const project = store.activeProject || { name: session.project || "本地工作区", path: session.projectPath || "" };
   const enabledCapabilities = Object.entries({
     ...DEFAULT_CAPABILITIES,
     ...(store.settings.capabilities || {}),
@@ -764,11 +764,11 @@ function buildSystemPrompt(store, session) {
     ? store.settings.customMarketplaces.filter(Boolean).slice(0, 12)
     : [];
   const claudexContext = [
-    "Claudex desktop context:",
-    `- Active project: ${project.name || "local workspace"}${project.path ? ` (${project.path})` : ""}`,
-    enabledCapabilities.length ? "- Enabled capabilities:" : "",
+    "Claudex 桌面端上下文：",
+    `- 当前项目：${project.name || "本地工作区"}${project.path ? ` (${project.path})` : ""}`,
+    enabledCapabilities.length ? "- 已启用能力：" : "",
     ...enabledCapabilities.map((item) => `  - ${item}`),
-    customMarketplaces.length ? "- Custom plugin marketplaces:" : "",
+    customMarketplaces.length ? "- 自定义插件市场：" : "",
     ...customMarketplaces.map((item) => `  - ${item}`),
   ]
     .filter(Boolean)
@@ -795,10 +795,10 @@ async function requestOpenAiCompatible(store, session, apiKey, requestId) {
 
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(payload?.error?.message || `Provider returned HTTP ${response.status}`);
+    throw new Error(payload?.error?.message || `服务商返回 HTTP ${response.status}`);
   }
   const content = payload?.choices?.[0]?.message?.content;
-  if (!content) throw new Error("Provider response did not include assistant content.");
+  if (!content) throw new Error("服务商响应中没有助手内容。");
   return content;
 }
 
@@ -826,14 +826,14 @@ async function requestAnthropic(store, session, apiKey, requestId) {
 
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(payload?.error?.message || `Anthropic returned HTTP ${response.status}`);
+    throw new Error(payload?.error?.message || `Anthropic 返回 HTTP ${response.status}`);
   }
   const text = (payload?.content || [])
     .filter((part) => part.type === "text")
     .map((part) => part.text)
     .join("\n")
     .trim();
-  if (!text) throw new Error("Anthropic response did not include text content.");
+  if (!text) throw new Error("Anthropic 响应中没有文本内容。");
   return text;
 }
 
@@ -852,10 +852,10 @@ async function requestOllama(store, session, requestId) {
 
   const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(payload?.error || `Ollama returned HTTP ${response.status}`);
+    throw new Error(payload?.error || `Ollama 返回 HTTP ${response.status}`);
   }
   const content = payload?.message?.content;
-  if (!content) throw new Error("Ollama response did not include assistant content.");
+  if (!content) throw new Error("Ollama 响应中没有助手内容。");
   return content;
 }
 
@@ -903,7 +903,7 @@ async function requestClaudeCode(store, session, requestId) {
     throw new Error(stripAnsi(message));
   }
   if (!payload?.result) {
-    throw new Error(stripAnsi(result.stdout || "Claude Code did not return a result."));
+    throw new Error(stripAnsi(result.stdout || "Claude Code 没有返回结果。"));
   }
   if (payload.session_id) {
     session.claudeSessionId = payload.session_id;
@@ -949,7 +949,7 @@ function emitClaudeStreamLine(sender, requestId, session, line) {
   }
   if (payload.type === "assistant" && Array.isArray(payload.message?.content)) {
     for (const block of payload.message.content) {
-      if (block?.type === "tool_use") emitActivity(`Using ${block.name || "tool"}`);
+      if (block?.type === "tool_use") emitActivity(`正在使用 ${block.name || "工具"}`);
     }
     return;
   }
@@ -966,7 +966,7 @@ function emitClaudeStreamLine(sender, requestId, session, line) {
   }
   if (payload.type === "stream_event" && payload.event?.type === "content_block_start") {
     const block = payload.event.content_block;
-    if (block?.type === "tool_use") emitActivity(`Using ${block.name || "tool"}`);
+    if (block?.type === "tool_use") emitActivity(`正在使用 ${block.name || "工具"}`);
     return;
   }
   if (payload.type === "hook_event") {
@@ -974,7 +974,7 @@ function emitClaudeStreamLine(sender, requestId, session, line) {
     return;
   }
   if (payload.type === "tool_result") {
-    emitActivity(payload.is_error ? "Tool returned an error" : "Tool completed");
+    emitActivity(payload.is_error ? "工具返回错误" : "工具已完成");
     return;
   }
   if (payload.type === "result") {
@@ -985,7 +985,7 @@ function emitClaudeStreamLine(sender, requestId, session, line) {
       claudeSessionId: payload.session_id,
       durationMs: payload.duration_ms,
     });
-    emitActivity(payload.is_error ? "Run finished with error" : "Run completed");
+    emitActivity(payload.is_error ? "运行结束但有错误" : "运行已完成");
   }
 }
 
@@ -1030,7 +1030,7 @@ async function requestClaudeCodeStream(store, session, requestId, sender) {
     throw new Error(stripAnsi(message));
   }
   if (!payload?.result) {
-    throw new Error(stripAnsi(result.stdout || "Claude Code did not return a result."));
+    throw new Error(stripAnsi(result.stdout || "Claude Code 没有返回结果。"));
   }
   if (payload.session_id) {
     session.claudeSessionId = payload.session_id;
@@ -1097,7 +1097,7 @@ ipcMain.handle("app:save-settings", (_event, nextSettings) => {
     baseUrl: nextSettings.baseUrl || store.settings.baseUrl,
     temperature: Number(nextSettings.temperature ?? store.settings.temperature ?? 0.2),
     timeoutMs: Number(nextSettings.timeoutMs ?? store.settings.timeoutMs ?? 600000),
-    language: nextSettings.language || store.settings.language || "system",
+    language: nextSettings.language || store.settings.language || "zh",
     appearance: {
       ...(store.settings.appearance || {}),
       ...(nextSettings.appearance || {}),
@@ -1147,23 +1147,23 @@ ipcMain.handle("app:select-project", async () => {
 
 ipcMain.handle("app:set-active-project", (_event, project) => {
   const store = readStore();
-  const nextProject = project?.path ? projectFromPath(project.path) : { name: project?.name || "local workspace", path: "" };
+  const nextProject = project?.path ? projectFromPath(project.path) : { name: project?.name || "本地工作区", path: "" };
   addProject(store, nextProject);
   writeStore(store);
   return sanitizeStore(store);
 });
 
-ipcMain.handle("chat:create-session", (_event, title = "New chat") => {
+ipcMain.handle("chat:create-session", (_event, title = "新聊天") => {
   const store = readStore();
   const createdAt = now();
-  const project = store.activeProject || { name: "local workspace", path: "" };
+  const project = store.activeProject || { name: "本地工作区", path: "" };
   const currentProjectKey = String(project.path || project.name || "").trim().toLowerCase();
   const reusableIndex = store.sessions.findIndex(
     (item) => !hasSessionMessages(item) && isGenericSessionTitle(item.title) && sessionProjectKey(item) === currentProjectKey,
   );
   if (reusableIndex >= 0) {
     const [reusable] = store.sessions.splice(reusableIndex, 1);
-    reusable.title = "New chat";
+    reusable.title = "新聊天";
     reusable.project = project.name;
     reusable.projectPath = project.path;
     reusable.updatedAt = createdAt;
@@ -1174,7 +1174,7 @@ ipcMain.handle("chat:create-session", (_event, title = "New chat") => {
 
   const session = {
     id: id("session"),
-    title: isGenericSessionTitle(title) ? "New chat" : title,
+    title: isGenericSessionTitle(title) ? "新聊天" : title,
     project: project.name,
     projectPath: project.path,
     createdAt,
@@ -1187,10 +1187,10 @@ ipcMain.handle("chat:create-session", (_event, title = "New chat") => {
 });
 
 ipcMain.handle("chat:send-message", async (_event, { sessionId, content, requestId }) => {
-  if (!content || !String(content).trim()) throw new Error("Message is empty.");
+  if (!content || !String(content).trim()) throw new Error("消息为空。");
   const store = readStore();
   const session = store.sessions.find((item) => item.id === sessionId) || store.sessions[0];
-  if (!session) throw new Error("No chat session exists.");
+  if (!session) throw new Error("没有可用的聊天会话。");
 
   const createdAt = now();
   const userContent = String(content).trim();
@@ -1220,7 +1220,7 @@ ipcMain.handle("chat:send-message", async (_event, { sessionId, content, request
   } catch (error) {
     session.messages.push({
       role: "error",
-      content: error.message || "Model request failed.",
+      content: error.message || "模型请求失败。",
       createdAt: now(),
     });
     session.updatedAt = now();
@@ -1324,7 +1324,7 @@ ipcMain.handle("claude:status", async (_event, { projectPath } = {}) => {
 ipcMain.handle("claude:run", async (_event, { projectPath, args, requestId } = {}) => {
   const cwd = projectPath && fs.existsSync(projectPath) ? projectPath : app.getPath("home");
   const argv = Array.isArray(args) ? args.map(String).filter(Boolean) : splitArgs(args);
-  if (!argv.length) throw new Error("Claude command is empty.");
+  if (!argv.length) throw new Error("Claude 命令为空。");
   let lastResult = null;
   for (const candidate of commandCandidates("claude")) {
     const result = await runStreamingProcess(candidate, argv, {
@@ -1343,7 +1343,7 @@ ipcMain.handle("claude:run", async (_event, { projectPath, args, requestId } = {
     cwd,
     code: 1,
     stdout: "",
-    stderr: "Claude command was not found.",
+    stderr: "未找到 Claude 命令。",
     durationMs: 0,
   };
   return {
@@ -1393,10 +1393,10 @@ ipcMain.handle("workspace:list-files", (_event, { projectPath, relativePath = ""
 ipcMain.handle("workspace:read-file", (_event, { projectPath, relativePath } = {}) => {
   const { target, relative } = resolveInsideProject(projectPath, relativePath);
   const stat = fs.statSync(target);
-  if (!stat.isFile()) throw new Error("Selected path is not a file.");
-  if (stat.size > MAX_TEXT_FILE_BYTES) throw new Error("File is too large to preview.");
+  if (!stat.isFile()) throw new Error("所选路径不是文件。");
+  if (stat.size > MAX_TEXT_FILE_BYTES) throw new Error("文件太大，无法预览。");
   const buffer = fs.readFileSync(target);
-  if (buffer.includes(0)) throw new Error("Binary files cannot be edited here.");
+  if (buffer.includes(0)) throw new Error("这里不能编辑二进制文件。");
   return {
     path: relative,
     name: path.basename(target),
@@ -1409,7 +1409,7 @@ ipcMain.handle("workspace:read-file", (_event, { projectPath, relativePath } = {
 ipcMain.handle("workspace:save-file", (_event, { projectPath, relativePath, content } = {}) => {
   const { target, relative } = resolveInsideProject(projectPath, relativePath);
   const stat = fs.existsSync(target) ? fs.statSync(target) : null;
-  if (stat && !stat.isFile()) throw new Error("Selected path is not a file.");
+  if (stat && !stat.isFile()) throw new Error("所选路径不是文件。");
   fs.mkdirSync(path.dirname(target), { recursive: true });
   fs.writeFileSync(target, String(content ?? ""), "utf8");
   const nextStat = fs.statSync(target);
@@ -1425,7 +1425,7 @@ ipcMain.handle("workspace:save-file", (_event, { projectPath, relativePath, cont
 ipcMain.handle("workspace:run-command", async (_event, { projectPath, command, requestId } = {}) => {
   const cwd = resolveProjectRoot(projectPath);
   const cmd = String(command || "").trim();
-  if (!cmd) throw new Error("Command is empty.");
+  if (!cmd) throw new Error("命令为空。");
 
   return await new Promise((resolve) => {
     const startedAt = Date.now();
