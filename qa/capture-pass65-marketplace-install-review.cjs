@@ -210,13 +210,15 @@ async function runTest() {
     })();
   `));
   assertStep("PASS65_INSTALL_RAN_AFTER_CONFIRM", await waitForLog(/plugin install pass65-audited-plugin/));
-  assertStep("PASS65_INSTALL_COMMAND_PERSISTED", (() => {
-    const parsed = JSON.parse(fs.readFileSync(path.join(USER_DATA_DIR, "desktop-data.json"), "utf8"));
-    return parsed.commandRuns?.some((run) => run.kind === "capability" &&
-      /plugin install pass65-audited-plugin/.test(run.command || "") &&
-      run.code === 0 &&
-      /ok plugin install pass65-audited-plugin/.test(run.stdout || ""));
-  })());
+  assertStep("PASS65_INSTALL_COMMAND_PERSISTED", await waitFor(win, `
+    (async function() {
+      const state = await window.claudexDesktop.getState();
+      return state.commandRuns?.some((run) => run.kind === "capability" &&
+        /plugin install pass65-audited-plugin/.test(run.command || "") &&
+        run.code === 0 &&
+        /ok plugin install pass65-audited-plugin/.test(run.stdout || ""));
+    })();
+  `, 10000));
 
   console.log("PASS65_MARKETPLACE_INSTALL_REVIEW_DONE");
   cleanup();

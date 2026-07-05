@@ -309,6 +309,9 @@ const copy = {
     addMarketplace: "添加市场",
     remove: "移除",
     noCustomMarketplaces: "还没有添加自定义市场。",
+    customMarketplaceLocalOnly: "本地记录",
+    customMarketplaceNotInjected: "未注入 Claude CLI",
+    customMarketplaceLocalHint: "这些 URL 只保存到 Claudex 本地设置；当前不会修改 Claude Code 的 marketplace 配置。",
     localCapability: "本地能力",
     installedCliState: "已安装 CLI 状态",
     settingsStatusHint: "这个页面显示 Claudex 本地状态和 Claude Code CLI 输出。",
@@ -5670,6 +5673,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                 </div>
                 <em className="settings-badge">{customMarketplaces.length}</em>
               </div>
+              <p className="marketplace-local-note">{t.customMarketplaceLocalOnly} · {t.customMarketplaceNotInjected} · {t.customMarketplaceLocalHint}</p>
               <form className="marketplace-form" onSubmit={addCustomMarketplace}>
                 <label>
                   <span>{t.marketplaceUrl}</span>
@@ -5684,7 +5688,10 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                 {customMarketplaces.length === 0 && <p className="empty-list">{t.noCustomMarketplaces}</p>}
                 {customMarketplaces.map((item) => (
                   <div className="marketplace-source-row" key={item}>
-                    <span title={item}>{compactPath(item, 76)}</span>
+                    <div>
+                      <strong title={item}>{compactPath(item, 76)}</strong>
+                      <span>{t.customMarketplaceLocalOnly} · {t.customMarketplaceNotInjected} · {t.settings}</span>
+                    </div>
                     <button
                       type="button"
                       className="plain-action subtle-action"
@@ -6115,8 +6122,9 @@ function SettingsBackedStatus({
               <span>{t.customMarketplaces}</span>
               <h3>{customMarketplaces.length ? `${customMarketplaces.length}` : t.noCustomMarketplaces}</h3>
             </div>
-            <em className="settings-badge">{t.marketplace}</em>
+            <em className="settings-badge">{t.customMarketplaceLocalOnly}</em>
           </div>
+          <p>{t.customMarketplaceNotInjected} · {t.customMarketplaceLocalHint}</p>
           <div className="settings-chip-list">
             {customMarketplaces.length
               ? customMarketplaces.map((item) => <span key={item} title={item}>{compactPath(item, 62)}</span>)
