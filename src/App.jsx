@@ -665,6 +665,7 @@ const copy = {
     threadUnpinned: "已取消置顶",
     deleteThreadConfirm: "确定要永久删除这个聊天吗？",
     projectFilteredChats: "当前项目",
+    allProjectChats: "全部项目",
     showArchivedChats: "查看归档",
     emptySchedule: "还没有计划任务。",
     emptyScheduleHint: "有任务想先放着但不想新开聊天时，可以先保存到这里。",
@@ -903,13 +904,13 @@ function sessionMetaLabel(session, t, isStreaming) {
   return t.threadMessageCount.replace("{count}", count);
 }
 
-function sidebarThreadItems(sessions, t, activeProject) {
+function sidebarThreadItems(sessions, t, activeProject, projectScope = "current") {
   const seenEmptyDrafts = new Set();
   const items = [];
   const activeProjectKey = String(activeProject?.path || activeProject?.name || "").trim().toLowerCase();
   for (const session of sessions || []) {
     if (session?.archived) continue;
-    if (activeProjectKey && sessionProjectKeyForUi(session) !== activeProjectKey) continue;
+    if (projectScope !== "all" && activeProjectKey && sessionProjectKeyForUi(session) !== activeProjectKey) continue;
     const messages = sessionMessages(session);
     const genericEmpty = messages.length === 0 && isGenericSessionTitle(session?.title, t);
     const draftKey = sessionProjectKeyForUi(session) || "default";
@@ -938,8 +939,8 @@ function sessionMatchesProjectForUi(session, activeProject) {
   return !activeProjectKey || sessionProjectKeyForUi(session) === activeProjectKey;
 }
 
-function selectSessionIdForProject(nextState, t, activeProject, preferredId = "") {
-  const items = sidebarThreadItems(nextState?.sessions || [], t, activeProject || nextState?.activeProject);
+function selectSessionIdForProject(nextState, t, activeProject, preferredId = "", projectScope = "current") {
+  const items = sidebarThreadItems(nextState?.sessions || [], t, activeProject || nextState?.activeProject, projectScope);
   if (preferredId && items.some((item) => item.session.id === preferredId)) return preferredId;
   return items[0]?.session.id || (nextState?.sessions || []).find((session) => !session.archived)?.id || nextState?.sessions?.[0]?.id || "";
 }
@@ -1343,6 +1344,8 @@ function fallbackState() {
 function Sidebar({
   state,
   activeProject,
+  projectScope,
+  onProjectScopeChange,
   activeSessionId,
   setActiveSessionId,
   query,
@@ -1366,7 +1369,7 @@ function Sidebar({
   lang,
   t,
 }) {
-  const threadItems = useMemo(() => sidebarThreadItems(state.sessions, t, activeProject), [state.sessions, t, activeProject]);
+  const threadItems = useMemo(() => sidebarThreadItems(state.sessions, t, activeProject, projectScope), [state.sessions, t, activeProject, projectScope]);
   const filtered = useMemo(() => {
     const normalized = query.trim().toLowerCase();
     if (!normalized) return threadItems;
@@ -1435,7 +1438,24 @@ function Sidebar({
         <section className="sidebar-section chat-section">
           <div className="section-head chat-section-head">
             <span>{t.chats}</span>
-            <em title={activeProject?.path || activeProject?.name || ""}>{t.projectFilteredChats}</em>
+            <div className="chat-scope-toggle" aria-label={t.chats}>
+              <button
+                type="button"
+                className={cx(projectScope !== "all" && "active")}
+                onClick={() => onProjectScopeChange?.("current")}
+                title={activeProject?.path || activeProject?.name || t.projectFilteredChats}
+              >
+                {t.projectFilteredChats}
+              </button>
+              <button
+                type="button"
+                className={cx(projectScope === "all" && "active")}
+                onClick={() => onProjectScopeChange?.("all")}
+                title={t.allProjectChats}
+              >
+                {t.allProjectChats}
+              </button>
+            </div>
           </div>
           <div className="thread-list">
             {loading ? (
@@ -5668,6 +5688,7 @@ export function App() {
   const [toast, setToast] = useState("");
   const [loadError, setLoadError] = useState("");
   const [stateLoading, setStateLoading] = useState(true);
+  const [projectScope, setProjectScope] = useState("current");
   const [currentRequestId, setCurrentRequestId] = useState("");
   const [streamingAssistant, setStreamingAssistant] = useState(null);
   const [optimisticUser, setOptimisticUser] = useState(null);
@@ -5769,9 +5790,13 @@ export function App() {
   const lang = resolveLanguage(state.settings.language, state.settings.appLocale);
   const t = copy.zh;
   const activeProject = state.activeProject || { name: t.localWorkspace, path: "" };
-  const visibleThreadItems = useMemo(() => sidebarThreadItems(state.sessions, t, activeProject), [state.sessions, t, activeProject]);
+  const visibleThreadItems = useMemo(() => sidebarThreadItems(state.sessions, t, activeProject, projectScope), [state.sessions, t, activeProject, projectScope]);
   const activeSession =
-    state.sessions.find((session) => session.id === activeSessionId && !session.archived && sessionMatchesProjectForUi(session, activeProject))
+    state.sessions.find((session) => (
+      session.id === activeSessionId &&
+      !session.archived &&
+      (projectScope === "all" || sessionMatchesProjectForUi(session, activeProject))
+    ))
     || visibleThreadItems[0]?.session
     || state.sessions.find((session) => !session.archived)
     || state.sessions[0];
@@ -5779,9 +5804,9 @@ export function App() {
   const streamingSessionId = busy ? optimisticUser?.sessionId : null;
 
   useEffect(() => {
-    const nextSessionId = selectSessionIdForProject(state, t, activeProject, activeSessionId);
+    const nextSessionId = selectSessionIdForProject(state, t, activeProject, activeSessionId, projectScope);
     if (nextSessionId && nextSessionId !== activeSessionId) setActiveSessionId(nextSessionId);
-  }, [state, activeProject, activeSessionId, t]);
+  }, [state, activeProject, activeSessionId, projectScope, t]);
 
   async function refreshEnvironment() {
     if (!desktopApi?.getEnvironment) return;
@@ -5849,9 +5874,9 @@ export function App() {
     }
   }
 
-  function applySessionState(next, preferredId = "") {
+  function applySessionState(next, preferredId = "", scope = projectScope) {
     setState(next);
-    setActiveSessionId(selectSessionIdForProject(next, t, next.activeProject || activeProject, preferredId));
+    setActiveSessionId(selectSessionIdForProject(next, t, next.activeProject || activeProject, preferredId, scope));
   }
 
   async function createSession() {
@@ -6078,7 +6103,8 @@ export function App() {
     if (!desktopApi) return;
     const next = await desktopApi.selectProject();
     if (next) {
-      applySessionState(next);
+      setProjectScope("current");
+      applySessionState(next, "", "current");
       showToast(t.projectSelected);
     }
   }
@@ -6086,7 +6112,8 @@ export function App() {
   async function setActiveProject(project) {
     if (!desktopApi || !project) return;
     const next = await desktopApi.setActiveProject(project);
-    applySessionState(next);
+    setProjectScope("current");
+    applySessionState(next, "", "current");
     showToast(t.projectSelected);
   }
 
@@ -6316,6 +6343,8 @@ export function App() {
         <Sidebar
           state={state}
           activeProject={activeProject}
+          projectScope={projectScope}
+          onProjectScopeChange={setProjectScope}
           activeSessionId={activeSession?.id}
           setActiveSessionId={setActiveSessionId}
           query={query}

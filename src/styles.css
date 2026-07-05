@@ -279,6 +279,35 @@ select:focus-visible,
   padding-right: 2px;
 }
 
+.chat-scope-toggle {
+  display: inline-flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 2px;
+  border: 1px solid #242424;
+  border-radius: 999px;
+  background: #101010;
+  padding: 2px;
+}
+
+.chat-scope-toggle button {
+  width: auto;
+  height: 22px;
+  min-width: 0;
+  border: 0;
+  border-radius: 999px;
+  padding: 0 7px;
+  color: #687373;
+  font-size: 10.5px;
+  line-height: 1;
+}
+
+.chat-scope-toggle button:hover,
+.chat-scope-toggle button.active {
+  background: rgba(255, 255, 255, 0.07);
+  color: #d8d8d4;
+}
+
 .chat-section-head em {
   min-width: 0;
   overflow: hidden;

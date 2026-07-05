@@ -113,10 +113,51 @@ app.whenReady().then(async () => {
     (function() {
       const rows = Array.from(document.querySelectorAll('.thread-list .thread-item'));
       const listText = document.querySelector('.thread-list')?.textContent || '';
+      const scopeText = document.querySelector('.chat-scope-toggle')?.textContent || '';
       const headerText = document.querySelector('.thread-header')?.textContent || document.body.textContent || '';
       return rows.length === 1 &&
         /Active A thread/.test(rows[0].textContent || '') &&
         /Active A thread/.test(headerText) &&
+        /\\u5f53\\u524d\\u9879\\u76ee/.test(scopeText) &&
+        /\\u5168\\u90e8\\u9879\\u76ee/.test(scopeText) &&
+        !/Project B hidden thread/.test(listText) &&
+        !/Archived A thread/.test(listText);
+    })();
+  `, 10000));
+
+  assertStep("PASS38_ALL_PROJECT_HISTORY_TOGGLE", await waitFor(win, `
+    (async function() {
+      if (!window.__pass38AllProjectsClicked) {
+        window.__pass38AllProjectsClicked = true;
+        const button = Array.from(document.querySelectorAll('.chat-scope-toggle button'))
+          .find((item) => /\\u5168\\u90e8\\u9879\\u76ee/.test(item.textContent || ''));
+        if (!button) return false;
+        button.click();
+      }
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      const rows = Array.from(document.querySelectorAll('.thread-list .thread-item'));
+      const listText = document.querySelector('.thread-list')?.textContent || '';
+      return rows.length === 2 &&
+        /Active A thread/.test(listText) &&
+        /Project B hidden thread/.test(listText) &&
+        !/Archived A thread/.test(listText);
+    })();
+  `, 10000));
+
+  assertStep("PASS38_CURRENT_PROJECT_TOGGLE", await waitFor(win, `
+    (async function() {
+      if (!window.__pass38CurrentProjectClicked) {
+        window.__pass38CurrentProjectClicked = true;
+        const button = Array.from(document.querySelectorAll('.chat-scope-toggle button'))
+          .find((item) => /\\u5f53\\u524d\\u9879\\u76ee/.test(item.textContent || ''));
+        if (!button) return false;
+        button.click();
+      }
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      const rows = Array.from(document.querySelectorAll('.thread-list .thread-item'));
+      const listText = document.querySelector('.thread-list')?.textContent || '';
+      return rows.length === 1 &&
+        /Active A thread/.test(rows[0].textContent || '') &&
         !/Project B hidden thread/.test(listText) &&
         !/Archived A thread/.test(listText);
     })();
