@@ -176,6 +176,30 @@ app.whenReady().then(async () => {
         !/pass37-diff-evidence/.test(preview);
     })()
   `, 5000));
+  assertStep("PASS37_SELECTED_EVIDENCE_PANEL", await waitFor(win, `
+    (function() {
+      const panel = document.querySelector('.git-selected-evidence-panel')?.textContent || '';
+      return /文件证据/.test(panel) &&
+        /${SECOND_FILE}/.test(panel) &&
+        /已暂存/.test(panel) &&
+        /\\+1 -0/.test(panel) &&
+        /pass37-second-evidence/.test(panel) &&
+        /复制 Git 证据/.test(panel);
+    })()
+  `, 5000));
+  assertStep("PASS37_COPY_GIT_EVIDENCE", await waitFor(win, `
+    (async function() {
+      const button = Array.from(document.querySelectorAll('.git-selected-evidence-panel button'))
+        .find((item) => /复制 Git 证据/.test(item.textContent || ''));
+      if (!button) return false;
+      if (!window.__pass37CopiedGitEvidence) {
+        window.__pass37CopiedGitEvidence = true;
+        button.click();
+      }
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      return /已复制/.test(document.body.textContent || '');
+    })()
+  `, 5000));
   assertStep("PASS37_ALL_CHANGES_CLICK", await win.webContents.executeJavaScript(`
     (function() {
       const button = Array.from(document.querySelectorAll('.git-change-item'))
@@ -209,6 +233,15 @@ app.whenReady().then(async () => {
         /pass37 untracked evidence/.test(preview) &&
         !/pass37-diff-evidence/.test(preview) &&
         /\\+1 -0/.test(selected);
+    })()
+  `, 5000));
+  assertStep("PASS37_UNTRACKED_EVIDENCE_PANEL", await waitFor(win, `
+    (function() {
+      const panel = document.querySelector('.git-selected-evidence-panel')?.textContent || '';
+      return /${UNTRACKED_FILE}/.test(panel) &&
+        /未跟踪/.test(panel) &&
+        /\\?\\?/.test(panel) &&
+        /pass37 untracked evidence/.test(panel);
     })()
   `, 5000));
   await shot(win, "pass37-git-diff-panel.png");

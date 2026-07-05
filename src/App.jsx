@@ -798,6 +798,10 @@ const copy = {
     gitSummaryBackedByCli: "来自 git status --short --branch 与 git diff",
     focusFileDiff: "聚焦文件 diff",
     focusedFileDiff: "已聚焦文件",
+    gitEvidence: "Git 证据",
+    gitEvidenceHint: "点击文件后固定显示真实 git status / diff 证据。",
+    gitFileEvidence: "文件证据",
+    copyGitEvidence: "复制 Git 证据",
     runCommand: "运行命令",
     runCommandShort: "运行",
     commandPlaceholder: "输入 shell 命令",
@@ -1679,6 +1683,53 @@ function buildGitDiffRows(diffText = "") {
   });
 }
 
+function gitChangeKindLabel(kind, t) {
+  if (kind === "staged") return t.stagedChanges;
+  if (kind === "unstaged") return t.unstagedChanges;
+  if (kind === "untracked") return t.untrackedChanges;
+  if (kind === "mixed") return t.mixedChanges;
+  if (kind === "renamed") return t.renamedChanges;
+  if (kind === "deleted") return t.deletedChanges;
+  if (kind === "conflict") return t.conflictedChanges;
+  return t.changes;
+}
+
+function gitEvidenceText({
+  t,
+  activeProject,
+  branchLabel,
+  selectedFile,
+  selectedPath,
+  selectedDiffText,
+  gitStat,
+  rawGitStatus,
+  gitSummaryItems = [],
+}) {
+  const summary = gitSummaryItems.length
+    ? gitSummaryItems.map(([label, count]) => `${label}: ${count}`).join(" · ")
+    : "";
+  const lines = [
+    `${t.gitEvidence}: ${selectedPath || t.allChanges}`,
+    `${t.activeProject}: ${projectLabel(activeProject, t)}`,
+    `${t.path}: ${activeProject?.path || "-"}`,
+    `${t.branch}: ${branchLabel || "-"}`,
+    `${t.scheduleStatus}: ${selectedFile ? gitChangeKindLabel(selectedFile.kind, t) : t.allChanges}`,
+    `${t.gitSummary}: ${summary || "-"}`,
+    selectedFile ? `${t.changedLines}: +${selectedFile.additions || 0} -${selectedFile.deletions || 0}` : "",
+    selectedFile?.status ? `status: ${selectedFile.status}` : "",
+    "",
+    "$ git status --short --branch",
+    rawGitStatus || "-",
+    "",
+    "$ git diff --stat",
+    gitStat || "-",
+    "",
+    "$ git diff",
+    selectedDiffText || "-",
+  ];
+  return lines.filter((line, index) => index < 8 || String(line || "").trim()).join("\n");
+}
+
 function fallbackState() {
   const createdAt = new Date().toISOString();
   const activeProject = { name: "本地工作区", path: "" };
@@ -2162,10 +2213,24 @@ function Conversation({
   const gitStat = String(git?.stat || "").trim();
   const gitDiffText = String(git?.diff?.text || "").trim();
   const gitFileDiffs = Array.isArray(git?.diff?.fileDiffs) ? git.diff.fileDiffs : [];
+  const selectedGitFile = selectedGitDiffPath
+    ? gitFiles.find((item) => item.path === selectedGitDiffPath || item.previousPath === selectedGitDiffPath)
+    : null;
   const selectedGitFileDiff = selectedGitDiffPath
     ? gitFileDiffs.find((item) => item.path === selectedGitDiffPath || item.previousPath === selectedGitDiffPath)
     : null;
   const displayedGitDiffText = selectedGitDiffPath ? selectedGitFileDiff?.text || "" : gitDiffText;
+  const gitEvidenceCopyText = useMemo(() => gitEvidenceText({
+    t,
+    activeProject,
+    branchLabel,
+    selectedFile: selectedGitFile,
+    selectedPath: selectedGitDiffPath,
+    selectedDiffText: displayedGitDiffText,
+    gitStat,
+    rawGitStatus,
+    gitSummaryItems,
+  }), [t, activeProject, branchLabel, selectedGitFile, selectedGitDiffPath, displayedGitDiffText, gitStat, rawGitStatus, gitSummaryItems]);
   const gitDiffRows = useMemo(() => buildGitDiffRows(displayedGitDiffText), [displayedGitDiffText]);
   useEffect(() => {
     if (!selectedGitDiffPath) return;
@@ -2561,58 +2626,99 @@ function Conversation({
                     )}
                   </div>
                 </section>
-                {gitFiles.length > 0 && (
-                  <div className="git-change-list" aria-label={t.changes}>
-                    <button
-                      type="button"
-                      className={cx("git-change-item", !selectedGitDiffPath && "selected")}
-                      onClick={() => setSelectedGitDiffPath("")}
-                      title={t.allChanges}
-                    >
-                      <span className="git-change-status">Σ</span>
-                      <strong>{t.allChanges}</strong>
-                    </button>
-                    {gitFiles.slice(0, 12).map((item) => (
-                      <button
-                        type="button"
-                        className={cx("git-change-item", item.kind && `kind-${item.kind}`, selectedGitDiffPath === item.path && "selected")}
-                        key={`${item.status}-${item.path}`}
-                        onClick={() => setSelectedGitDiffPath(item.path)}
-                        title={item.previousPath ? `${item.previousPath} -> ${item.path}` : `${t.focusFileDiff}: ${item.path}`}
-                      >
-                        <span className="git-change-status">{item.status}</span>
-                        <strong title={item.previousPath ? `${item.previousPath} -> ${item.path}` : item.path}>{item.path}</strong>
-                        {(typeof item.additions === "number" || typeof item.deletions === "number") && (
-                          <em>{`+${item.additions || 0} -${item.deletions || 0}`}</em>
-                        )}
+                <div className="git-evidence-layout">
+                  <div className="git-evidence-main">
+                    {gitFiles.length > 0 && (
+                      <div className="git-change-list" aria-label={t.changes}>
+                        <button
+                          type="button"
+                          className={cx("git-change-item", !selectedGitDiffPath && "selected")}
+                          onClick={() => setSelectedGitDiffPath("")}
+                          title={t.allChanges}
+                        >
+                          <span className="git-change-status">Σ</span>
+                          <strong>{t.allChanges}</strong>
+                        </button>
+                        {gitFiles.slice(0, 12).map((item) => (
+                          <button
+                            type="button"
+                            className={cx("git-change-item", item.kind && `kind-${item.kind}`, selectedGitDiffPath === item.path && "selected")}
+                            key={`${item.status}-${item.path}`}
+                            onClick={() => setSelectedGitDiffPath(item.path)}
+                            title={item.previousPath ? `${item.previousPath} -> ${item.path}` : `${t.focusFileDiff}: ${item.path}`}
+                          >
+                            <span className="git-change-status">{item.status}</span>
+                            <strong title={item.previousPath ? `${item.previousPath} -> ${item.path}` : item.path}>{item.path}</strong>
+                            {(typeof item.additions === "number" || typeof item.deletions === "number") && (
+                              <em>{`+${item.additions || 0} -${item.deletions || 0}`}</em>
+                            )}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                    <pre className="git-status-preview git-stat-preview" aria-label={t.gitDiffStat}>{gitStat || t.noGitDiff}</pre>
+                    <section className="git-diff-preview" aria-label={t.gitDiffPreview}>
+                      <div className="git-diff-head">
+                        <span>{selectedGitFileDiff ? `${t.focusedFileDiff}: ${selectedGitFileDiff.path}` : t.gitDiffPreview}</span>
+                        {git?.diff?.truncated && <em>{t.gitDiffTruncated}</em>}
+                      </div>
+                      {gitDiffRows.length ? (
+                        <div className="git-diff-lines" role="list">
+                          {gitDiffRows.map((row) => (
+                            <code className={cx("git-diff-row", row.type)} role="listitem" key={row.id}>
+                              {row.text}
+                            </code>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="empty-list">
+                          {selectedGitDiffPath ? `${selectedGitDiffPath}: ${t.noGitDiff}` : t.noGitDiff}
+                        </p>
+                      )}
+                    </section>
+                    <details className="git-raw-status">
+                      <summary>{t.gitRawStatus}</summary>
+                      <pre className="git-status-preview">{rawGitStatus || t.noGitProject}</pre>
+                    </details>
+                  </div>
+                  <section className={cx("git-selected-evidence-panel", selectedGitFile?.kind && `kind-${selectedGitFile.kind}`)} aria-label={t.gitEvidence}>
+                    <div className="git-selected-evidence-head">
+                      <div>
+                        <span>{selectedGitFile ? t.gitFileEvidence : t.gitEvidence}</span>
+                        <strong title={selectedGitDiffPath || t.allChanges}>{selectedGitDiffPath || t.allChanges}</strong>
+                        <p>{t.gitEvidenceHint}</p>
+                      </div>
+                      <button type="button" className="plain-action subtle-action" onClick={() => onCopy?.(gitEvidenceCopyText)}>
+                        <Copy size={13} />
+                        {t.copyGitEvidence}
                       </button>
-                    ))}
-                  </div>
-                )}
-                <pre className="git-status-preview git-stat-preview" aria-label={t.gitDiffStat}>{gitStat || t.noGitDiff}</pre>
-                <section className="git-diff-preview" aria-label={t.gitDiffPreview}>
-                  <div className="git-diff-head">
-                    <span>{selectedGitFileDiff ? `${t.focusedFileDiff}: ${selectedGitFileDiff.path}` : t.gitDiffPreview}</span>
-                    {git?.diff?.truncated && <em>{t.gitDiffTruncated}</em>}
-                  </div>
-                  {gitDiffRows.length ? (
-                    <div className="git-diff-lines" role="list">
-                      {gitDiffRows.map((row) => (
-                        <code className={cx("git-diff-row", row.type)} role="listitem" key={row.id}>
-                          {row.text}
-                        </code>
-                      ))}
                     </div>
-                  ) : (
-                    <p className="empty-list">
-                      {selectedGitDiffPath ? `${selectedGitDiffPath}: ${t.noGitDiff}` : t.noGitDiff}
-                    </p>
-                  )}
-                </section>
-                <details className="git-raw-status">
-                  <summary>{t.gitRawStatus}</summary>
-                  <pre className="git-status-preview">{rawGitStatus || t.noGitProject}</pre>
-                </details>
+                    <dl className="git-selected-evidence-meta">
+                      <div><dt>{t.branch}</dt><dd>{branchLabel}</dd></div>
+                      <div><dt>{t.scheduleStatus}</dt><dd>{selectedGitFile ? gitChangeKindLabel(selectedGitFile.kind, t) : t.allChanges}</dd></div>
+                      <div><dt>{t.changedLines}</dt><dd>{selectedGitFile ? `+${selectedGitFile.additions || 0} -${selectedGitFile.deletions || 0}` : `${gitFiles.length}`}</dd></div>
+                      <div><dt>{t.gitRawStatus}</dt><dd>{selectedGitFile?.status || "Σ"}</dd></div>
+                      <div className="wide-evidence-row"><dt>{t.path}</dt><dd title={activeProject?.path || ""}>{selectedGitDiffPath || compactPath(activeProject?.path || t.noProjectPath, 88)}</dd></div>
+                    </dl>
+                    <div className="git-selected-diff" aria-label={t.gitDiffPreview}>
+                      <div className="git-diff-head">
+                        <span>{t.gitDiffPreview}</span>
+                        {git?.diff?.truncated && <em>{t.gitDiffTruncated}</em>}
+                      </div>
+                      {gitDiffRows.length ? (
+                        <div className="git-diff-lines" role="list">
+                          {gitDiffRows.slice(0, 220).map((row) => (
+                            <code className={cx("git-diff-row", row.type)} role="listitem" key={`selected-${row.id}`}>
+                              {row.text}
+                            </code>
+                          ))}
+                        </div>
+                      ) : (
+                        <p className="empty-list">{t.noGitDiff}</p>
+                      )}
+                    </div>
+                  </section>
+                </div>
               </div>
             )}
             {bottomPanel === "sources" && (

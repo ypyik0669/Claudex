@@ -7177,6 +7177,19 @@ kbd {
   gap: 12px;
 }
 
+.git-evidence-layout {
+  display: grid;
+  grid-template-columns: minmax(280px, 0.86fr) minmax(340px, 1.14fr);
+  gap: 10px;
+  align-items: start;
+}
+
+.git-evidence-main {
+  min-width: 0;
+  display: grid;
+  gap: 10px;
+}
+
 .git-status-preview {
   max-height: 170px;
   overflow: auto;
@@ -7270,6 +7283,117 @@ kbd {
   border-color: rgba(211, 106, 92, 0.32);
   background: rgba(211, 106, 92, 0.12);
   color: #efb0aa;
+}
+
+.git-selected-evidence-panel {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid #252525;
+  border-radius: var(--radius-sm);
+  background: #0c0c0c;
+}
+
+.git-selected-evidence-panel.kind-staged {
+  border-color: rgba(155, 179, 108, 0.24);
+}
+
+.git-selected-evidence-panel.kind-untracked {
+  border-color: rgba(93, 130, 177, 0.28);
+}
+
+.git-selected-evidence-panel.kind-mixed,
+.git-selected-evidence-panel.kind-unstaged {
+  border-color: rgba(209, 131, 87, 0.28);
+}
+
+.git-selected-evidence-panel.kind-conflict {
+  border-color: rgba(211, 106, 92, 0.32);
+}
+
+.git-selected-evidence-head {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: start;
+  border-bottom: 1px solid #242424;
+  padding: 10px;
+}
+
+.git-selected-evidence-head > div {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.git-selected-evidence-head span {
+  color: #8f918f;
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.git-selected-evidence-head strong {
+  overflow: hidden;
+  color: #e7e5dc;
+  font-family: var(--font-mono);
+  font-size: 12.5px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.git-selected-evidence-head p {
+  margin: 0;
+  color: #8f918f;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.git-selected-evidence-head .plain-action {
+  padding: 5px 7px;
+  font-size: 11.5px;
+}
+
+.git-selected-evidence-meta {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
+  gap: 6px;
+  margin: 0;
+  border-bottom: 1px solid #242424;
+  padding: 10px;
+}
+
+.git-selected-evidence-meta div {
+  min-width: 0;
+  border: 1px solid #242424;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.025);
+  padding: 5px 6px;
+}
+
+.git-selected-evidence-meta .wide-evidence-row {
+  grid-column: 1 / -1;
+}
+
+.git-selected-evidence-meta dt {
+  color: #888a87;
+  font-size: 10.5px;
+}
+
+.git-selected-evidence-meta dd {
+  margin: 2px 0 0;
+  overflow: hidden;
+  color: #e2dfd6;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.git-selected-diff {
+  display: grid;
+  gap: 8px;
+  padding: 9px;
 }
 
 .git-diff-preview {
