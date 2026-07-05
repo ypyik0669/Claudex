@@ -5410,6 +5410,17 @@ export function App() {
   }, []);
 
   useEffect(() => {
+    if (!desktopApi?.onStateUpdate) return undefined;
+    return desktopApi.onStateUpdate((next) => {
+      if (!next?.settings) return;
+      setState(next);
+      setActiveSessionId((current) => (
+        next.sessions?.some((session) => session.id === current) ? current : next.sessions?.[0]?.id || ""
+      ));
+    });
+  }, []);
+
+  useEffect(() => {
     if (!desktopApi?.onSubagentStream) return undefined;
     return desktopApi.onSubagentStream((event) => {
       if (event.run) {

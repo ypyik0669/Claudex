@@ -1389,6 +1389,13 @@ function writeStore(store) {
   fs.writeFileSync(dataPath(), JSON.stringify(store, null, 2), "utf8");
 }
 
+function broadcastStoreUpdate(store) {
+  const payload = sanitizeStore(store);
+  for (const win of BrowserWindow.getAllWindows()) {
+    if (!win.isDestroyed()) win.webContents.send("app:state-updated", payload);
+  }
+}
+
 function encryptSecret(value) {
   if (!value) return undefined;
   if (safeStorage.isEncryptionAvailable()) {
@@ -1901,6 +1908,7 @@ async function runAutomationById(automationId, { requestId = "", trigger = "manu
   automation.status = "running";
   prependAutomationHistory(automation, runningEntry);
   writeStore(store);
+  if (trigger === "scheduled") broadcastStoreUpdate(store);
 
   try {
     const userContent = automation.prompt.trim();
@@ -1944,6 +1952,7 @@ async function runAutomationById(automationId, { requestId = "", trigger = "manu
     automation.status = "succeeded";
     updateAutomationAfterMutation(automation);
     writeStore(store);
+    if (trigger === "scheduled") broadcastStoreUpdate(store);
     return {
       ...sanitizeStore(store),
       automationRun: finalEntry,
@@ -1970,7 +1979,19 @@ async function runAutomationById(automationId, { requestId = "", trigger = "manu
     if (trigger === "scheduled" && automation.schedule?.type === "once") automation.enabled = false;
     automation.status = "failed";
     updateAutomationAfterMutation(automation);
+    if (trigger === "scheduled") {
+      upsertNotice(store, {
+        level: "error",
+        source: "automation",
+        title: "Scheduled automation failed",
+        detail: message,
+        key: `automation:${automation.id}:scheduled-failure`,
+        sessionId: session.id,
+        project: automation.project,
+      });
+    }
     writeStore(store);
+    if (trigger === "scheduled") broadcastStoreUpdate(store);
     return {
       ...sanitizeStore(store),
       automationRun: finalEntry,

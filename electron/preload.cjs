@@ -2,6 +2,11 @@ const { contextBridge, ipcRenderer } = require("electron");
 
 const desktopApi = {
   getState: () => ipcRenderer.invoke("app:get-state"),
+  onStateUpdate: (handler) => {
+    const listener = (_event, payload) => handler(payload);
+    ipcRenderer.on("app:state-updated", listener);
+    return () => ipcRenderer.removeListener("app:state-updated", listener);
+  },
   saveSettings: (settings) => ipcRenderer.invoke("app:save-settings", settings),
   saveCapabilities: (capabilities) => ipcRenderer.invoke("app:save-capabilities", capabilities),
   recordNotice: (payload) => ipcRenderer.invoke("notice:record", payload),
