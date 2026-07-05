@@ -33,6 +33,7 @@ const desktopApi = {
   openTerminal: (projectPath) => ipcRenderer.invoke("app:open-terminal", projectPath),
   openClaudeTerminal: (payload) => ipcRenderer.invoke("app:open-claude-terminal", payload),
   openBrowserUrl: (url) => ipcRenderer.invoke("app:open-browser-url", url),
+  recordBrowserVisit: (payload) => ipcRenderer.invoke("browser:record-visit", payload),
   listIdeOptions: () => ipcRenderer.invoke("app:list-ide-options"),
   openIde: (payload) => ipcRenderer.invoke("app:open-ide", payload),
   getEnvironment: (payload) => ipcRenderer.invoke("app:get-environment", payload),

@@ -77,6 +77,7 @@ const AUTOMATION_LIMIT = 80;
 const AUTOMATION_POLL_MS = 15000;
 const SUBAGENT_RUN_LIMIT = 40;
 const SOURCE_REF_LIMIT = 80;
+const BROWSER_VISIT_LIMIT = 60;
 const automationRunLocks = new Set();
 const cancelledSubagentRuns = new Set();
 let automationSchedulerTimer = null;
@@ -380,6 +381,42 @@ function upsertSourceRef(store, source) {
   return normalized;
 }
 
+function normalizeUrlForStore(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  return /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
+}
+
+function normalizeBrowserVisit(item, store) {
+  const url = normalizeUrlForStore(item?.url);
+  const status = ["loading", "ready", "error", "external", "idle"].includes(item?.status) ? item.status : "idle";
+  const project = normalizeAutomationProject(item?.project, store);
+  const startedAt = isoOrEmpty(item?.startedAt) || now();
+  const endedAt = isoOrEmpty(item?.endedAt) || (status === "loading" ? "" : now());
+  return {
+    id: item?.id || id("browser"),
+    url,
+    title: String(item?.title || ""),
+    status,
+    error: String(item?.error || ""),
+    httpStatus: item?.httpStatus ? Number(item.httpStatus) : null,
+    project,
+    startedAt,
+    endedAt,
+    lastEventAt: isoOrEmpty(item?.lastEventAt) || now(),
+    external: Boolean(item?.external || status === "external"),
+  };
+}
+
+function upsertBrowserVisit(store, visit) {
+  const normalized = normalizeBrowserVisit(visit, store);
+  store.browserVisits = [
+    normalized,
+    ...(store.browserVisits || []).filter((item) => item.id !== normalized.id),
+  ].slice(0, BROWSER_VISIT_LIMIT);
+  return normalized;
+}
+
 function dataPath() {
   return path.join(app.getPath("userData"), "desktop-data.json");
 }
@@ -491,6 +528,7 @@ function defaultStore() {
     automations: [],
     subagentRuns: [],
     sourceRefs: [],
+    browserVisits: [],
   };
 }
 
@@ -571,6 +609,11 @@ function normalizeStore(store) {
       ? store.sourceRefs.map((source) => normalizeSourceRef(source, { ...store, activeProject }))
           .filter((source) => source.path)
           .slice(0, SOURCE_REF_LIMIT)
+      : [],
+    browserVisits: Array.isArray(store.browserVisits)
+      ? store.browserVisits.map((visit) => normalizeBrowserVisit(visit, { ...store, activeProject }))
+          .filter((visit) => visit.url)
+          .slice(0, BROWSER_VISIT_LIMIT)
       : [],
   };
 }
@@ -2368,11 +2411,44 @@ ipcMain.handle("app:open-claude-terminal", async (_event, { projectPath, prompt 
   return true;
 });
 
+ipcMain.handle("browser:record-visit", (_event, payload = {}) => {
+  const store = readStore();
+  const project = payload.projectPath && fs.existsSync(payload.projectPath)
+    ? projectFromPath(payload.projectPath)
+    : store.activeProject || localWorkspaceProject();
+  const visit = upsertBrowserVisit(store, {
+    ...payload,
+    project,
+    url: payload.url,
+    lastEventAt: now(),
+  });
+  writeStore(store);
+  return {
+    ...sanitizeStore(store),
+    browserVisit: visit,
+  };
+});
+
 ipcMain.handle("app:open-browser-url", async (_event, value) => {
-  const raw = String(value || "").trim();
-  const url = /^https?:\/\//i.test(raw) ? raw : `https://${raw || "docs.anthropic.com"}`;
+  const payload = typeof value === "object" && value !== null ? value : { url: value };
+  const url = normalizeUrlForStore(payload.url || "docs.anthropic.com");
+  const store = readStore();
+  const project = payload.projectPath && fs.existsSync(payload.projectPath)
+    ? projectFromPath(payload.projectPath)
+    : store.activeProject || localWorkspaceProject();
+  upsertBrowserVisit(store, {
+    id: payload.visitId || id("browser"),
+    url,
+    status: "external",
+    external: true,
+    project,
+    startedAt: now(),
+    endedAt: now(),
+    lastEventAt: now(),
+  });
+  writeStore(store);
   await shell.openExternal(url);
-  return true;
+  return sanitizeStore(store);
 });
 
 ipcMain.handle("app:list-ide-options", () => ideOptions());

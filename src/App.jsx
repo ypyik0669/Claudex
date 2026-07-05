@@ -640,6 +640,15 @@ const copy = {
     browserFailed: "该页面无法在内嵌浏览器中加载。",
     browserExternalHint: "登录页、下载和阻止嵌入的网站，请用外部打开。",
     openExternal: "外部打开",
+    browserHistory: "浏览记录",
+    browserEvidence: "浏览器证据",
+    browserVisitCount: "{count} 条记录",
+    browserStatusReady: "已加载",
+    browserStatusLoading: "加载中",
+    browserStatusError: "失败",
+    browserStatusExternal: "外部打开",
+    browserNoHistory: "还没有浏览器证据。",
+    browserBackedByWebview: "来自真实 Electron webview 加载/失败事件",
     commandRunning: "运行中",
     cancelCommand: "停止命令",
     commandCancelled: "命令已停止",
@@ -985,6 +994,14 @@ function upsertSubagentRunForUi(runs = [], run) {
   return [run, ...runs.filter((item) => item.id !== run.id)].slice(0, 40);
 }
 
+function browserStatusLabel(status, t) {
+  if (status === "loading") return t.browserStatusLoading;
+  if (status === "error") return t.browserStatusError;
+  if (status === "external") return t.browserStatusExternal;
+  if (status === "ready") return t.browserStatusReady;
+  return t.browserIdle;
+}
+
 function authLabel(auth, settings) {
   if (settings?.env?.anthropicApiKey) return "第一方 / API 密钥";
   if (settings?.env?.anthropicAuthToken) return "第一方 / 授权令牌";
@@ -1241,6 +1258,7 @@ function fallbackState() {
     automations: [],
     subagentRuns: [],
     sourceRefs: [],
+    browserVisits: [],
   };
 }
 
@@ -1548,6 +1566,7 @@ function Conversation({
   runEvents,
   subagentRuns,
   sourceRefs,
+  browserVisits,
   onRunSubagent,
   onCancelSubagent,
   draft,
@@ -1988,18 +2007,21 @@ function Conversation({
               </div>
             )}
             {bottomPanel === "browser" && (
-              <div className="bottom-panel-grid">
-                <div>
-                  <span>{t.browser}</span>
-                  <strong>{t.browserIdle}</strong>
-                  <p>{t.browserPanelHint}</p>
+              <div className="bottom-panel-stack">
+                <div className="bottom-panel-grid">
+                  <div>
+                    <span>{t.browser}</span>
+                    <strong>{browserVisits?.length ? t.browserVisitCount.replace("{count}", browserVisits.length) : t.browserNoHistory}</strong>
+                    <p>{browserVisits?.length ? t.browserBackedByWebview : t.browserPanelHint}</p>
+                  </div>
+                  <div className="bottom-panel-actions">
+                    <button type="button" className="plain-action" onClick={() => onActivateTool("browser")}>
+                      <Globe2 size={14} />
+                      {t.openSidePanel}
+                    </button>
+                  </div>
                 </div>
-                <div className="bottom-panel-actions">
-                  <button type="button" className="plain-action" onClick={() => onActivateTool("browser")}>
-                    <Globe2 size={14} />
-                    {t.openSidePanel}
-                  </button>
-                </div>
+                <BrowserEvidenceList visits={browserVisits} t={t} />
               </div>
             )}
           </div>
@@ -2206,6 +2228,35 @@ function SubagentWorkbench({
   );
 }
 
+function BrowserEvidenceList({ visits = [], t }) {
+  if (!visits?.length) {
+    return (
+      <div className="empty-panel compact-empty-panel">
+        <Globe2 size={20} />
+        <strong>{t.browserNoHistory}</strong>
+        <p>{t.browserBackedByWebview}</p>
+      </div>
+    );
+  }
+  return (
+    <div className="browser-evidence-list" aria-label={t.browserEvidence}>
+      {visits.slice(0, 10).map((visit) => (
+        <article className={cx("browser-evidence-card", visit.status)} key={visit.id}>
+          <Globe2 size={14} />
+          <div>
+            <strong title={visit.url}>{visit.url}</strong>
+            <span>
+              {browserStatusLabel(visit.status, t)}
+              {visit.error ? ` · ${visit.error}` : ""}
+              {visit.lastEventAt ? ` · ${formatDate(visit.lastEventAt)}` : ""}
+            </span>
+          </div>
+        </article>
+      ))}
+    </div>
+  );
+}
+
 function RunTimeline({ events = [], t }) {
   if (!events.length) return null;
   return (
@@ -2378,6 +2429,8 @@ function ToolsPanel({
   onCapabilities,
   onRunEvent,
   onSourceRefs,
+  browserVisits = [],
+  onBrowserVisits,
   onClose,
   t,
 }) {
@@ -2386,6 +2439,8 @@ function ToolsPanel({
   const [browserStatus, setBrowserStatus] = useState("idle");
   const [browserError, setBrowserError] = useState("");
   const browserWebviewRef = useRef(null);
+  const browserVisitIdRef = useRef("");
+  const browserFailedRef = useRef(false);
   const [tree, setTree] = useState([]);
   const fileCacheRef = useRef(new Map());
   const [expandedDirs, setExpandedDirs] = useState(() => new Set());
@@ -2484,24 +2539,62 @@ function ToolsPanel({
     });
   }, []);
 
+  async function recordBrowserVisit(payload) {
+    if (!desktopApi?.recordBrowserVisit || !payload?.url) return null;
+    try {
+      const next = await desktopApi.recordBrowserVisit({
+        id: browserVisitIdRef.current || payload.id,
+        projectPath: activeProject?.path || "",
+        ...payload,
+      });
+      if (Array.isArray(next.browserVisits)) onBrowserVisits?.(next.browserVisits);
+      return next.browserVisit || null;
+    } catch {
+      return null;
+    }
+  }
+
   useEffect(() => {
     const webview = browserWebviewRef.current;
     if (!webview) return undefined;
     const handleStart = () => {
+      browserFailedRef.current = false;
       setBrowserStatus("loading");
       setBrowserError("");
+      recordBrowserVisit({ url: browserPreviewUrl, status: "loading" });
     };
     const handleStop = () => {
+      if (browserFailedRef.current) return;
       setBrowserStatus("ready");
       setBrowserError("");
+      const finalUrl = browserWebviewRef.current?.getURL?.() || browserPreviewUrl;
+      recordBrowserVisit({ url: finalUrl, status: "ready" });
+      onRunEvent?.({
+        type: "browser",
+        status: "ok",
+        title: `${t.browser}: ${finalUrl}`,
+        detail: t.browserReady,
+      });
     };
     const handleFail = (event) => {
       if (event?.errorCode === -3) return;
+      browserFailedRef.current = true;
       setBrowserStatus("error");
-      setBrowserError(event?.errorDescription || t.browserFailed);
+      const error = event?.errorDescription || t.browserFailed;
+      setBrowserError(error);
+      recordBrowserVisit({ url: event?.validatedURL || browserPreviewUrl, status: "error", error });
+      onRunEvent?.({
+        type: "browser",
+        status: "error",
+        title: `${t.browser}: ${event?.validatedURL || browserPreviewUrl}`,
+        detail: error,
+      });
     };
     const handleNavigate = (event) => {
-      if (event?.url && /^https?:\/\//i.test(event.url)) setUrl(event.url);
+      if (event?.url && /^https?:\/\//i.test(event.url)) {
+        setUrl(event.url);
+        recordBrowserVisit({ url: event.url, status: browserStatus === "error" ? "error" : "ready" });
+      }
     };
     webview.addEventListener("did-start-loading", handleStart);
     webview.addEventListener("did-stop-loading", handleStop);
@@ -2837,11 +2930,15 @@ function ToolsPanel({
       setBrowserPreviewUrl("");
       setBrowserError("");
       setBrowserStatus("idle");
+      browserVisitIdRef.current = "";
       return;
     }
+    browserVisitIdRef.current = `browser_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+    browserFailedRef.current = false;
     setUrl(nextUrl);
     setBrowserError("");
     setBrowserStatus("loading");
+    recordBrowserVisit({ id: browserVisitIdRef.current, url: nextUrl, status: "loading" });
     if (nextUrl === browserPreviewUrl) {
       browserWebviewRef.current?.reload?.();
     } else {
@@ -2862,8 +2959,11 @@ function ToolsPanel({
       setBrowserStatus("idle");
       return;
     }
+    if (!browserVisitIdRef.current) browserVisitIdRef.current = `browser_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+    browserFailedRef.current = false;
     setBrowserStatus("loading");
     setBrowserError("");
+    recordBrowserVisit({ id: browserVisitIdRef.current, url: browserPreviewUrl, status: "loading" });
     browserWebviewRef.current?.reload?.();
   }
 
@@ -3298,6 +3398,15 @@ function ToolsPanel({
               <span>{browserStatus === "loading" ? t.browserLoading : browserStatus === "error" ? t.browserFailed : browserStatus === "idle" ? t.browserIdle : t.browserReady}</span>
               <small>{t.browserExternalHint}</small>
             </div>
+            <section className="browser-history-section" aria-label={t.browserEvidence}>
+              <div className="structured-registry-head">
+                <div>
+                  <span>{t.browserHistory}</span>
+                  <strong>{browserVisits?.length ? t.browserVisitCount.replace("{count}", browserVisits.length) : t.browserNoHistory}</strong>
+                </div>
+              </div>
+              <BrowserEvidenceList visits={browserVisits} t={t} />
+            </section>
           </div>
         )}
         {selectedTool === "claude" && (
@@ -5396,7 +5505,8 @@ export function App() {
   }
 
   async function openBrowserUrl(url) {
-    await desktopApi?.openBrowserUrl(url);
+    const next = await desktopApi?.openBrowserUrl({ url, projectPath: activeProject?.path || "" });
+    if (next?.browserVisits) setState(next);
     showToast(t.browserOpened);
   }
 
@@ -5659,6 +5769,7 @@ export function App() {
           runEvents={runEvents}
           subagentRuns={state.subagentRuns}
           sourceRefs={state.sourceRefs}
+          browserVisits={state.browserVisits}
           onRunSubagent={runSubagent}
           onCancelSubagent={cancelSubagent}
           draft={draft}
@@ -5704,6 +5815,8 @@ export function App() {
           onCapabilities={openCapabilitiesSurface}
           onRunEvent={recordRunEvent}
           onSourceRefs={(sourceRefs) => setState((current) => ({ ...current, sourceRefs }))}
+          browserVisits={state.browserVisits}
+          onBrowserVisits={(browserVisits) => setState((current) => ({ ...current, browserVisits }))}
           onClose={() => setRightPanelVisible(false)}
           t={t}
         />

@@ -4841,6 +4841,78 @@ kbd {
   min-height: 120px;
 }
 
+.browser-history-section {
+  display: grid;
+  gap: 8px;
+  border: 1px solid #282828;
+  border-radius: var(--radius);
+  background: #101010;
+  padding: 10px;
+}
+
+.browser-evidence-list {
+  display: grid;
+  gap: 7px;
+  max-height: min(32vh, 280px);
+  overflow: auto;
+}
+
+.browser-evidence-card {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 9px;
+  align-items: center;
+  border: 1px solid #292929;
+  border-radius: var(--radius-sm);
+  background: #121212;
+  padding: 9px 10px;
+}
+
+.browser-evidence-card.ready {
+  border-color: rgba(155, 179, 108, 0.24);
+}
+
+.browser-evidence-card.error {
+  border-color: rgba(211, 106, 92, 0.32);
+}
+
+.browser-evidence-card.loading {
+  border-color: rgba(209, 131, 87, 0.28);
+}
+
+.browser-evidence-card.external {
+  border-color: rgba(110, 151, 207, 0.24);
+}
+
+.browser-evidence-card svg {
+  color: var(--muted);
+}
+
+.browser-evidence-card div {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.browser-evidence-card strong,
+.browser-evidence-card span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.browser-evidence-card strong {
+  color: #f1f1ef;
+  font-size: 12.5px;
+  font-weight: 550;
+}
+
+.browser-evidence-card span {
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
 .empty-panel {
   min-height: 180px;
   display: grid;
