@@ -4490,7 +4490,7 @@ kbd {
 
 .capability-card strong,
 .project-list-large strong,
-.command-list span,
+.command-list strong,
 .schedule-list strong {
   display: block;
   min-width: 0;
@@ -4921,6 +4921,36 @@ kbd {
 .command-list button {
   grid-template-columns: minmax(0, 1fr) auto;
   align-items: center;
+}
+
+.command-copy {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.command-meta {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.command-meta em {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  color: #a1a6a3;
+  padding: 2px 7px;
+  font-size: 11px;
+  font-style: normal;
+  white-space: nowrap;
+}
+
+.command-meta kbd {
+  border-color: rgba(209, 131, 87, 0.35);
+  background: rgba(209, 131, 87, 0.1);
+  color: #f0c3a2;
 }
 
 .schedule-workbench {

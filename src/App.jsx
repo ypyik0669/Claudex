@@ -6186,7 +6186,7 @@ function CommandPalette({ commands, t, onClose }) {
     inputRef.current?.focus();
   }, []);
   const filtered = commands.filter((command) =>
-    [command.title, command.subtitle, command.keywords].join(" ").toLowerCase().includes(commandQuery.toLowerCase()),
+    [command.title, command.subtitle, command.group, command.kbd, command.keywords].join(" ").toLowerCase().includes(commandQuery.toLowerCase()),
   );
   return (
     <ShellModal title={t.commandPalette} onClose={onClose} closeLabel={t.close} className="command-modal">
@@ -6204,8 +6204,14 @@ function CommandPalette({ commands, t, onClose }) {
               command.action();
             }}
           >
-            <span>{command.title}</span>
-            <small>{command.subtitle}</small>
+            <div className="command-copy">
+              <strong>{command.title}</strong>
+              <small>{command.subtitle}</small>
+            </div>
+            <div className="command-meta">
+              {command.group && <em>{command.group}</em>}
+              {command.kbd && <kbd>{command.kbd}</kbd>}
+            </div>
           </button>
         ))}
         {filtered.length === 0 && <p className="empty-list">{t.noCommands}</p>}
@@ -7046,35 +7052,36 @@ export function App() {
   });
 
   const commands = [
-    { id: "new", title: t.newChat, subtitle: "Ctrl+N", keywords: "聊天 对话 会话", action: createSession },
-    { id: "threads-current", title: t.projectFilteredChats, subtitle: t.chats, keywords: "current project chats threads 当前项目 聊天 线程 历史", action: () => openThreadScope("current") },
-    { id: "threads-all", title: t.allProjectChats, subtitle: t.chats, keywords: "all project chats threads history 全部项目 聊天 线程 历史", action: () => openThreadScope("all") },
-    { id: "threads-archived", title: t.showArchivedChats, subtitle: t.chats, keywords: "archived chats threads restore 归档聊天 查看归档 恢复 聊天 历史", action: () => openThreadScope("archived") },
-    { id: "project", title: t.selectProject, subtitle: t.activeProject, keywords: "文件夹 工作区 项目", action: openProjectsSurface },
-    { id: "terminal", title: t.openTerminal, subtitle: projectLabel(activeProject, t), keywords: "终端 shell powershell", action: openTerminal },
-    { id: "settings", title: t.settings, subtitle: t.setupProvider, keywords: "服务商 api key 模型 设置", action: openSettingsSurface },
-    { id: "capabilities", title: t.capabilities, subtitle: t.plugins, keywords: "插件 技能 工具", action: openCapabilitiesSurface },
-    { id: "capability-plugins", title: t.plugins, subtitle: t.capabilities, keywords: "plugins installed installed plugins claude code 插件 已安装 capability", action: () => openCapabilitiesSurface("plugins") },
-    { id: "capability-mcp", title: t.mcps, subtitle: t.mcpServers, keywords: "mcp servers tools mcps server 工具 服务器", action: () => openCapabilitiesSurface("mcp") },
-    { id: "capability-marketplace", title: t.marketplace, subtitle: t.marketplaceCatalog, keywords: "marketplace catalog install plugin 市场 插件目录 安装", action: () => openCapabilitiesSurface("marketplace") },
-    { id: "automation", title: t.scheduled, subtitle: t.scheduledTitle, keywords: "automation schedule 自动化 计划 任务", action: openScheduledSurface },
-    { id: "tool-workspace", title: t.workspaceTool, subtitle: t.openSidePanel, keywords: "workspace files editor diff 工作区 文件 编辑", action: () => activateTool("workspace") },
-    { id: "tool-claude", title: t.claudeCodeTool, subtitle: t.openSidePanel, keywords: "claude code cli plugin mcp terminal", action: () => activateTool("claude") },
-    { id: "tool-browser", title: t.browser, subtitle: t.openSidePanel, keywords: "browser preview web 网页 浏览器", action: () => activateTool("browser") },
-    { id: "tool-terminal", title: t.terminal, subtitle: t.openSidePanel, keywords: "terminal shell command powershell 终端 命令", action: () => activateTool("terminal") },
-    { id: "panel-outputs", title: t.outputs, subtitle: t.bottomPanel, keywords: "outputs run timeline evidence 输出 证据 时间线", action: () => openBottomPanel("outputs") },
-    { id: "panel-notices", title: t.noticeCenter, subtitle: t.bottomPanel, keywords: "notices errors warnings failures 错误 通知 告警", action: () => openBottomPanel("notices") },
-    { id: "panel-environment", title: t.environment, subtitle: t.bottomPanel, keywords: "environment cwd git ide 环境 项目", action: () => openBottomPanel("environment") },
-    { id: "panel-changes", title: t.changes, subtitle: t.gitDiffPreview, keywords: "changes git diff status 变更 差异", action: () => openBottomPanel("changes") },
-    { id: "panel-sources", title: t.sources, subtitle: t.bottomPanel, keywords: "sources files project 来源 文件", action: () => openBottomPanel("sources") },
-    { id: "panel-subagents", title: t.subagents, subtitle: t.bottomPanel, keywords: "subagents agents 子代理 agent", action: () => openBottomPanel("subagents") },
-    { id: "panel-task-center", title: t.taskCenter, subtitle: t.bottomPanel, keywords: "task center automations subagents evidence 任务中心 自动化 子代理", action: () => openBottomPanel("subagents") },
-    { id: "review", title: t.quickReview, subtitle: t.schedulePrompt, keywords: "审查 代码 风险", action: () => setDraft(t.quickReview) },
-    { id: "plan", title: t.quickPlan, subtitle: t.schedulePrompt, keywords: "计划 实现 验证", action: () => setDraft(t.quickPlan) },
+    { id: "new", title: t.newChat, subtitle: t.chats, group: t.chats, kbd: "Ctrl+N", keywords: "聊天 对话 会话", action: createSession },
+    { id: "threads-current", title: t.projectFilteredChats, subtitle: t.chats, group: t.chats, keywords: "current project chats threads 当前项目 聊天 线程 历史", action: () => openThreadScope("current") },
+    { id: "threads-all", title: t.allProjectChats, subtitle: t.chats, group: t.chats, keywords: "all project chats threads history 全部项目 聊天 线程 历史", action: () => openThreadScope("all") },
+    { id: "threads-archived", title: t.showArchivedChats, subtitle: t.chats, group: t.chats, keywords: "archived chats threads restore 归档聊天 查看归档 恢复 聊天 历史", action: () => openThreadScope("archived") },
+    { id: "project", title: t.selectProject, subtitle: t.activeProject, group: t.activeProject, kbd: "Ctrl+P", keywords: "文件夹 工作区 项目", action: openProjectsSurface },
+    { id: "terminal", title: t.openTerminal, subtitle: projectLabel(activeProject, t), group: t.tools, keywords: "终端 shell powershell", action: openTerminal },
+    { id: "settings", title: t.settings, subtitle: t.setupProvider, group: t.settings, kbd: "Ctrl+,", keywords: "服务商 api key 模型 设置", action: openSettingsSurface },
+    { id: "capabilities", title: t.capabilities, subtitle: t.plugins, group: t.capabilities, keywords: "插件 技能 工具", action: openCapabilitiesSurface },
+    { id: "capability-plugins", title: t.plugins, subtitle: t.capabilities, group: t.capabilities, keywords: "plugins installed installed plugins claude code 插件 已安装 capability", action: () => openCapabilitiesSurface("plugins") },
+    { id: "capability-mcp", title: t.mcps, subtitle: t.mcpServers, group: t.capabilities, keywords: "mcp servers tools mcps server 工具 服务器", action: () => openCapabilitiesSurface("mcp") },
+    { id: "capability-marketplace", title: t.marketplace, subtitle: t.marketplaceCatalog, group: t.capabilities, keywords: "marketplace catalog install plugin 市场 插件目录 安装", action: () => openCapabilitiesSurface("marketplace") },
+    { id: "automation", title: t.scheduled, subtitle: t.scheduledTitle, group: t.scheduled, keywords: "automation schedule 自动化 计划 任务", action: openScheduledSurface },
+    { id: "tool-workspace", title: t.workspaceTool, subtitle: t.openSidePanel, group: t.tools, keywords: "workspace files editor diff 工作区 文件 编辑", action: () => activateTool("workspace") },
+    { id: "tool-claude", title: t.claudeCodeTool, subtitle: t.openSidePanel, group: t.tools, keywords: "claude code cli plugin mcp terminal", action: () => activateTool("claude") },
+    { id: "tool-browser", title: t.browser, subtitle: t.openSidePanel, group: t.tools, kbd: "Ctrl+T", keywords: "browser preview web 网页 浏览器", action: () => activateTool("browser") },
+    { id: "tool-terminal", title: t.terminal, subtitle: t.openSidePanel, group: t.tools, keywords: "terminal shell command powershell 终端 命令", action: () => activateTool("terminal") },
+    { id: "panel-outputs", title: t.outputs, subtitle: t.bottomPanel, group: t.bottomPanel, keywords: "outputs run timeline evidence 输出 证据 时间线", action: () => openBottomPanel("outputs") },
+    { id: "panel-notices", title: t.noticeCenter, subtitle: t.bottomPanel, group: t.bottomPanel, keywords: "notices errors warnings failures 错误 通知 告警", action: () => openBottomPanel("notices") },
+    { id: "panel-environment", title: t.environment, subtitle: t.bottomPanel, group: t.bottomPanel, keywords: "environment cwd git ide 环境 项目", action: () => openBottomPanel("environment") },
+    { id: "panel-changes", title: t.changes, subtitle: t.gitDiffPreview, group: t.bottomPanel, keywords: "changes git diff status 变更 差异", action: () => openBottomPanel("changes") },
+    { id: "panel-sources", title: t.sources, subtitle: t.bottomPanel, group: t.bottomPanel, keywords: "sources files project 来源 文件", action: () => openBottomPanel("sources") },
+    { id: "panel-subagents", title: t.subagents, subtitle: t.bottomPanel, group: t.bottomPanel, keywords: "subagents agents 子代理 agent", action: () => openBottomPanel("subagents") },
+    { id: "panel-task-center", title: t.taskCenter, subtitle: t.bottomPanel, group: t.bottomPanel, keywords: "task center automations subagents evidence 任务中心 自动化 子代理", action: () => openBottomPanel("subagents") },
+    { id: "review", title: t.quickReview, subtitle: t.schedulePrompt, group: t.chats, keywords: "审查 代码 风险", action: () => setDraft(t.quickReview) },
+    { id: "plan", title: t.quickPlan, subtitle: t.schedulePrompt, group: t.chats, keywords: "计划 实现 验证", action: () => setDraft(t.quickPlan) },
     {
       id: "data",
       title: t.openData,
       subtitle: t.dataFile,
+      group: t.settings,
       keywords: "存储 历史 数据",
       action: async () => {
         await desktopApi?.openDataFile();

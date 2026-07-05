@@ -171,6 +171,24 @@ async function runTest() {
 
   assertStep("PASS51_READY", await waitFor(win, "Boolean(document.querySelector('.app-grid') && window.claudexDesktop)", 15000));
 
+  assertStep("PASS51_COMMAND_META_SEARCHABLE_VISIBLE", await win.webContents.executeJavaScript(`
+    (async function() {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true, bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      const input = document.querySelector('.command-modal .command-search input');
+      if (!input) return false;
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+      setter.call(input, 'Ctrl+N');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 120));
+      const button = document.querySelector('.command-modal .command-list button');
+      const text = button?.textContent || '';
+      const hasMeta = Boolean(button?.querySelector('.command-meta em') && button?.querySelector('.command-meta kbd'));
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      return Boolean(button && hasMeta && /新聊天/.test(text) && /聊天记录/.test(text) && /Ctrl\\+N/.test(text));
+    })();
+  `));
+
   assertStep("PASS51_OPEN_ARCHIVED_THREADS_FROM_PALETTE", await runPaletteCommand(win, "archived chats"));
   assertStep("PASS51_ARCHIVED_THREADS_VISIBLE", await waitFor(win, `
     Boolean(
