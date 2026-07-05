@@ -936,7 +936,8 @@ function sidebarThreadItems(sessions, t, activeProject, projectScope = "current"
   const items = [];
   const activeProjectKey = String(activeProject?.path || activeProject?.name || "").trim().toLowerCase();
   for (const session of sessions || []) {
-    if (session?.archived) continue;
+    const archivedScope = projectScope === "archived";
+    if (archivedScope !== Boolean(session?.archived)) continue;
     if (projectScope !== "all" && activeProjectKey && sessionProjectKeyForUi(session) !== activeProjectKey) continue;
     const messages = sessionMessages(session);
     const genericEmpty = messages.length === 0 && isGenericSessionTitle(session?.title, t);
@@ -969,6 +970,7 @@ function sessionMatchesProjectForUi(session, activeProject) {
 function selectSessionIdForProject(nextState, t, activeProject, preferredId = "", projectScope = "current") {
   const items = sidebarThreadItems(nextState?.sessions || [], t, activeProject || nextState?.activeProject, projectScope);
   if (preferredId && items.some((item) => item.session.id === preferredId)) return preferredId;
+  if (projectScope === "archived") return items[0]?.session.id || "";
   return items[0]?.session.id || (nextState?.sessions || []).find((session) => !session.archived)?.id || nextState?.sessions?.[0]?.id || "";
 }
 
@@ -1484,7 +1486,7 @@ function Sidebar({
             <div className="chat-scope-toggle" aria-label={t.chats}>
               <button
                 type="button"
-                className={cx(projectScope !== "all" && "active")}
+                className={cx(projectScope === "current" && "active")}
                 onClick={() => onProjectScopeChange?.("current")}
                 title={activeProject?.path || activeProject?.name || t.projectFilteredChats}
               >
@@ -1497,6 +1499,14 @@ function Sidebar({
                 title={t.allProjectChats}
               >
                 {t.allProjectChats}
+              </button>
+              <button
+                type="button"
+                className={cx(projectScope === "archived" && "active")}
+                onClick={() => onProjectScopeChange?.("archived")}
+                title={t.showArchivedChats}
+              >
+                {t.showArchivedChats}
               </button>
             </div>
           </div>
@@ -1557,7 +1567,7 @@ function Sidebar({
                       <button type="button" onClick={() => onForkThread(session)} title={t.forkThread} aria-label={t.forkThread}>
                         <GitFork size={12} />
                       </button>
-                      <button type="button" onClick={() => onArchiveThread(session)} title={t.archiveThread} aria-label={t.archiveThread}>
+                      <button type="button" onClick={() => onArchiveThread(session)} title={session.archived ? t.restoreThread : t.archiveThread} aria-label={session.archived ? t.restoreThread : t.archiveThread}>
                         <Archive size={12} />
                       </button>
                       <button type="button" onClick={() => onDeleteThread(session)} title={t.deleteThread} aria-label={t.deleteThread}>
@@ -6020,7 +6030,7 @@ export function App() {
   const activeSession =
     state.sessions.find((session) => (
       session.id === activeSessionId &&
-      !session.archived &&
+      (projectScope === "archived" ? session.archived : !session.archived) &&
       (projectScope === "all" || sessionMatchesProjectForUi(session, activeProject))
     ))
     || visibleThreadItems[0]?.session
@@ -6157,9 +6167,12 @@ export function App() {
   async function archiveThread(session) {
     if (!desktopApi?.updateSession || !session) return;
     try {
-      const next = await desktopApi.updateSession({ sessionId: session.id, archived: true });
-      applySessionState(next, session.id === activeSession?.id ? "" : activeSession?.id);
-      showToast(t.threadArchived);
+      const nextArchived = !session.archived;
+      const next = await desktopApi.updateSession({ sessionId: session.id, archived: nextArchived });
+      const nextScope = nextArchived ? projectScope : "current";
+      if (!nextArchived && projectScope === "archived") setProjectScope("current");
+      applySessionState(next, nextArchived && session.id === activeSession?.id ? "" : session.id, nextScope);
+      showToast(nextArchived ? t.threadArchived : t.restoreThread);
     } catch (error) {
       showToast(error.message || String(error));
     }

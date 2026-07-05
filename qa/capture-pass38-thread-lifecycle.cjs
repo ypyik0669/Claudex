@@ -120,6 +120,7 @@ app.whenReady().then(async () => {
         /Active A thread/.test(headerText) &&
         /\\u5f53\\u524d\\u9879\\u76ee/.test(scopeText) &&
         /\\u5168\\u90e8\\u9879\\u76ee/.test(scopeText) &&
+        /\\u67e5\\u770b\\u5f52\\u6863/.test(scopeText) &&
         !/Project B hidden thread/.test(listText) &&
         !/Archived A thread/.test(listText);
     })();
@@ -163,9 +164,69 @@ app.whenReady().then(async () => {
     })();
   `, 10000));
 
+  assertStep("PASS38_ARCHIVED_SCOPE_SHOWS_ARCHIVED", await waitFor(win, `
+    (async function() {
+      if (!window.__pass38ArchivedScopeClicked) {
+        window.__pass38ArchivedScopeClicked = true;
+        const button = Array.from(document.querySelectorAll('.chat-scope-toggle button'))
+          .find((item) => /\\u67e5\\u770b\\u5f52\\u6863/.test(item.textContent || ''));
+        if (!button) return false;
+        button.click();
+      }
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      const rows = Array.from(document.querySelectorAll('.thread-list .thread-item'));
+      const listText = document.querySelector('.thread-list')?.textContent || '';
+      const active = document.querySelector('.thread-list .thread-item.active')?.textContent || '';
+      return rows.length === 1 &&
+        /Archived A thread/.test(rows[0].textContent || '') &&
+        /Archived A thread/.test(active) &&
+        !/Active A thread|Project B hidden thread/.test(listText);
+    })();
+  `, 10000));
+
+  assertStep("PASS38_RESTORE_ARCHIVED_THREAD", await waitFor(win, `
+    (async function() {
+      if (!window.__pass38RestoreArchivedClicked) {
+        window.__pass38RestoreArchivedClicked = true;
+        const row = Array.from(document.querySelectorAll('.thread-list .thread-item'))
+          .find((item) => /Archived A thread/.test(item.textContent || ''));
+        const restore = row?.querySelectorAll('.thread-actions button')[3];
+        if (!restore) return false;
+        restore.click();
+      }
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      const state = await window.claudexDesktop.getState();
+      const rows = Array.from(document.querySelectorAll('.thread-list .thread-item'));
+      const listText = document.querySelector('.thread-list')?.textContent || '';
+      return state.sessions.find((item) => item.id === 'project-a-archived')?.archived === false &&
+        rows.length === 2 &&
+        /Archived A thread/.test(listText) &&
+        /Active A thread/.test(listText);
+    })();
+  `, 10000));
+
+  assertStep("PASS38_REARCHIVE_RESTORED_THREAD", await waitFor(win, `
+    (async function() {
+      if (!window.__pass38RearchiveRestoredClicked) {
+        window.__pass38RearchiveRestoredClicked = true;
+        const row = Array.from(document.querySelectorAll('.thread-list .thread-item'))
+          .find((item) => /Archived A thread/.test(item.textContent || ''));
+        const archive = row?.querySelectorAll('.thread-actions button')[3];
+        if (!archive) return false;
+        archive.click();
+      }
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      const state = await window.claudexDesktop.getState();
+      const rows = Array.from(document.querySelectorAll('.thread-list .thread-item'));
+      return state.sessions.find((item) => item.id === 'project-a-archived')?.archived === true &&
+        rows.length === 1 &&
+        /Active A thread/.test(rows[0].textContent || '');
+    })();
+  `, 10000));
+
   assertStep("PASS38_PIN_THREAD", await win.webContents.executeJavaScript(`
     (async function() {
-      const row = document.querySelector('.thread-list .thread-item');
+      const row = Array.from(document.querySelectorAll('.thread-list .thread-item')).find((item) => /Active A thread/.test(item.textContent || ''));
       const pin = row?.querySelectorAll('.thread-actions button')[1];
       if (!pin) return false;
       pin.click();
@@ -179,7 +240,7 @@ app.whenReady().then(async () => {
   assertStep("PASS38_RENAME_THREAD", await win.webContents.executeJavaScript(`
     (async function() {
       window.prompt = () => 'Renamed A thread';
-      const row = document.querySelector('.thread-list .thread-item');
+      const row = Array.from(document.querySelectorAll('.thread-list .thread-item')).find((item) => /Active A thread/.test(item.textContent || ''));
       const rename = row?.querySelectorAll('.thread-actions button')[0];
       if (!rename) return false;
       rename.click();
