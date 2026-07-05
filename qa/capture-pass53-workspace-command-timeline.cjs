@@ -197,6 +197,20 @@ async function runTest() {
       );
     })()
   `, 10000));
+  assertStep("PASS53_SELECTED_EVIDENCE_PANEL", await waitFor(win, `
+    (() => {
+      const panel = document.querySelector('.selected-run-evidence-panel');
+      const text = panel?.textContent || '';
+      return Boolean(
+        panel &&
+        /选中证据/.test(text) &&
+        /workspace-evidence-ok/.test(text) &&
+        /node -e/.test(text) &&
+        /工作目录/.test(text) &&
+        /标准输出/.test(text)
+      );
+    })()
+  `, 10000));
   assertStep("PASS53_TIMELINE_COPY_EVIDENCE", await waitFor(win, `
     (async function() {
       const row = Array.from(document.querySelectorAll('.run-timeline-row.ok'))

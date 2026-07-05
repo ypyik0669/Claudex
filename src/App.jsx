@@ -671,6 +671,8 @@ const copy = {
     timelineEvidence: "Timeline 证据",
     timelineEvidenceEmpty: "这个事件只有状态摘要，还没有关联到原始输出。",
     timelineEventType: "事件类型",
+    selectedRunEvidence: "选中证据",
+    selectedRunEvidenceHint: "点击 timeline 行后，这里固定显示关联到本地 store/CLI 的完整证据。",
     automationRunHistoryShort: "最近 3 次",
     automationCreated: "自动化已保存",
     automationDeleted: "自动化已删除",
@@ -1514,6 +1516,20 @@ function runTimelineEvidenceText(event, evidence, t) {
   return lines.filter((line, index) => index < 9 || String(line || "").trim()).join("\n");
 }
 
+function runTimelineHasEvidence(evidence) {
+  return Boolean(
+    evidence?.stdout
+    || evidence?.stderr
+    || evidence?.commandLine
+    || evidence?.cwd
+    || evidence?.sessionId
+    || typeof evidence?.code === "number"
+    || typeof evidence?.durationMs === "number"
+    || evidence?.summary
+    || evidence?.detail
+  );
+}
+
 function formatFileTimestamp(value) {
   if (!value) return "";
   const date = new Date(value);
@@ -2158,10 +2174,34 @@ function Conversation({
     if (!stillExists) setSelectedGitDiffPath("");
   }, [selectedGitDiffPath, gitFiles, gitFileDiffs]);
   const activeNotices = useMemo(() => (notices || []).filter((notice) => !notice.dismissedAt), [notices]);
-  const automationItemsForUi = Array.isArray(automations) ? automations : [];
+  const automationItemsForUi = useMemo(() => (Array.isArray(automations) ? automations : []), [automations]);
   const workspaceCommandRuns = useMemo(() => commandRunsToHistory(commandRuns, "workspace"), [commandRuns]);
   const claudeCommandRuns = useMemo(() => commandRunsToHistory(commandRuns, "claude"), [commandRuns]);
   const capabilityCommandRuns = useMemo(() => commandRunsToHistory(commandRuns, "capability"), [commandRuns]);
+  const [selectedRunEventId, setSelectedRunEventId] = useState("");
+  const selectedRunEvent = useMemo(() => {
+    if (!runEvents?.length) return null;
+    return runEvents.find((event) => event.id === selectedRunEventId) || runEvents[0];
+  }, [runEvents, selectedRunEventId]);
+  const selectedRunEvidence = useMemo(() => (
+    selectedRunEvent
+      ? runTimelineEvidenceForEvent(selectedRunEvent, {
+          commandRuns,
+          automations: automationItemsForUi,
+          subagentRuns,
+          sessions,
+          t,
+        })
+      : null
+  ), [selectedRunEvent, commandRuns, automationItemsForUi, subagentRuns, sessions, t]);
+  useEffect(() => {
+    if (!runEvents?.length) {
+      if (selectedRunEventId) setSelectedRunEventId("");
+      return;
+    }
+    if (selectedRunEventId && runEvents.some((event) => event.id === selectedRunEventId)) return;
+    setSelectedRunEventId(runEvents[0].id);
+  }, [runEvents, selectedRunEventId]);
   const activeTaskCount = automationItemsForUi.filter((item) => ["running", "scheduled"].includes(item.status)).length
     + (subagentRuns || []).filter((run) => run.status === "running").length;
   const contextTabs = [
@@ -2386,15 +2426,27 @@ function Conversation({
                     <div><dt>{t.changes}</dt><dd>{environment?.git?.available ? environment.git.changes || 0 : t.gitUnavailable}</dd></div>
                   </dl>
                 </div>
-                <RunTimeline
-                  events={runEvents}
-                  commandRuns={commandRuns}
-                  automations={automationItemsForUi}
-                  subagentRuns={subagentRuns}
-                  sessions={sessions}
-                  onCopy={onCopy}
-                  t={t}
-                />
+                {runEvents.length > 0 && (
+                  <div className="run-evidence-layout">
+                    <RunTimeline
+                      events={runEvents}
+                      commandRuns={commandRuns}
+                      automations={automationItemsForUi}
+                      subagentRuns={subagentRuns}
+                      sessions={sessions}
+                      selectedEventId={selectedRunEvent?.id || ""}
+                      onSelectEvent={setSelectedRunEventId}
+                      onCopy={onCopy}
+                      t={t}
+                    />
+                    <SelectedRunEvidencePanel
+                      event={selectedRunEvent}
+                      evidence={selectedRunEvidence}
+                      onCopy={onCopy}
+                      t={t}
+                    />
+                  </div>
+                )}
                 {workspaceCommandRuns.length > 0 && (
                   <div className="bottom-panel-stack command-evidence-stack">
                     <div className="command-evidence-note">{t.workspaceCommandBackedByStore}</div>
@@ -3224,12 +3276,88 @@ function NoticeCenter({ notices = [], onDismiss, onClear, t }) {
   );
 }
 
+function RunEvidenceDetails({ event, evidence, onCopy, t, pinned = false }) {
+  const hasRawEvidence = runTimelineHasEvidence(evidence);
+  return (
+    <div className={cx("run-timeline-evidence", pinned && "pinned-run-evidence-body")} aria-label={t.timelineEvidence}>
+      {hasRawEvidence ? (
+        <>
+          <dl className="run-timeline-evidence-meta">
+            <div><dt>{t.timelineEventType}</dt><dd>{evidence.type || event?.type || "-"}</dd></div>
+            <div><dt>{t.scheduleStatus}</dt><dd>{runTimelineStatusLabel(event?.status || evidence.status, t)}</dd></div>
+            <div><dt>{t.activeProject}</dt><dd title={evidence.cwd || ""}>{evidence.project || "-"}</dd></div>
+            <div><dt>{t.automationSession}</dt><dd>{evidence.sessionId || "-"}</dd></div>
+            <div><dt>{t.commandExit}</dt><dd>{typeof evidence.code === "number" ? evidence.code : "-"}</dd></div>
+            <div><dt>{t.commandDuration}</dt><dd>{formatDurationMs(evidence.durationMs)}</dd></div>
+            {evidence.commandLine && (
+              <div className="wide-evidence-row"><dt>{t.commandLine}</dt><dd title={evidence.commandLine}>{messageExcerpt(evidence.commandLine, 120)}</dd></div>
+            )}
+            {evidence.cwd && (
+              <div className="wide-evidence-row"><dt>{t.commandCwd}</dt><dd title={evidence.cwd}>{compactPath(evidence.cwd, 90)}</dd></div>
+            )}
+          </dl>
+          {(evidence.summary || evidence.detail) && <p className="run-timeline-summary">{evidence.summary || evidence.detail}</p>}
+          {evidence.stdout && (
+            <section>
+              <span>{t.commandStdout}</span>
+              <pre className="subagent-output secondary-output">{evidence.stdout}</pre>
+            </section>
+          )}
+          {evidence.stderr && (
+            <section>
+              <span>{t.commandStderr}</span>
+              <pre className="subagent-output secondary-output error-output">{evidence.stderr}</pre>
+            </section>
+          )}
+          {evidence.artifacts?.length > 0 && (
+            <div className="run-timeline-artifacts">
+              <span>{t.subagentArtifacts}</span>
+              {evidence.artifacts.map((artifact, index) => (
+                <code key={`${artifact?.label || artifact?.path || index}`}>
+                  {artifact?.label || artifact?.path || artifact?.type || `${t.subagentArtifacts} ${index + 1}`}
+                </code>
+              ))}
+            </div>
+          )}
+          <div className="run-timeline-actions">
+            <button type="button" className="plain-action subtle-action" onClick={() => onCopy?.(runTimelineEvidenceText(event, evidence, t))}>
+              <Copy size={13} />
+              {t.copyAutomationEvidence}
+            </button>
+          </div>
+        </>
+      ) : (
+        <p className="run-timeline-empty">{t.timelineEvidenceEmpty}</p>
+      )}
+    </div>
+  );
+}
+
+function SelectedRunEvidencePanel({ event, evidence, onCopy, t }) {
+  if (!event || !evidence) return null;
+  return (
+    <section className={cx("selected-run-evidence-panel", event.status)} aria-label={t.selectedRunEvidence}>
+      <div className="selected-run-evidence-head">
+        <div>
+          <span>{t.selectedRunEvidence}</span>
+          <strong>{event.title || evidence.title || t.outputs}</strong>
+          <p>{t.selectedRunEvidenceHint}</p>
+        </div>
+        <time>{formatDate(event.createdAt)}</time>
+      </div>
+      <RunEvidenceDetails event={event} evidence={evidence} onCopy={onCopy} t={t} pinned />
+    </section>
+  );
+}
+
 function RunTimeline({
   events = [],
   commandRuns = [],
   automations = [],
   subagentRuns = [],
   sessions = [],
+  selectedEventId = "",
+  onSelectEvent,
   onCopy,
   t,
 }) {
@@ -3243,20 +3371,9 @@ function RunTimeline({
       <div className="run-timeline-list">
         {events.map((event) => {
           const evidence = runTimelineEvidenceForEvent(event, { commandRuns, automations, subagentRuns, sessions, t });
-          const hasRawEvidence = Boolean(
-            evidence?.stdout
-            || evidence?.stderr
-            || evidence?.commandLine
-            || evidence?.cwd
-            || evidence?.sessionId
-            || typeof evidence?.code === "number"
-            || typeof evidence?.durationMs === "number"
-            || evidence?.summary
-            || evidence?.detail
-          );
           return (
-            <details className={cx("run-timeline-row", event.status)} key={event.id}>
-              <summary>
+            <details className={cx("run-timeline-row", event.status, selectedEventId === event.id && "selected")} key={event.id}>
+              <summary onClick={() => onSelectEvent?.(event.id)}>
                 <span className="run-timeline-dot" />
                 <div className="run-timeline-main">
                   <strong>{event.title}</strong>
@@ -3264,57 +3381,7 @@ function RunTimeline({
                 </div>
                 <time>{formatDate(event.createdAt)}</time>
               </summary>
-              <div className="run-timeline-evidence" aria-label={t.timelineEvidence}>
-                {hasRawEvidence ? (
-                  <>
-                    <dl className="run-timeline-evidence-meta">
-                      <div><dt>{t.timelineEventType}</dt><dd>{evidence.type || event.type || "-"}</dd></div>
-                      <div><dt>{t.scheduleStatus}</dt><dd>{runTimelineStatusLabel(event.status || evidence.status, t)}</dd></div>
-                      <div><dt>{t.activeProject}</dt><dd title={evidence.cwd || ""}>{evidence.project || "-"}</dd></div>
-                      <div><dt>{t.automationSession}</dt><dd>{evidence.sessionId || "-"}</dd></div>
-                      <div><dt>{t.commandExit}</dt><dd>{typeof evidence.code === "number" ? evidence.code : "-"}</dd></div>
-                      <div><dt>{t.commandDuration}</dt><dd>{formatDurationMs(evidence.durationMs)}</dd></div>
-                      {evidence.commandLine && (
-                        <div className="wide-evidence-row"><dt>{t.commandLine}</dt><dd title={evidence.commandLine}>{messageExcerpt(evidence.commandLine, 120)}</dd></div>
-                      )}
-                      {evidence.cwd && (
-                        <div className="wide-evidence-row"><dt>{t.commandCwd}</dt><dd title={evidence.cwd}>{compactPath(evidence.cwd, 90)}</dd></div>
-                      )}
-                    </dl>
-                    {(evidence.summary || evidence.detail) && <p className="run-timeline-summary">{evidence.summary || evidence.detail}</p>}
-                    {evidence.stdout && (
-                      <section>
-                        <span>{t.commandStdout}</span>
-                        <pre className="subagent-output secondary-output">{evidence.stdout}</pre>
-                      </section>
-                    )}
-                    {evidence.stderr && (
-                      <section>
-                        <span>{t.commandStderr}</span>
-                        <pre className="subagent-output secondary-output error-output">{evidence.stderr}</pre>
-                      </section>
-                    )}
-                    {evidence.artifacts?.length > 0 && (
-                      <div className="run-timeline-artifacts">
-                        <span>{t.subagentArtifacts}</span>
-                        {evidence.artifacts.map((artifact, index) => (
-                          <code key={`${artifact?.label || artifact?.path || index}`}>
-                            {artifact?.label || artifact?.path || artifact?.type || `${t.subagentArtifacts} ${index + 1}`}
-                          </code>
-                        ))}
-                      </div>
-                    )}
-                    <div className="run-timeline-actions">
-                      <button type="button" className="plain-action subtle-action" onClick={() => onCopy?.(runTimelineEvidenceText(event, evidence, t))}>
-                        <Copy size={13} />
-                        {t.copyAutomationEvidence}
-                      </button>
-                    </div>
-                  </>
-                ) : (
-                  <p className="run-timeline-empty">{t.timelineEvidenceEmpty}</p>
-                )}
-              </div>
+              <RunEvidenceDetails event={event} evidence={evidence} onCopy={onCopy} t={t} />
             </details>
           );
         })}

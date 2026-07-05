@@ -2999,6 +2999,13 @@ select:focus-visible,
   padding: 10px;
 }
 
+.run-evidence-layout {
+  display: grid;
+  grid-template-columns: minmax(260px, 0.82fr) minmax(320px, 1.18fr);
+  gap: 10px;
+  align-items: start;
+}
+
 .run-timeline-head,
 .run-timeline-row {
   min-width: 0;
@@ -3034,6 +3041,11 @@ select:focus-visible,
 .run-timeline-row[open] {
   border-color: #252525;
   background: rgba(255, 255, 255, 0.02);
+}
+
+.run-timeline-row.selected {
+  border-color: rgba(209, 131, 87, 0.34);
+  background: rgba(209, 131, 87, 0.04);
 }
 
 .run-timeline-row summary {
@@ -3192,6 +3204,75 @@ select:focus-visible,
 .run-timeline-actions .plain-action {
   padding: 5px 7px;
   font-size: 11.5px;
+}
+
+.selected-run-evidence-panel {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid #252525;
+  border-radius: var(--radius-sm);
+  background: #0c0c0c;
+}
+
+.selected-run-evidence-panel.ok {
+  border-color: rgba(125, 211, 168, 0.2);
+}
+
+.selected-run-evidence-panel.error {
+  border-color: rgba(227, 111, 111, 0.24);
+}
+
+.selected-run-evidence-panel.running {
+  border-color: rgba(209, 131, 87, 0.28);
+}
+
+.selected-run-evidence-head {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: start;
+  border-bottom: 1px solid #242424;
+  padding: 10px;
+}
+
+.selected-run-evidence-head > div {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.selected-run-evidence-head span {
+  color: #8f918f;
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.selected-run-evidence-head strong {
+  overflow: hidden;
+  color: #e7e5dc;
+  font-size: 12.5px;
+  font-weight: 600;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.selected-run-evidence-head p,
+.selected-run-evidence-head time {
+  margin: 0;
+  color: #8f918f;
+  font-size: 11px;
+  line-height: 1.35;
+}
+
+.selected-run-evidence-head time {
+  font-family: var(--font-mono);
+  white-space: nowrap;
+}
+
+.pinned-run-evidence-body {
+  border-top: 0;
+  padding: 10px;
 }
 
 .command-history-item {
