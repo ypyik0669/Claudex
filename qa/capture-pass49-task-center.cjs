@@ -27,7 +27,9 @@ function writeJson(file, value) {
 const fakeClaudeScript = `
 const args = process.argv.slice(2);
 function out(value) { process.stdout.write(typeof value === 'string' ? value + '\\n' : JSON.stringify(value) + '\\n'); }
-if (args[0] === '--version') {
+if (args[0] === '-p') {
+  out({ result: 'pass49 automation run ok: ' + args[1], session_id: 'pass49-claude-session' });
+} else if (args[0] === '--version') {
   out('2.9.0 (pass49 fake)');
 } else {
   out({ result: 'pass49 generic ok', session_id: 'pass49-claude-session' });
@@ -221,6 +223,95 @@ app.whenReady().then(async () => {
       return parsed.automations?.length === 2 &&
         parsed.subagentRuns?.length === 1 &&
         parsed.automations.some((item) => item.lastRun?.error === "pass49 automation failed");
+    })());
+
+    assertStep("PASS49_TASK_CENTER_ACTIONS", await win.webContents.executeJavaScript(`
+      Boolean(
+        Array.from(document.querySelectorAll('.automation-task-actions button')).some((button) => /\\u7acb\\u5373\\u8fd0\\u884c/.test(button.textContent || '')) &&
+        Array.from(document.querySelectorAll('.automation-task-actions button')).some((button) => /\\u6682\\u505c/.test(button.textContent || '')) &&
+        Array.from(document.querySelectorAll('.automation-task-actions button')).some((button) => /\\u5220\\u9664/.test(button.textContent || ''))
+      )
+    `));
+
+    assertStep("PASS49_RUN_AUTOMATION_FROM_TASK_CENTER", await waitFor(win, `
+      (async function() {
+        if (!window.__pass49RunClicked) {
+          window.__pass49RunClicked = true;
+          const card = Array.from(document.querySelectorAll('.automation-task-card'))
+            .find((item) => /pass49 failed automation prompt/.test(item.textContent || ''));
+          const run = Array.from(card?.querySelectorAll('.automation-task-actions button') || [])
+            .find((button) => /\\u7acb\\u5373\\u8fd0\\u884c/.test(button.textContent || ''));
+          if (!run) return false;
+          run.click();
+        }
+        await new Promise((resolve) => setTimeout(resolve, 900));
+        const state = await window.claudexDesktop.getState();
+        const automation = state.automations.find((item) => item.id === 'pass49-failed-automation');
+        const session = state.sessions.find((item) => item.id === 'default');
+        return Boolean(
+          automation?.lastRun?.status === 'succeeded' &&
+          /pass49 automation run ok/.test(automation.lastRun.detail || '') &&
+          session?.messages?.some((message) => /pass49 failed automation prompt/.test(message.content || '')) &&
+          session?.messages?.some((message) => /pass49 automation run ok/.test(message.content || '')) &&
+          /pass49 automation run ok/.test(document.body.textContent || '')
+        );
+      })();
+    `, 12000));
+
+    assertStep("PASS49_REOPEN_TASK_CENTER_AFTER_RUN", await openTaskCenter(win));
+    assertStep("PASS49_TASK_CENTER_REOPENED_AFTER_RUN", await waitFor(win, `
+      Boolean(document.querySelector('.subagent-workbench') && document.querySelector('.automation-task-card.succeeded'))
+    `, 8000));
+
+    assertStep("PASS49_PAUSE_AUTOMATION_FROM_TASK_CENTER", await waitFor(win, `
+      (async function() {
+        if (!window.__pass49PauseClicked) {
+          window.__pass49PauseClicked = true;
+          const card = Array.from(document.querySelectorAll('.automation-task-card'))
+            .find((item) => /pass49 scheduled automation prompt/.test(item.textContent || ''));
+          const pause = Array.from(card?.querySelectorAll('.automation-task-actions button') || [])
+            .find((button) => /\\u6682\\u505c/.test(button.textContent || ''));
+          if (!pause) return false;
+          pause.click();
+        }
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        const state = await window.claudexDesktop.getState();
+        const automation = state.automations.find((item) => item.id === 'pass49-scheduled-automation');
+        return Boolean(
+          automation?.enabled === false &&
+          automation.status === 'paused' &&
+          document.querySelector('.automation-task-card.paused') &&
+          /\\u6062\\u590d/.test(document.body.textContent || '')
+        );
+      })();
+    `, 10000));
+
+    assertStep("PASS49_DELETE_AUTOMATION_FROM_TASK_CENTER", await waitFor(win, `
+      (async function() {
+        if (!window.__pass49DeleteClicked) {
+          window.__pass49DeleteClicked = true;
+          const card = Array.from(document.querySelectorAll('.automation-task-card'))
+            .find((item) => /pass49 scheduled automation prompt/.test(item.textContent || ''));
+          const del = Array.from(card?.querySelectorAll('.automation-task-actions button') || [])
+            .find((button) => /\\u5220\\u9664/.test(button.textContent || ''));
+          if (!del) return false;
+          del.click();
+        }
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        const state = await window.claudexDesktop.getState();
+        return Boolean(
+          state.automations.length === 1 &&
+          !state.automations.some((item) => item.id === 'pass49-scheduled-automation') &&
+          !/pass49 scheduled automation prompt/.test(document.body.textContent || '')
+        );
+      })();
+    `, 10000));
+
+    assertStep("PASS49_STORE_ACTIONS_PERSISTED", (() => {
+      const parsed = JSON.parse(fs.readFileSync(DATA_FILE, "utf8"));
+      return parsed.automations?.length === 1 &&
+        parsed.automations[0].id === "pass49-failed-automation" &&
+        parsed.automations[0].lastRun?.status === "succeeded";
     })());
 
     assertStep("PASS49_NO_LOCALSTORAGE_SOURCE", await win.webContents.executeJavaScript(`

@@ -1614,6 +1614,9 @@ function Conversation({
   notices,
   onDismissNotice,
   onClearNotices,
+  onRunAutomationNow,
+  onToggleAutomationEnabled,
+  onDeleteAutomation,
   onRunSubagent,
   onCancelSubagent,
   draft,
@@ -2038,6 +2041,9 @@ function Conversation({
                 automations={automationItemsForUi}
                 sessions={sessions}
                 activeProject={activeProject}
+                onRunAutomationNow={onRunAutomationNow}
+                onToggleAutomationEnabled={onToggleAutomationEnabled}
+                onDeleteAutomation={onDeleteAutomation}
                 onRunSubagent={onRunSubagent}
                 onCancelSubagent={onCancelSubagent}
                 onOpenInteractiveClaude={onOpenInteractiveClaude}
@@ -2195,6 +2201,9 @@ function SubagentWorkbench({
   automations = [],
   sessions = [],
   activeProject,
+  onRunAutomationNow,
+  onToggleAutomationEnabled,
+  onDeleteAutomation,
   onRunSubagent,
   onCancelSubagent,
   onOpenInteractiveClaude,
@@ -2204,6 +2213,7 @@ function SubagentWorkbench({
   const [task, setTask] = useState("");
   const [nickname, setNickname] = useState("");
   const [running, setRunning] = useState(false);
+  const [automationWorkingId, setAutomationWorkingId] = useState("");
   const runCount = t.subagentCount.replace("{count}", runs.length);
   const automationItems = Array.isArray(automations) ? automations : [];
   const activeAutomationCount = automationItems.filter((item) => ["running", "scheduled"].includes(item.status)).length;
@@ -2230,6 +2240,18 @@ function SubagentWorkbench({
       // The parent action already displays a toast and run timeline entry.
     } finally {
       setRunning(false);
+    }
+  }
+
+  async function handleAutomationAction(item, action) {
+    if (!item?.id) return;
+    setAutomationWorkingId(item.id);
+    try {
+      await action?.(item);
+    } catch {
+      // The parent action already displays a toast and timeline/notice entry.
+    } finally {
+      setAutomationWorkingId("");
     }
   }
 
@@ -2291,6 +2313,38 @@ function SubagentWorkbench({
                       <span>{timing}</span>
                     </div>
                     {lastRunDetail && <p className="automation-task-detail">{lastRunDetail}</p>}
+                    <div className="automation-task-actions">
+                      <button
+                        type="button"
+                        className="plain-action subtle-action"
+                        onClick={() => handleAutomationAction(item, onRunAutomationNow)}
+                        disabled={automationWorkingId === item.id || item.status === "running"}
+                        title={t.runNow}
+                      >
+                        <Send size={13} />
+                        {automationWorkingId === item.id ? t.automationRunning : t.runNow}
+                      </button>
+                      <button
+                        type="button"
+                        className="plain-action subtle-action"
+                        onClick={() => handleAutomationAction(item, () => onToggleAutomationEnabled?.(item, !item.enabled))}
+                        disabled={!item.schedule?.runAt || automationWorkingId === item.id || item.status === "running"}
+                        title={item.enabled ? t.pauseAutomation : t.resumeAutomation}
+                      >
+                        <Clock3 size={13} />
+                        {item.enabled ? t.pauseAutomation : t.resumeAutomation}
+                      </button>
+                      <button
+                        type="button"
+                        className="plain-action subtle-action danger-inline-action"
+                        onClick={() => handleAutomationAction(item, onDeleteAutomation)}
+                        disabled={automationWorkingId === item.id}
+                        title={t.delete}
+                      >
+                        <Trash2 size={13} />
+                        {t.delete}
+                      </button>
+                    </div>
                   </div>
                 </article>
               );
@@ -6190,6 +6244,9 @@ export function App() {
           notices={state.notices}
           onDismissNotice={dismissNotice}
           onClearNotices={clearNotices}
+          onRunAutomationNow={runAutomationNow}
+          onToggleAutomationEnabled={toggleAutomationEnabled}
+          onDeleteAutomation={deleteAutomation}
           onRunSubagent={runSubagent}
           onCancelSubagent={cancelSubagent}
           draft={draft}
