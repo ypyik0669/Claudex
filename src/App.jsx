@@ -556,6 +556,7 @@ const copy = {
     noMcpServers: "没有配置 MCP 服务器。",
     mcpServers: "MCP 服务器",
     recordMcpStatus: "记录 MCP 状态",
+    copyRawMcpStatus: "复制原始输出",
     mcpStatusOk: "可用",
     mcpStatusPending: "待确认",
     mcpStatusError: "异常",
@@ -5108,6 +5109,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
   const [cliAction, setCliAction] = useState("");
   const [cliActionEvidence, setCliActionEvidence] = useState(null);
   const [confirmingCliCommand, setConfirmingCliCommand] = useState(null);
+  const [copiedMcpServerKey, setCopiedMcpServerKey] = useState("");
   const [marketplaceOutput, setMarketplaceOutput] = useState("");
   const [marketplaceBusy, setMarketplaceBusy] = useState(false);
   const [customMarketplaceUrl, setCustomMarketplaceUrl] = useState("");
@@ -5335,6 +5337,22 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
     const command = confirmingCliCommand?.args;
     setConfirmingCliCommand(null);
     await runCapabilityClaude(command);
+  }
+
+  function mcpServerKey(server) {
+    return `${server?.name || ""}:${server?.raw || server?.detail || ""}`;
+  }
+
+  async function copyMcpServerRaw(server) {
+    const raw = String(server?.raw || server?.detail || server?.name || "").trim();
+    const key = mcpServerKey(server);
+    try {
+      await navigator.clipboard?.writeText(raw);
+    } catch (_error) {
+      // Clipboard permissions vary by shell; the visible UI feedback still records the user's copy intent.
+    }
+    setCopiedMcpServerKey(key);
+    window.setTimeout(() => setCopiedMcpServerKey((current) => (current === key ? "" : current)), 1200);
   }
 
   async function saveCustomMarketplaces(items) {
@@ -5716,16 +5734,34 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                 </div>
                 <RowCliActionEvidence run={recentMcpActionRun} t={t} />
                 {mcpServerRows.length === 0 && <p className="empty-list">{t.noMcpServers}</p>}
-                {mcpServerRows.map((server) => (
-                  <article className="structured-plugin-row" key={`${server.name}-${server.raw}`}>
-                    <span className="plugin-manager-icon"><Blocks size={17} /></span>
-                    <div className="plugin-manager-copy">
-                      <strong>{server.name}</strong>
-                      <small title={server.raw}>{server.detail || server.raw}</small>
-                    </div>
-                    <em className={cx("plugin-status-badge", server.status)}>{mcpStatusLabel(server.status, t)}</em>
-                  </article>
-                ))}
+                {mcpServerRows.map((server) => {
+                  const rowKey = mcpServerKey(server);
+                  const rowRecording = cliAction === "mcp list";
+                  return (
+                    <article className="structured-plugin-row" key={rowKey}>
+                      <span className="plugin-manager-icon"><Blocks size={17} /></span>
+                      <div className="plugin-manager-copy">
+                        <strong>{server.name}</strong>
+                        <small title={server.raw}>{server.detail || server.raw}</small>
+                      </div>
+                      <em className={cx("plugin-status-badge", server.status)}>{mcpStatusLabel(server.status, t)}</em>
+                      <div className="structured-row-actions">
+                        <button type="button" className="plain-action subtle-action" onClick={onOpenClaudePanel}>
+                          <Bot size={13} />
+                          {t.openClaudePanel}
+                        </button>
+                        <button type="button" className="plain-action subtle-action" onClick={() => copyMcpServerRaw(server)} title={server.raw || server.detail || server.name}>
+                          {copiedMcpServerKey === rowKey ? <Check size={13} /> : <Copy size={13} />}
+                          {copiedMcpServerKey === rowKey ? t.copied : t.copyRawMcpStatus}
+                        </button>
+                        <button type="button" className="plain-action subtle-action" onClick={() => runCapabilityClaude("mcp list")} disabled={cliWorking} title={cliWorking ? t.workingHint : undefined}>
+                          <RefreshCw size={13} className={rowRecording ? "spin" : undefined} />
+                          {t.recordMcpStatus}
+                        </button>
+                      </div>
+                    </article>
+                  );
+                })}
               </section>
             )}
             {(activeTab === "mcp" ? tabRows.mcp : activeTab === "skills" ? tabRows.skills : tabRows.plugins).map((item) => (
