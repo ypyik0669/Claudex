@@ -1702,19 +1702,30 @@ function buildUntrackedFileDiffs(cwd, files = [], maxChars = MAX_GIT_DIFF_CHARS)
 }
 
 async function loadGitEnvironment(cwd) {
-  const status = parseGitEnvironment(await runProcess("git", ["status", "--short", "--branch"], { cwd, timeoutMs: 8000 }));
-  if (!status.available) return status;
-  const [remoteResult, worktreeStat, stagedStat, worktreeDiff, stagedDiff] = await Promise.all([
-    runProcess("git", ["remote", "-v"], { cwd, timeoutMs: 8000 }),
-    runProcess("git", ["diff", "--stat", "--no-ext-diff"], { cwd, timeoutMs: 8000 }),
-    runProcess("git", ["diff", "--cached", "--stat", "--no-ext-diff"], { cwd, timeoutMs: 8000 }),
-    runProcess("git", ["diff", "--no-ext-diff", "--find-renames", "--unified=3", "--"], {
+  const rootResult = await runProcess("git", ["rev-parse", "--show-toplevel"], { cwd, timeoutMs: 8000 });
+  const gitRootRaw = rootResult.code === 0 ? gitText(rootResult).split(/\r?\n/)[0] || "" : "";
+  const gitRoot = gitRootRaw ? path.resolve(gitRootRaw) : "";
+  const gitCwd = gitRoot || cwd;
+  const status = parseGitEnvironment(await runProcess("git", ["status", "--short", "--branch"], { cwd: gitCwd, timeoutMs: 8000 }));
+  if (!status.available) {
+    return {
+      ...status,
+      root: gitRoot,
       cwd,
+      relativePath: gitRoot ? slashPath(path.relative(gitRoot, cwd)) || "." : "",
+    };
+  }
+  const [remoteResult, worktreeStat, stagedStat, worktreeDiff, stagedDiff] = await Promise.all([
+    runProcess("git", ["remote", "-v"], { cwd: gitCwd, timeoutMs: 8000 }),
+    runProcess("git", ["diff", "--stat", "--no-ext-diff"], { cwd: gitCwd, timeoutMs: 8000 }),
+    runProcess("git", ["diff", "--cached", "--stat", "--no-ext-diff"], { cwd: gitCwd, timeoutMs: 8000 }),
+    runProcess("git", ["diff", "--no-ext-diff", "--find-renames", "--unified=3", "--"], {
+      cwd: gitCwd,
       timeoutMs: 10000,
       maxOutputChars: MAX_GIT_DIFF_CHARS,
     }),
     runProcess("git", ["diff", "--cached", "--no-ext-diff", "--find-renames", "--unified=3", "--"], {
-      cwd,
+      cwd: gitCwd,
       timeoutMs: 10000,
       maxOutputChars: MAX_GIT_DIFF_CHARS,
     }),
@@ -1723,7 +1734,7 @@ async function loadGitEnvironment(cwd) {
   const primaryRemote = status.remote
     ? remotes.find((remote) => remote.name === status.remote) || remotes[0]
     : remotes[0];
-  const untrackedDiff = buildUntrackedFileDiffs(cwd, status.files);
+  const untrackedDiff = buildUntrackedFileDiffs(gitCwd, status.files);
   const statParts = [
     gitText(stagedStat),
     gitText(worktreeStat),
@@ -1747,6 +1758,9 @@ async function loadGitEnvironment(cwd) {
   });
   return {
     ...status,
+    root: gitRoot,
+    cwd,
+    relativePath: gitRoot ? slashPath(path.relative(gitRoot, cwd)) || "." : "",
     remotes,
     remote: status.remote || primaryRemote?.name || "",
     remoteUrl: primaryRemote?.pushUrl || primaryRemote?.fetchUrl || "",

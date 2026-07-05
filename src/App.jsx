@@ -809,6 +809,8 @@ const copy = {
     deletedChanges: "删除",
     conflictedChanges: "冲突",
     gitSummaryBackedByCli: "来自 git status --short --branch 与 git diff",
+    gitRoot: "Git 根目录",
+    gitRelativePath: "项目相对路径",
     focusFileDiff: "聚焦文件 diff",
     focusedFileDiff: "已聚焦文件",
     gitEvidence: "Git 证据",
@@ -1790,6 +1792,8 @@ function gitEvidenceText({
   selectedDiffText,
   gitStat,
   rawGitStatus,
+  gitRoot,
+  gitRelativePath,
   gitSummaryItems = [],
 }) {
   const summary = gitSummaryItems.length
@@ -1799,6 +1803,8 @@ function gitEvidenceText({
     `${t.gitEvidence}: ${selectedPath || t.allChanges}`,
     `${t.activeProject}: ${projectLabel(activeProject, t)}`,
     `${t.path}: ${activeProject?.path || "-"}`,
+    `${t.gitRoot}: ${gitRoot || "-"}`,
+    gitRelativePath ? `${t.gitRelativePath}: ${gitRelativePath}` : "",
     `${t.branch}: ${branchLabel || "-"}`,
     `${t.upstream}: ${upstreamLabel || "-"}`,
     `${t.remote}: ${remoteLabel || "-"}`,
@@ -2323,6 +2329,10 @@ function Conversation({
   const upstreamLabel = git?.upstream || t.noGitUpstream;
   const remoteLabel = git?.remote || t.noGitRemote;
   const aheadBehindLabel = gitAheadBehindLabel(git, t);
+  const gitRootPath = String(git?.root || "").trim();
+  const gitRelativePath = String(git?.relativePath || "").trim();
+  const gitRootLabel = gitRootPath ? compactPath(gitRootPath, 78) : t.gitUnavailable;
+  const gitRelativeLabel = gitRelativePath && gitRelativePath !== "." ? gitRelativePath : t.activeProject;
   const rawGitStatus = String(git?.raw || "").trim();
   const gitFiles = Array.isArray(git?.files) ? git.files : [];
   const gitSummary = git?.summary || {};
@@ -2366,8 +2376,10 @@ function Conversation({
     selectedDiffText: displayedGitDiffText,
     gitStat,
     rawGitStatus,
+    gitRoot: gitRootPath,
+    gitRelativePath,
     gitSummaryItems,
-  }), [t, activeProject, branchLabel, upstreamLabel, remoteLabel, aheadBehindLabel, selectedGitFile, selectedGitDiffPath, displayedGitDiffText, gitStat, rawGitStatus, gitSummaryItems]);
+  }), [t, activeProject, branchLabel, upstreamLabel, remoteLabel, aheadBehindLabel, selectedGitFile, selectedGitDiffPath, displayedGitDiffText, gitStat, rawGitStatus, gitRootPath, gitRelativePath, gitSummaryItems]);
   const gitDiffRows = useMemo(() => buildGitDiffRows(displayedGitDiffText), [displayedGitDiffText]);
   useEffect(() => {
     if (!selectedGitDiffPath) return;
@@ -2835,6 +2847,8 @@ function Conversation({
                   <div><dt>{t.branch}</dt><dd>{branchLabel}</dd></div>
                   <div><dt>{t.upstream}</dt><dd>{upstreamLabel}</dd></div>
                   <div><dt>{t.changes}</dt><dd>{gitChangesLabel}</dd></div>
+                  <div><dt>{t.gitRoot}</dt><dd title={gitRootPath || ""}>{gitRootPath ? gitRootLabel : t.gitUnavailable}</dd></div>
+                  {gitRelativePath && gitRelativePath !== "." && <div><dt>{t.gitRelativePath}</dt><dd>{gitRelativeLabel}</dd></div>}
                   <div><dt>{t.openInIde}</dt><dd>{ideOptions?.map((item) => item.label).join(", ") || t.ideUnavailable}</dd></div>
                 </dl>
               </div>
@@ -2845,7 +2859,7 @@ function Conversation({
                   <div>
                     <span>{t.changes}</span>
                     <strong>{gitAvailable ? `${gitChangesLabel} · ${branchLabel}` : t.noGitProject}</strong>
-                    <p>{gitAvailable ? `${upstreamLabel} · ${aheadBehindLabel}` : activeProject?.path ? compactPath(activeProject.path, 78) : t.noProjectPath}</p>
+                    <p title={gitRootPath || activeProject?.path || ""}>{gitAvailable ? `${upstreamLabel} · ${aheadBehindLabel} · ${t.gitRoot}: ${gitRootLabel}` : activeProject?.path ? compactPath(activeProject.path, 78) : t.noProjectPath}</p>
                   </div>
                   <div className="bottom-panel-actions">
                     <button type="button" className="plain-action subtle-action" onClick={onRefreshEnvironment}>
@@ -2978,6 +2992,8 @@ function Conversation({
                       <div><dt>{t.scheduleStatus}</dt><dd>{selectedGitFile ? gitChangeKindLabel(selectedGitFile.kind, t) : t.allChanges}</dd></div>
                       <div><dt>{t.changedLines}</dt><dd>{selectedGitFile ? `+${selectedGitFile.additions || 0} -${selectedGitFile.deletions || 0}` : `${gitFiles.length}`}</dd></div>
                       <div><dt>{t.gitRawStatus}</dt><dd>{selectedGitFile?.status || "Σ"}</dd></div>
+                      <div><dt>{t.gitRoot}</dt><dd title={gitRootPath || ""}>{gitRootPath ? gitRootLabel : t.gitUnavailable}</dd></div>
+                      {gitRelativePath && gitRelativePath !== "." && <div><dt>{t.gitRelativePath}</dt><dd>{gitRelativeLabel}</dd></div>}
                       <div className="wide-evidence-row"><dt>{t.path}</dt><dd title={activeProject?.path || ""}>{selectedGitDiffPath || compactPath(activeProject?.path || t.noProjectPath, 88)}</dd></div>
                     </dl>
                     {gitAvailable && (
@@ -3828,6 +3844,10 @@ function EnvironmentOverview({
   const upstreamLabel = git?.upstream || t.noGitUpstream;
   const syncLabel = gitAheadBehindLabel(git, t);
   const projectMissing = Boolean(activeProject?.path && environment?.projectMissing);
+  const gitRootPath = String(git?.root || "").trim();
+  const gitRootLabel = gitRootPath ? compactPath(gitRootPath, 28) : t.gitUnavailable;
+  const gitRelativePath = String(git?.relativePath || "").trim();
+  const gitRelativeLabel = gitRelativePath && gitRelativePath !== "." ? gitRelativePath : t.activeProject;
   return (
     <section className="environment-card" aria-label={t.environment}>
       <div className="environment-card-head">
@@ -3857,11 +3877,23 @@ function EnvironmentOverview({
           <span>{t.local}</span>
           <em>{projectMissing ? t.projectPathMissing : activeProject?.path ? compactPath(activeProject.path, 28) : t.noProjectPath}</em>
         </button>
+        <button type="button" className="environment-row" title={gitRootPath || t.gitUnavailable}>
+          <GitFork size={15} />
+          <span>{t.gitRoot}</span>
+          <em>{gitRootLabel}</em>
+        </button>
         <button type="button" className="environment-row" title={git?.branch || t.gitUnavailable}>
           <GitBranch size={15} />
           <span>{t.branch}</span>
           <em>{git?.branch || t.gitUnavailable}</em>
         </button>
+        {gitRelativePath && gitRelativePath !== "." && (
+          <button type="button" className="environment-row muted" disabled title={gitRelativePath}>
+            <Folder size={15} />
+            <span>{t.gitRelativePath}</span>
+            <em>{gitRelativeLabel}</em>
+          </button>
+        )}
         <button type="button" className="environment-row muted" disabled title={git?.available ? `${upstreamLabel} · ${syncLabel}` : t.gitUnavailable}>
           <GitCommit size={15} />
           <span>{t.commitOrPush}</span>
