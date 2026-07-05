@@ -1001,7 +1001,7 @@ function RowCliActionEvidence({ run, t }) {
   const output = String(run.stderr || run.stdout || "");
   const status = code === 0 ? "ok" : "error";
   const duration = typeof run.durationMs === "number" ? `${run.durationMs}ms` : "";
-  const outputSummary = status === "error" && output ? messageExcerpt(output, 180) : "";
+  const outputSummary = output ? messageExcerpt(output, 180) : "";
   return (
     <section className={cx("row-cli-action-evidence", status)} aria-label={t.pluginRowActionEvidence}>
       <div className="row-cli-action-evidence-head">

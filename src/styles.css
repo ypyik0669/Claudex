@@ -4002,6 +4002,10 @@ kbd {
   white-space: nowrap;
 }
 
+.row-cli-action-evidence.ok .row-cli-action-message {
+  color: #b9c7ab;
+}
+
 .row-cli-action-output {
   border-top: 1px solid rgba(255, 255, 255, 0.06);
   padding: 0 8px 7px;
