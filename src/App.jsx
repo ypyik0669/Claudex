@@ -443,7 +443,24 @@ const copy = {
     sources: "来源",
     subagents: "子代理",
     noSourcesYet: "暂无来源",
-    noSubagentsYet: "没有运行中的子代理",
+    noSubagentsYet: "还没有子代理运行记录",
+    subagentTask: "子任务",
+    subagentTaskPlaceholder: "让一个子代理独立检查什么？",
+    subagentNickname: "昵称",
+    subagentNicknamePlaceholder: "例如 Reviewer / QA",
+    runSubagent: "运行子代理",
+    cancelSubagent: "停止子代理",
+    subagentWorkbenchHint: "使用当前 Claude Code CLI 在项目里执行子任务，结果会写入本地 evidence。",
+    subagentCount: "{count} 条子代理记录",
+    subagentStatusRunning: "运行中",
+    subagentStatusDone: "已完成",
+    subagentStatusError: "失败",
+    subagentStatusCancelled: "已停止",
+    subagentArtifacts: "产物",
+    noSubagentArtifacts: "暂无产物",
+    subagentStarted: "子代理已启动",
+    subagentFinished: "子代理已完成",
+    subagentFailed: "子代理失败",
     files: "文件",
     openInIde: "用 IDE 打开",
     openIde: "打开 IDE",
@@ -953,6 +970,18 @@ function automationThreadLabel(automation, sessions = [], t) {
   return session ? sessionDisplayTitle(session, t) : automation?.threadId || t.newChat;
 }
 
+function subagentStatusLabel(status, t) {
+  if (status === "running") return t.subagentStatusRunning;
+  if (status === "error") return t.subagentStatusError;
+  if (status === "cancelled") return t.subagentStatusCancelled;
+  return t.subagentStatusDone;
+}
+
+function upsertSubagentRunForUi(runs = [], run) {
+  if (!run?.id) return runs;
+  return [run, ...runs.filter((item) => item.id !== run.id)].slice(0, 40);
+}
+
 function authLabel(auth, settings) {
   if (settings?.env?.anthropicApiKey) return "第一方 / API 密钥";
   if (settings?.env?.anthropicAuthToken) return "第一方 / 授权令牌";
@@ -1207,6 +1236,7 @@ function fallbackState() {
       },
     ],
     automations: [],
+    subagentRuns: [],
   };
 }
 
@@ -1512,6 +1542,9 @@ function Conversation({
   streamingAssistant,
   optimisticUser,
   runEvents,
+  subagentRuns,
+  onRunSubagent,
+  onCancelSubagent,
   draft,
   setDraft,
   environment,
@@ -1895,23 +1928,15 @@ function Conversation({
               </div>
             )}
             {bottomPanel === "subagents" && (
-              <div className="bottom-panel-grid">
-                <div>
-                  <span>{t.subagents}</span>
-                  <strong>{t.noSubagentsYet}</strong>
-                  <p>{busy ? streamingAssistant?.status || t.commandRunning : t.noActiveRun}</p>
-                </div>
-                <div className="bottom-panel-actions">
-                  <button type="button" className="plain-action subtle-action" onClick={onOpenInteractiveClaude}>
-                    <SquareTerminal size={14} />
-                    {t.interactiveClaude}
-                  </button>
-                  <button type="button" className="plain-action subtle-action" onClick={() => onActivateTool("claude")}>
-                    <Bot size={14} />
-                    {t.claudeCodeTool}
-                  </button>
-                </div>
-              </div>
+              <SubagentWorkbench
+                runs={subagentRuns}
+                activeProject={activeProject}
+                onRunSubagent={onRunSubagent}
+                onCancelSubagent={onCancelSubagent}
+                onOpenInteractiveClaude={onOpenInteractiveClaude}
+                onOpenClaudePanel={() => onActivateTool("claude")}
+                t={t}
+              />
             )}
             {bottomPanel === "terminal" && (
               <div className="bottom-panel-grid">
@@ -2052,6 +2077,106 @@ function CommandHistory({ title, liveEntry, entries, onClear, t }) {
         ))}
       </div>
     </section>
+  );
+}
+
+function SubagentWorkbench({
+  runs = [],
+  activeProject,
+  onRunSubagent,
+  onCancelSubagent,
+  onOpenInteractiveClaude,
+  onOpenClaudePanel,
+  t,
+}) {
+  const [task, setTask] = useState("");
+  const [nickname, setNickname] = useState("");
+  const [running, setRunning] = useState(false);
+  const runCount = t.subagentCount.replace("{count}", runs.length);
+
+  async function submit(event) {
+    event.preventDefault();
+    if (!task.trim()) return;
+    setRunning(true);
+    try {
+      await onRunSubagent?.(task.trim(), nickname.trim() || "Subagent");
+      setTask("");
+    } catch {
+      // The parent action already displays a toast and run timeline entry.
+    } finally {
+      setRunning(false);
+    }
+  }
+
+  return (
+    <div className="subagent-workbench">
+      <div className="bottom-panel-grid subagent-workbench-head">
+        <div>
+          <span>{t.subagents}</span>
+          <strong>{runs.length ? runCount : t.noSubagentsYet}</strong>
+          <p title={activeProject?.path || t.noProjectPath}>{t.subagentWorkbenchHint}</p>
+        </div>
+        <div className="bottom-panel-actions">
+          <button type="button" className="plain-action subtle-action" onClick={onOpenInteractiveClaude}>
+            <SquareTerminal size={14} />
+            {t.interactiveClaude}
+          </button>
+          <button type="button" className="plain-action subtle-action" onClick={onOpenClaudePanel}>
+            <Bot size={14} />
+            {t.claudeCodeTool}
+          </button>
+        </div>
+      </div>
+      <form className="subagent-form" onSubmit={submit}>
+        <label>
+          <span>{t.subagentTask}</span>
+          <textarea value={task} onChange={(event) => setTask(event.target.value)} placeholder={t.subagentTaskPlaceholder} />
+        </label>
+        <label>
+          <span>{t.subagentNickname}</span>
+          <input value={nickname} onChange={(event) => setNickname(event.target.value)} placeholder={t.subagentNicknamePlaceholder} />
+        </label>
+        <button type="submit" className="primary-action" disabled={!task.trim() || running}>
+          <Bot size={15} />
+          {running ? t.commandRunning : t.runSubagent}
+        </button>
+      </form>
+      <div className="subagent-run-list">
+        {runs.map((run) => (
+          <article className={cx("subagent-run-card", run.status)} key={run.id}>
+            <div className="subagent-run-head">
+              <div>
+                <strong>{run.nickname || "Subagent"}</strong>
+                <span title={run.cwd || run.project?.path || ""}>{run.cwd ? compactPath(run.cwd, 72) : projectLabel(run.project, t)}</span>
+              </div>
+              <span className={cx("subagent-status-badge", run.status)}>{subagentStatusLabel(run.status, t)}</span>
+            </div>
+            <p className="subagent-task-text">{run.task}</p>
+            {(run.summary || run.stdout || run.stderr) && (
+              <pre className="subagent-output">{run.summary || run.stdout || run.stderr}</pre>
+            )}
+            <div className="subagent-run-foot">
+              <span>{formatDate(run.endedAt || run.startedAt)}</span>
+              {typeof run.durationMs === "number" && run.durationMs > 0 && <span>{run.durationMs}ms</span>}
+              <span>{t.subagentArtifacts}: {run.artifacts?.length || 0}</span>
+              {run.status === "running" && (
+                <button type="button" className="plain-action subtle-action" onClick={() => onCancelSubagent?.(run)}>
+                  <X size={13} />
+                  {t.cancelSubagent}
+                </button>
+              )}
+            </div>
+          </article>
+        ))}
+        {!runs.length && (
+          <div className="empty-panel">
+            <Bot size={20} />
+            <strong>{t.noSubagentsYet}</strong>
+            <p>{t.subagentWorkbenchHint}</p>
+          </div>
+        )}
+      </div>
+    </div>
   );
 }
 
@@ -4919,6 +5044,18 @@ export function App() {
     });
   }, []);
 
+  useEffect(() => {
+    if (!desktopApi?.onSubagentStream) return undefined;
+    return desktopApi.onSubagentStream((event) => {
+      if (event.run) {
+        setState((current) => ({
+          ...current,
+          subagentRuns: upsertSubagentRunForUi(current.subagentRuns || [], event.run),
+        }));
+      }
+    });
+  }, []);
+
   const lang = resolveLanguage(state.settings.language, state.settings.appLocale);
   const t = copy.zh;
   const activeProject = state.activeProject || { name: t.localWorkspace, path: "" };
@@ -5096,6 +5233,48 @@ export function App() {
       detail: succeeded ? (run.detail || t.automationSucceeded) : (run?.error || t.automationFailed),
     });
     showToast(succeeded ? t.automationSucceeded : t.automationFailed);
+  }
+
+  async function runSubagent(task, nickname = "") {
+    if (!desktopApi?.runSubagent || !task.trim()) return;
+    const requestId = `subagent_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+    setBottomPanel("subagents");
+    recordRunEvent({
+      type: "subagent",
+      status: "running",
+      title: `${t.subagents}: ${nickname || "Subagent"}`,
+      detail: messageExcerpt(task, 120),
+    });
+    showToast(t.subagentStarted);
+    const next = await desktopApi.runSubagent({
+      projectPath: activeProject?.path || "",
+      sessionId: activeSession?.id || "",
+      task,
+      nickname,
+      requestId,
+    });
+    setState(next);
+    const run = next.subagentRun;
+    const ok = run?.status === "done";
+    recordRunEvent({
+      type: "subagent",
+      status: ok ? "ok" : run?.status === "cancelled" ? "cancelled" : "error",
+      title: `${t.subagents}: ${run?.nickname || nickname || "Subagent"}`,
+      detail: run?.summary || run?.stderr || messageExcerpt(task, 120),
+    });
+    showToast(ok ? t.subagentFinished : t.subagentFailed);
+  }
+
+  async function cancelSubagent(run) {
+    if (!desktopApi?.cancelSubagent || !run) return;
+    const next = await desktopApi.cancelSubagent({ runId: run.id, requestId: run.requestId });
+    setState(next);
+    recordRunEvent({
+      type: "subagent",
+      status: "cancelled",
+      title: `${t.subagents}: ${run.nickname || "Subagent"}`,
+      detail: t.subagentStatusCancelled,
+    });
   }
 
   async function sendMessage(content) {
@@ -5450,6 +5629,9 @@ export function App() {
           streamingAssistant={streamingAssistant}
           optimisticUser={optimisticUser?.sessionId === activeSession?.id ? optimisticUser : null}
           runEvents={runEvents}
+          subagentRuns={state.subagentRuns}
+          onRunSubagent={runSubagent}
+          onCancelSubagent={cancelSubagent}
           draft={draft}
           setDraft={setDraft}
           environment={environment}

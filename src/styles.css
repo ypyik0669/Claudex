@@ -4633,6 +4633,163 @@ kbd {
   opacity: 0.52;
 }
 
+.subagent-workbench {
+  display: grid;
+  gap: 10px;
+}
+
+.subagent-workbench-head {
+  align-items: start;
+}
+
+.subagent-form {
+  display: grid;
+  grid-template-columns: minmax(280px, 1fr) minmax(160px, 0.34fr) auto;
+  gap: 8px;
+  align-items: end;
+  border: 1px solid #282828;
+  border-radius: var(--radius);
+  background: #101010;
+  padding: 10px;
+}
+
+.subagent-form label {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.subagent-form label span {
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
+.subagent-form textarea,
+.subagent-form input {
+  width: 100%;
+  border: 1px solid #333333;
+  border-radius: var(--radius-sm);
+  background: #0e0e0e;
+  color: #eeeeee;
+  outline: 0;
+  padding: 9px 10px;
+}
+
+.subagent-form textarea {
+  min-height: 54px;
+  max-height: 120px;
+  resize: vertical;
+}
+
+.subagent-form .primary-action {
+  min-height: 38px;
+  margin-top: 0;
+  white-space: nowrap;
+}
+
+.subagent-run-list {
+  display: grid;
+  gap: 8px;
+  max-height: min(42vh, 360px);
+  overflow: auto;
+}
+
+.subagent-run-card {
+  display: grid;
+  gap: 8px;
+  border: 1px solid #292929;
+  border-radius: var(--radius);
+  background: #121212;
+  padding: 10px;
+}
+
+.subagent-run-head,
+.subagent-run-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.subagent-run-head > div {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.subagent-run-head strong {
+  color: #f1f1ef;
+  font-size: 13.5px;
+  font-weight: 600;
+}
+
+.subagent-run-head span,
+.subagent-run-foot {
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
+.subagent-status-badge {
+  flex: 0 0 auto;
+  border-radius: 999px;
+  padding: 2px 8px;
+  color: #a8aaa7;
+  background: rgba(255, 255, 255, 0.06);
+  font-size: 11px;
+  font-weight: 650;
+}
+
+.subagent-status-badge.running {
+  color: #d4a27b;
+  background: rgba(209, 131, 87, 0.13);
+}
+
+.subagent-status-badge.done {
+  color: #b9c7ab;
+  background: rgba(155, 179, 108, 0.14);
+}
+
+.subagent-status-badge.error {
+  color: #ef8b8b;
+  background: rgba(239, 113, 113, 0.12);
+}
+
+.subagent-status-badge.cancelled {
+  color: #8f918f;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.subagent-task-text {
+  margin: 0;
+  color: #d8d8d5;
+  font-size: 12.5px;
+  line-height: 1.4;
+}
+
+.subagent-output {
+  max-height: 160px;
+  margin: 0;
+  overflow: auto;
+  border: 1px solid #252525;
+  border-radius: var(--radius-sm);
+  background: #0d0d0d;
+  color: #d7d7d4;
+  padding: 8px;
+  font-size: 11.5px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
+.subagent-run-foot {
+  justify-content: flex-start;
+  flex-wrap: wrap;
+}
+
+.subagent-run-foot .plain-action {
+  padding: 5px 7px;
+  font-size: 11.5px;
+}
+
 .empty-panel {
   min-height: 180px;
   display: grid;

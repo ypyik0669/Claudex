@@ -8,6 +8,13 @@ const desktopApi = {
   setAutomationEnabled: (payload) => ipcRenderer.invoke("automation:set-enabled", payload),
   deleteAutomation: (payload) => ipcRenderer.invoke("automation:delete", payload),
   runAutomationNow: (payload) => ipcRenderer.invoke("automation:run-now", payload),
+  runSubagent: (payload) => ipcRenderer.invoke("subagent:run", payload),
+  cancelSubagent: (payload) => ipcRenderer.invoke("subagent:cancel", payload),
+  onSubagentStream: (handler) => {
+    const listener = (_event, payload) => handler(payload);
+    ipcRenderer.on("subagent:stream-event", listener);
+    return () => ipcRenderer.removeListener("subagent:stream-event", listener);
+  },
   selectProject: () => ipcRenderer.invoke("app:select-project"),
   setActiveProject: (project) => ipcRenderer.invoke("app:set-active-project", project),
   createSession: (title) => ipcRenderer.invoke("chat:create-session", title),

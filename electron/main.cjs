@@ -75,7 +75,9 @@ const CLAUDE_TIMEOUT_MS = 10 * 60 * 1000;
 const AUTOMATION_HISTORY_LIMIT = 8;
 const AUTOMATION_LIMIT = 80;
 const AUTOMATION_POLL_MS = 15000;
+const SUBAGENT_RUN_LIMIT = 40;
 const automationRunLocks = new Set();
+const cancelledSubagentRuns = new Set();
 let automationSchedulerTimer = null;
 
 const CLAUDE_CODE_SETTINGS = {
@@ -317,6 +319,40 @@ function prependAutomationHistory(automation, entry) {
   automation.lastRun = entry;
 }
 
+function normalizeSubagentRun(item, store) {
+  const startedAt = isoOrEmpty(item?.startedAt) || now();
+  const status = ["running", "done", "error", "cancelled"].includes(item?.status) ? item.status : "done";
+  const project = normalizeAutomationProject(item?.project, store);
+  return {
+    id: item?.id || id("subagent"),
+    requestId: item?.requestId || "",
+    nickname: String(item?.nickname || "Subagent").trim() || "Subagent",
+    task: String(item?.task || "").trim(),
+    status,
+    sessionId: item?.sessionId || "",
+    project,
+    cwd: item?.cwd || project?.path || "",
+    command: item?.command || "",
+    args: Array.isArray(item?.args) ? item.args.map(String) : [],
+    stdout: trimOutput(item?.stdout || "", MAX_COMMAND_OUTPUT_CHARS),
+    stderr: trimOutput(item?.stderr || "", MAX_COMMAND_OUTPUT_CHARS),
+    summary: String(item?.summary || ""),
+    code: typeof item?.code === "number" ? item.code : null,
+    durationMs: Number(item?.durationMs || 0),
+    startedAt,
+    endedAt: isoOrEmpty(item?.endedAt),
+    artifacts: Array.isArray(item?.artifacts) ? item.artifacts.slice(0, 12) : [],
+  };
+}
+
+function upsertSubagentRun(store, run) {
+  store.subagentRuns = [
+    run,
+    ...(store.subagentRuns || []).filter((item) => item.id !== run.id),
+  ].slice(0, SUBAGENT_RUN_LIMIT);
+  return run;
+}
+
 function dataPath() {
   return path.join(app.getPath("userData"), "desktop-data.json");
 }
@@ -426,6 +462,7 @@ function defaultStore() {
       },
     ],
     automations: [],
+    subagentRuns: [],
   };
 }
 
@@ -496,6 +533,11 @@ function normalizeStore(store) {
       ? store.automations.map((automation) => normalizeAutomation(automation, { ...store, activeProject }))
           .filter((automation) => automation.prompt)
           .slice(0, AUTOMATION_LIMIT)
+      : [],
+    subagentRuns: Array.isArray(store.subagentRuns)
+      ? store.subagentRuns.map((run) => normalizeSubagentRun(run, { ...store, activeProject }))
+          .filter((run) => run.task)
+          .slice(0, SUBAGENT_RUN_LIMIT)
       : [],
   };
 }
@@ -1838,6 +1880,105 @@ function startAutomationScheduler() {
   setTimeout(tick, 2500);
 }
 
+function subagentProjectFromPayload(store, payload = {}) {
+  return automationProjectFromPayload(store, payload);
+}
+
+function subagentPrompt(task, nickname) {
+  return [
+    `你是 Claudex 子代理 ${nickname || "Subagent"}。`,
+    "请独立完成下面这个子任务，输出简洁的状态、证据和下一步。",
+    "",
+    String(task || "").trim(),
+  ].join("\n");
+}
+
+function emitSubagentEvent(sender, payload) {
+  if (!sender || sender.isDestroyed?.()) return;
+  sender.send("subagent:stream-event", payload);
+}
+
+async function runSubagent(payload = {}, sender) {
+  const task = String(payload.task || "").trim();
+  if (!task) throw new Error("子代理任务为空。");
+  const store = readStore();
+  const project = subagentProjectFromPayload(store, payload);
+  const cwd = project?.path && fs.existsSync(project.path) ? project.path : app.getPath("home");
+  const runId = id("subagent");
+  const requestId = payload.requestId || id("subagent_request");
+  const startedAt = now();
+  const nickname = String(payload.nickname || "Subagent").trim() || "Subagent";
+  const session = {
+    id: payload.sessionId || "",
+    title: nickname,
+    project: project?.name || store.activeProject?.name || "本地工作区",
+    projectPath: project?.path || "",
+    messages: [{ role: "user", content: task, createdAt: startedAt }],
+  };
+  const args = buildClaudeChatArgs({ ...store, activeProject: project }, session);
+  const claudeCommand = configuredClaudeCommand(store);
+  const run = normalizeSubagentRun({
+    id: runId,
+    requestId,
+    nickname,
+    task,
+    status: "running",
+    sessionId: payload.sessionId || "",
+    project,
+    cwd,
+    command: claudeCommand,
+    args,
+    startedAt,
+    artifacts: [],
+  }, store);
+  upsertSubagentRun(store, run);
+  writeStore(store);
+  emitSubagentEvent(sender, { type: "start", run });
+
+  let stdout = "";
+  let stderr = "";
+  const result = await runStreamingProcess(commandCandidates(claudeCommand)[0], args, {
+    cwd,
+    requestId,
+    timeoutMs: Number(store.settings.timeoutMs || CLAUDE_TIMEOUT_MS),
+    env: claudeProcessEnv({ CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1" }),
+    onChunk: (stream, text) => {
+      if (stream === "stderr") stderr = trimOutput(`${stderr}${text || ""}`);
+      else stdout = trimOutput(`${stdout}${text || ""}`);
+      emitSubagentEvent(sender, {
+        type: "chunk",
+        runId,
+        requestId,
+        stream,
+        text: stripAnsi(text || ""),
+      });
+    },
+  });
+  const parsed = parseJsonOutput(result.stdout);
+  const wasCancelled = cancelledSubagentRuns.delete(runId) || cancelledSubagentRuns.delete(requestId);
+  const finalStatus = wasCancelled ? "cancelled" : result.code === 0 && !parsed?.is_error ? "done" : "error";
+  const summary = parsed?.result || (result.stdout || result.stderr || "").trim();
+  const nextStore = readStore();
+  const existing = (nextStore.subagentRuns || []).find((item) => item.id === runId) || run;
+  const finalRun = normalizeSubagentRun({
+    ...existing,
+    status: finalStatus,
+    stdout: stripAnsi(result.stdout || stdout),
+    stderr: stripAnsi(result.stderr || stderr),
+    summary: stripAnsi(summary),
+    code: wasCancelled ? 130 : result.code,
+    durationMs: result.durationMs,
+    endedAt: now(),
+  }, nextStore);
+  upsertSubagentRun(nextStore, finalRun);
+  writeStore(nextStore);
+  emitSubagentEvent(sender, { type: finalStatus, run: finalRun });
+  return {
+    ...sanitizeStore(nextStore),
+    subagentRun: finalRun,
+  };
+}
+
 function createWindow() {
   const iconPath = path.join(__dirname, "..", "dist", "assets", "claudex-mark.png");
   const window = new BrowserWindow({
@@ -1979,6 +2120,32 @@ ipcMain.handle("automation:delete", (_event, { automationId } = {}) => {
 
 ipcMain.handle("automation:run-now", async (_event, { automationId, requestId } = {}) => {
   return runAutomationById(automationId, { requestId, trigger: "manual" });
+});
+
+ipcMain.handle("subagent:run", async (_event, payload = {}) => {
+  return runSubagent(payload, _event.sender);
+});
+
+ipcMain.handle("subagent:cancel", (_event, { runId, requestId } = {}) => {
+  const key = requestId || runId;
+  const request = activeRequests.get(key);
+  if (request) {
+    if (typeof request.abort === "function") request.abort();
+    else if (typeof request.kill === "function") request.kill();
+    activeRequests.delete(key);
+  }
+  if (runId) cancelledSubagentRuns.add(runId);
+  if (requestId) cancelledSubagentRuns.add(requestId);
+  const store = readStore();
+  const run = (store.subagentRuns || []).find((item) => item.id === runId || item.requestId === requestId);
+  if (run) {
+    run.status = "cancelled";
+    run.endedAt = now();
+    run.stderr = trimOutput(`${run.stderr || ""}\n子代理已停止。`);
+    upsertSubagentRun(store, normalizeSubagentRun(run, store));
+    writeStore(store);
+  }
+  return sanitizeStore(store);
 });
 
 ipcMain.handle("app:select-project", async () => {
