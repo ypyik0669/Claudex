@@ -3219,6 +3219,8 @@ function ToolsPanel({
       setWorkspaceErrorRetry(null);
       setFile(cached);
       setFileDraft(cached.content || "");
+      setFileView("edit");
+      setSaveStatus("idle");
       return;
     }
     setWorkspaceBusy(true);
@@ -3230,6 +3232,8 @@ function ToolsPanel({
       cacheFileRead(fileCacheRef, cacheKey, result);
       setFile(result);
       setFileDraft(result.content || "");
+      setFileView("edit");
+      setSaveStatus("idle");
       if (Array.isArray(result.sourceRefs)) onSourceRefs?.(result.sourceRefs);
     } catch (error) {
       setWorkspaceError(error.message || String(error));
@@ -3254,6 +3258,15 @@ function ToolsPanel({
     setWorkspaceError("");
     setWorkspaceErrorRetry(null);
     setSaveStatus("saving");
+    const requestId = `file_save_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+    onRunEvent?.({
+      id: requestId,
+      type: "file-save",
+      status: "running",
+      title: `${t.saveFile}: ${file.path}`,
+      detail: changeSummary,
+      cwd: activeProject?.path || "",
+    });
     try {
       const result = await desktopApi.saveWorkspaceFile({
         projectPath: activeProject.path,
@@ -3269,20 +3282,24 @@ function ToolsPanel({
       setSaveStatus("saved");
       onRefreshEnvironment?.();
       onRunEvent?.({
+        id: requestId,
         type: "file-save",
         status: "ok",
         title: `${t.saveFile}: ${file.path}`,
         detail: changeSummary,
+        cwd: activeProject?.path || "",
       });
     } catch (error) {
       setWorkspaceError(error.message || String(error));
       setWorkspaceErrorRetry(() => () => openFile({ type: "file", path: file.path }, { force: true }));
       setSaveStatus("error");
       onRunEvent?.({
+        id: requestId,
         type: "file-save",
         status: "error",
         title: `${t.saveFile}: ${file.path}`,
         detail: error.message || String(error),
+        cwd: activeProject?.path || "",
       });
     } finally {
       setWorkspaceBusy(false);
