@@ -804,10 +804,19 @@ const copy = {
     copyGitEvidence: "复制 Git 证据",
     stageFile: "暂存文件",
     unstageFile: "取消暂存",
+    commitStaged: "提交已暂存",
+    pushBranch: "推送分支",
+    gitCommitMessage: "提交消息",
+    gitCommitPlaceholder: "简短说明",
+    gitCommandHint: "通过真实 Git CLI 执行，结果写入 run timeline 和命令 evidence。",
+    gitNoStagedChanges: "没有已暂存文件",
+    gitPushHint: "推送当前分支到已配置的 upstream/remote。",
     gitActionRunning: "Git 操作中",
     confirmGitActionTitle: "确认执行 Git 操作",
     confirmGitStageWarning: "这会在当前项目暂存文件：{path}",
     confirmGitUnstageWarning: "这会从 index 取消暂存文件，但保留工作区内容：{path}",
+    confirmGitCommitWarning: "这会提交当前已暂存改动：{message}",
+    confirmGitPushWarning: "这会执行 git push，把当前分支推送到远端。",
     runCommand: "运行命令",
     runCommandShort: "运行",
     commandPlaceholder: "输入 shell 命令",
@@ -1716,6 +1725,11 @@ function gitFileCanUnstage(file) {
   return Boolean(file && !file.conflict && (file.staged || file.kind === "staged" || file.kind === "mixed"));
 }
 
+function gitBranchCanPush(branchLabel, t) {
+  const value = String(branchLabel || "").trim();
+  return Boolean(value && value !== t.gitUnavailable && value !== "-");
+}
+
 function gitEvidenceText({
   t,
   activeProject,
@@ -2219,6 +2233,7 @@ function Conversation({
   const emptyHint = session ? t.selectedEmptyHint : t.noSessionHint;
   const [selectedGitDiffPath, setSelectedGitDiffPath] = useState("");
   const [gitActionWorkingPath, setGitActionWorkingPath] = useState("");
+  const [gitCommitMessage, setGitCommitMessage] = useState("");
   const git = environment?.git;
   const gitAvailable = Boolean(git?.available);
   const gitChangesLabel = gitAvailable ? String(git.changes || 0) : t.gitUnavailable;
@@ -2244,6 +2259,11 @@ function Conversation({
   const selectedGitCanStage = gitAvailable && gitFileCanStage(selectedGitFile);
   const selectedGitCanUnstage = gitAvailable && gitFileCanUnstage(selectedGitFile);
   const selectedGitActionBusy = Boolean(selectedGitFile?.path && gitActionWorkingPath === selectedGitFile.path);
+  const gitActionWorking = Boolean(gitActionWorkingPath);
+  const gitStagedCount = Number(gitSummary.staged || 0);
+  const gitCommitMessageValue = gitCommitMessage.trim();
+  const gitCanCommit = gitAvailable && gitStagedCount > 0 && Boolean(gitCommitMessageValue) && !gitActionWorking;
+  const gitCanPush = gitAvailable && gitBranchCanPush(branchLabel, t) && !gitActionWorking;
   const selectedGitFileDiff = selectedGitDiffPath
     ? gitFileDiffs.find((item) => item.path === selectedGitDiffPath || item.previousPath === selectedGitDiffPath)
     : null;
@@ -2294,6 +2314,62 @@ function Conversation({
       const result = await desktopApi.runWorkspaceCommand({ projectPath: activeProject.path, command, requestId });
       if (Array.isArray(result?.commandRuns)) onCommandRuns?.(result.commandRuns);
       const code = typeof result?.code === "number" ? result.code : null;
+      onRunEvent?.({
+        id: requestId,
+        type: "git-command",
+        status: result?.cancelled ? "cancelled" : code === 0 ? "ok" : "error",
+        title: `Git: ${actionLabel}`,
+        detail: `${t.commandExit}: ${code ?? "-"}`,
+        commandLine: result?.command || command,
+        cwd: result?.cwd || activeProject.path,
+        code,
+        durationMs: typeof result?.durationMs === "number" ? result.durationMs : null,
+      });
+      await onRefreshEnvironment?.();
+    } catch (error) {
+      onRunEvent?.({
+        id: requestId,
+        type: "git-command",
+        status: "error",
+        title: `Git: ${actionLabel}`,
+        detail: error?.message || String(error),
+        commandLine: command,
+        cwd: activeProject.path,
+      });
+    } finally {
+      setGitActionWorkingPath("");
+    }
+  }
+  async function runGitRepoAction(action) {
+    if (!activeProject?.path) return;
+    if (!desktopApi?.runWorkspaceCommand) {
+      window.alert?.(t.desktopOnly);
+      return;
+    }
+    const isCommit = action === "commit";
+    const message = gitCommitMessage.trim();
+    if (isCommit && (!message || gitStagedCount <= 0)) return;
+    const command = isCommit ? `git commit -m ${quoteWorkspaceCommandPath(message)}` : "git push";
+    const actionLabel = isCommit ? t.commitStaged : t.pushBranch;
+    const warning = isCommit ? t.confirmGitCommitWarning.replace("{message}", message) : t.confirmGitPushWarning;
+    const confirmed = window.confirm?.(`${t.confirmGitActionTitle}\n\n${warning}\n\n$ ${command}`);
+    if (!confirmed) return;
+    const requestId = `git_command_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+    setGitActionWorkingPath(`repo:${action}`);
+    onRunEvent?.({
+      id: requestId,
+      type: "git-command",
+      status: "running",
+      title: `Git: ${actionLabel}`,
+      detail: isCommit ? message : branchLabel,
+      commandLine: command,
+      cwd: activeProject.path,
+    });
+    try {
+      const result = await desktopApi.runWorkspaceCommand({ projectPath: activeProject.path, command, requestId });
+      if (Array.isArray(result?.commandRuns)) onCommandRuns?.(result.commandRuns);
+      const code = typeof result?.code === "number" ? result.code : null;
+      if (isCommit && code === 0) setGitCommitMessage("");
       onRunEvent?.({
         id: requestId,
         type: "git-command",
@@ -2808,6 +2884,43 @@ function Conversation({
                       <div><dt>{t.gitRawStatus}</dt><dd>{selectedGitFile?.status || "Σ"}</dd></div>
                       <div className="wide-evidence-row"><dt>{t.path}</dt><dd title={activeProject?.path || ""}>{selectedGitDiffPath || compactPath(activeProject?.path || t.noProjectPath, 88)}</dd></div>
                     </dl>
+                    {gitAvailable && (
+                      <section className="git-repo-actions" aria-label={t.commitOrPush}>
+                        <label>
+                          <span>{t.gitCommitMessage}</span>
+                          <input
+                            type="text"
+                            value={gitCommitMessage}
+                            onChange={(event) => setGitCommitMessage(event.target.value)}
+                            placeholder={gitStagedCount > 0 ? t.gitCommitPlaceholder : t.gitNoStagedChanges}
+                            disabled={gitActionWorking}
+                          />
+                        </label>
+                        <div className="git-repo-action-buttons">
+                          <button
+                            type="button"
+                            className="plain-action subtle-action"
+                            onClick={() => runGitRepoAction("commit")}
+                            disabled={!gitCanCommit}
+                            title={gitStagedCount > 0 ? t.commitStaged : t.gitNoStagedChanges}
+                          >
+                            <GitCommit size={13} />
+                            {gitActionWorkingPath === "repo:commit" ? t.gitActionRunning : t.commitStaged}
+                          </button>
+                          <button
+                            type="button"
+                            className="plain-action subtle-action"
+                            onClick={() => runGitRepoAction("push")}
+                            disabled={!gitCanPush}
+                            title={t.gitPushHint}
+                          >
+                            <GitBranch size={13} />
+                            {gitActionWorkingPath === "repo:push" ? t.gitActionRunning : t.pushBranch}
+                          </button>
+                        </div>
+                        <p>{t.gitCommandHint}</p>
+                      </section>
+                    )}
                     <div className="git-selected-diff" aria-label={t.gitDiffPreview}>
                       <div className="git-diff-head">
                         <span>{t.gitDiffPreview}</span>

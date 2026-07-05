@@ -8,6 +8,7 @@ const PROJECT_PATH = path.join(__dirname, "..");
 const QA_DIR = path.join(PROJECT_PATH, "qa");
 const USER_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "claudex-pass37-data-"));
 const GIT_PROJECT_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "claudex-pass37-git-"));
+const REMOTE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "claudex-pass37-remote-"));
 const TARGET_FILE = "pass37-target.txt";
 const SECOND_FILE = "pass37-second.txt";
 const UNTRACKED_FILE = "pass37-untracked.txt";
@@ -33,8 +34,19 @@ function setupGitProject() {
   fs.writeFileSync(path.join(GIT_PROJECT_DIR, TARGET_FILE), BASE_CONTENT, "utf8");
   fs.writeFileSync(path.join(GIT_PROJECT_DIR, SECOND_FILE), SECOND_BASE_CONTENT, "utf8");
   runGit(["init"]);
+  runGit(["config", "user.name", "Claudex QA"]);
+  runGit(["config", "user.email", "qa@example.invalid"]);
   runGit(["add", TARGET_FILE, SECOND_FILE]);
-  runGit(["-c", "user.name=Claudex QA", "-c", "user.email=qa@example.invalid", "commit", "-m", "baseline"]);
+  runGit(["commit", "-m", "baseline"]);
+  const remote = spawnSync("git", ["init", "--bare", REMOTE_DIR], {
+    encoding: "utf8",
+    windowsHide: true,
+  });
+  if (remote.status !== 0) {
+    throw new Error(`git init --bare failed: ${remote.stderr || remote.stdout}`);
+  }
+  runGit(["remote", "add", "origin", REMOTE_DIR]);
+  runGit(["push", "-u", "origin", "master"]);
   fs.writeFileSync(path.join(GIT_PROJECT_DIR, TARGET_FILE), EDITED_CONTENT, "utf8");
   fs.writeFileSync(path.join(GIT_PROJECT_DIR, SECOND_FILE), SECOND_EDITED_CONTENT, "utf8");
   fs.writeFileSync(path.join(GIT_PROJECT_DIR, UNTRACKED_FILE), UNTRACKED_CONTENT, "utf8");
@@ -44,6 +56,11 @@ function setupGitProject() {
 function cleanup() {
   try {
     fs.rmSync(GIT_PROJECT_DIR, { recursive: true, force: true });
+  } catch (_error) {
+    // best-effort cleanup
+  }
+  try {
+    fs.rmSync(REMOTE_DIR, { recursive: true, force: true });
   } catch (_error) {
     // best-effort cleanup
   }
@@ -298,6 +315,66 @@ app.whenReady().then(async () => {
         /pass37 untracked evidence/.test(panel);
     })()
   `, 10000));
+  assertStep("PASS37_COMMIT_MESSAGE_INPUT", await win.webContents.executeJavaScript(`
+    (function() {
+      const input = document.querySelector('.git-repo-actions input');
+      if (!input) return false;
+      const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+      setter.call(input, 'pass37 commit evidence');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      return true;
+    })();
+  `));
+  assertStep("PASS37_COMMIT_CLICK", await win.webContents.executeJavaScript(`
+    (function() {
+      const button = Array.from(document.querySelectorAll('.git-repo-action-buttons button'))
+        .find((item) => /提交已暂存/.test(item.textContent || ''));
+      if (!button || button.disabled) return false;
+      button.click();
+      return true;
+    })();
+  `));
+  assertStep("PASS37_COMMIT_COMMAND_EVIDENCE", await waitFor(win, `
+    (async function() {
+      const state = await window.claudexDesktop.getState();
+      const runs = state.commandRuns || [];
+      const events = state.runEvents || [];
+      const summary = document.querySelector('.git-change-summary')?.textContent || '';
+      const panel = document.querySelector('.git-selected-evidence-panel')?.textContent || '';
+      const input = document.querySelector('.git-repo-actions input');
+      return runs.some((run) => /git commit -m/.test(run.command || '') && /pass37 commit evidence/.test(run.command || '') && run.code === 0) &&
+        events.some((event) => event.type === 'git-command' && event.status === 'ok' && /提交已暂存/.test(event.title || '')) &&
+        /未暂存\\s*2/.test(summary) &&
+        !/已暂存\\s*1/.test(summary) &&
+        !/未跟踪\\s*1/.test(summary) &&
+        /全部变更/.test(panel) &&
+        input && input.value === '';
+    })()
+  `, 10000));
+  assertStep("PASS37_PUSH_CLICK", await win.webContents.executeJavaScript(`
+    (function() {
+      const button = Array.from(document.querySelectorAll('.git-repo-action-buttons button'))
+        .find((item) => /推送分支/.test(item.textContent || ''));
+      if (!button || button.disabled) return false;
+      button.click();
+      return true;
+    })();
+  `));
+  assertStep("PASS37_PUSH_COMMAND_EVIDENCE", await waitFor(win, `
+    (async function() {
+      const state = await window.claudexDesktop.getState();
+      const runs = state.commandRuns || [];
+      const events = state.runEvents || [];
+      return runs.some((run) => /^git push$/.test(run.command || '') && run.code === 0) &&
+        events.some((event) => event.type === 'git-command' && event.status === 'ok' && /推送分支/.test(event.title || ''));
+    })()
+  `, 10000));
+  const remoteCommitCount = spawnSync("git", ["rev-list", "--count", "master"], {
+    cwd: REMOTE_DIR,
+    encoding: "utf8",
+    windowsHide: true,
+  }).stdout.trim();
+  assertStep("PASS37_PUSH_REMOTE_UPDATED", remoteCommitCount === "2");
   await shot(win, "pass37-git-diff-panel.png");
 
   console.log("PASS37_DONE");
