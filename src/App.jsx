@@ -668,6 +668,9 @@ const copy = {
     automationStdout: "标准输出",
     automationStderr: "标准错误",
     automationSession: "会话",
+    timelineEvidence: "Timeline 证据",
+    timelineEvidenceEmpty: "这个事件只有状态摘要，还没有关联到原始输出。",
+    timelineEventType: "事件类型",
     automationRunHistoryShort: "最近 3 次",
     automationCreated: "自动化已保存",
     automationDeleted: "自动化已删除",
@@ -1370,6 +1373,145 @@ function automationEvidenceText(automation, entry, t, sessions = []) {
     automationRunOutput(run),
   ];
   return lines.filter((line, index) => index < 8 || String(line || "").trim()).join("\n");
+}
+
+function findCommandRunForEvent(event, commandRuns = []) {
+  const eventId = String(event?.id || "");
+  const commandLine = String(event?.commandLine || "").trim();
+  const cwd = String(event?.cwd || "").trim();
+  return (commandRuns || []).find((run) => run?.id === eventId || run?.requestId === eventId)
+    || (commandLine
+      ? (commandRuns || []).find((run) => {
+          const runCommand = String(run?.command || run?.commandLine || "").trim();
+          const runCwd = String(run?.cwd || run?.project?.path || "").trim();
+          return runCommand === commandLine && (!cwd || !runCwd || runCwd === cwd);
+        })
+      : null);
+}
+
+function findAutomationRunForEvent(event, automations = []) {
+  const eventId = String(event?.id || "");
+  if (!eventId) return null;
+  for (const automation of automations || []) {
+    const history = Array.isArray(automation?.history) ? automation.history : [];
+    const entry = history.find((item) => item?.id === eventId)
+      || (automation?.lastRun?.id === eventId ? automation.lastRun : null);
+    if (entry) return { automation, entry };
+  }
+  return null;
+}
+
+function findSubagentRunForEvent(event, runs = []) {
+  const eventId = String(event?.id || "");
+  if (!eventId) return null;
+  return (runs || []).find((run) => run?.id === eventId || run?.requestId === eventId) || null;
+}
+
+function runTimelineStatusLabel(status, t) {
+  if (status === "running") return t.commandRunning;
+  if (status === "cancelled") return t.commandCancelled;
+  if (status === "error") return t.commandFailed;
+  return t.commandSucceeded;
+}
+
+function runTimelineEvidenceForEvent(event, { commandRuns = [], automations = [], subagentRuns = [], sessions = [], t } = {}) {
+  const commandRun = findCommandRunForEvent(event, commandRuns);
+  if (commandRun) {
+    return {
+      source: "command",
+      title: event?.title || commandRun.command || commandRun.commandLine || "",
+      detail: event?.detail || "",
+      type: event?.type || commandRun.kind || "command",
+      status: event?.status || (commandRun.cancelled ? "cancelled" : commandRun.code === 0 ? "ok" : "error"),
+      project: projectLabel(commandRun.project, t),
+      sessionId: event?.sessionId || "",
+      commandLine: commandRun.command || commandRun.commandLine || event?.commandLine || "",
+      cwd: commandRun.cwd || commandRun.project?.path || event?.cwd || "",
+      code: typeof commandRun.code === "number" ? commandRun.code : event?.code,
+      durationMs: typeof commandRun.durationMs === "number" ? commandRun.durationMs : event?.durationMs,
+      stdout: commandRun.stdout || "",
+      stderr: commandRun.stderr || "",
+      summary: "",
+    };
+  }
+
+  const automationMatch = findAutomationRunForEvent(event, automations);
+  if (automationMatch) {
+    const { automation, entry } = automationMatch;
+    return {
+      source: "automation",
+      title: event?.title || automation?.prompt || "",
+      detail: entry.error || entry.detail || entry.summary || event?.detail || "",
+      type: event?.type || "automation",
+      status: entry.status === "failed" ? "error" : entry.status === "running" ? "running" : "ok",
+      project: automationProjectLabel(automation, t),
+      sessionId: entry.sessionId || automation?.threadId || "",
+      thread: automationThreadLabel(automation, sessions, t),
+      commandLine: "",
+      cwd: automation?.project?.path || event?.cwd || "",
+      code: typeof entry.code === "number" ? entry.code : event?.code,
+      durationMs: typeof entry.durationMs === "number" ? entry.durationMs : event?.durationMs,
+      stdout: entry.stdout || "",
+      stderr: entry.stderr || "",
+      summary: entry.error || entry.detail || entry.summary || "",
+    };
+  }
+
+  const subagentRun = findSubagentRunForEvent(event, subagentRuns);
+  if (subagentRun) {
+    return {
+      source: "subagent",
+      title: event?.title || subagentRun.nickname || "Subagent",
+      detail: subagentRun.summary || subagentRun.stderr || event?.detail || subagentRun.task || "",
+      type: event?.type || "subagent",
+      status: subagentRun.status === "done" ? "ok" : subagentRun.status === "cancelled" ? "cancelled" : subagentRun.status === "running" ? "running" : "error",
+      project: projectLabel(subagentRun.project, t),
+      sessionId: subagentRun.sessionId || event?.sessionId || "",
+      commandLine: subagentCommandLine(subagentRun),
+      cwd: subagentRun.cwd || subagentRun.project?.path || event?.cwd || "",
+      code: typeof subagentRun.code === "number" ? subagentRun.code : event?.code,
+      durationMs: typeof subagentRun.durationMs === "number" ? subagentRun.durationMs : event?.durationMs,
+      stdout: subagentRun.stdout || "",
+      stderr: subagentRun.stderr || "",
+      summary: subagentRun.summary || "",
+      artifacts: Array.isArray(subagentRun.artifacts) ? subagentRun.artifacts : [],
+    };
+  }
+
+  return {
+    source: "event",
+    title: event?.title || "",
+    detail: event?.detail || "",
+    type: event?.type || "run",
+    status: event?.status || "ok",
+    project: projectLabel(event?.project, t),
+    sessionId: event?.sessionId || "",
+    commandLine: event?.commandLine || "",
+    cwd: event?.cwd || event?.project?.path || "",
+    code: typeof event?.code === "number" ? event.code : null,
+    durationMs: typeof event?.durationMs === "number" ? event.durationMs : null,
+    stdout: "",
+    stderr: "",
+    summary: event?.detail || "",
+  };
+}
+
+function runTimelineEvidenceText(event, evidence, t) {
+  const lines = [
+    `${t.outputs}: ${event?.title || evidence?.title || ""}`,
+    `${t.timelineEventType}: ${evidence?.type || event?.type || ""}`,
+    `${t.scheduleStatus}: ${runTimelineStatusLabel(event?.status || evidence?.status, t)}`,
+    `${t.activeProject}: ${evidence?.project || ""}`,
+    `${t.automationSession}: ${evidence?.sessionId || "-"}`,
+    `${t.commandLine}: ${evidence?.commandLine || "-"}`,
+    `${t.commandCwd}: ${evidence?.cwd || "-"}`,
+    `${t.commandExit}: ${typeof evidence?.code === "number" ? evidence.code : "-"}`,
+    `${t.commandDuration}: ${formatDurationMs(evidence?.durationMs)}`,
+    "",
+    evidence?.summary || evidence?.detail || "",
+    automationRunOutput(evidence || {}),
+  ];
+  return lines.filter((line, index) => index < 9 || String(line || "").trim()).join("\n");
 }
 
 function formatFileTimestamp(value) {
@@ -2244,7 +2386,15 @@ function Conversation({
                     <div><dt>{t.changes}</dt><dd>{environment?.git?.available ? environment.git.changes || 0 : t.gitUnavailable}</dd></div>
                   </dl>
                 </div>
-                <RunTimeline events={runEvents} t={t} />
+                <RunTimeline
+                  events={runEvents}
+                  commandRuns={commandRuns}
+                  automations={automationItemsForUi}
+                  subagentRuns={subagentRuns}
+                  sessions={sessions}
+                  onCopy={onCopy}
+                  t={t}
+                />
                 {workspaceCommandRuns.length > 0 && (
                   <div className="bottom-panel-stack command-evidence-stack">
                     <div className="command-evidence-note">{t.workspaceCommandBackedByStore}</div>
@@ -3074,7 +3224,15 @@ function NoticeCenter({ notices = [], onDismiss, onClear, t }) {
   );
 }
 
-function RunTimeline({ events = [], t }) {
+function RunTimeline({
+  events = [],
+  commandRuns = [],
+  automations = [],
+  subagentRuns = [],
+  sessions = [],
+  onCopy,
+  t,
+}) {
   if (!events.length) return null;
   return (
     <section className="run-timeline" aria-label={t.outputs}>
@@ -3083,16 +3241,83 @@ function RunTimeline({ events = [], t }) {
         <strong>{events.length}</strong>
       </div>
       <div className="run-timeline-list">
-        {events.map((event) => (
-          <div className={cx("run-timeline-row", event.status)} key={event.id}>
-            <span className="run-timeline-dot" />
-            <div className="run-timeline-main">
-              <strong>{event.title}</strong>
-              {event.detail && <p>{event.detail}</p>}
-            </div>
-            <time>{formatDate(event.createdAt)}</time>
-          </div>
-        ))}
+        {events.map((event) => {
+          const evidence = runTimelineEvidenceForEvent(event, { commandRuns, automations, subagentRuns, sessions, t });
+          const hasRawEvidence = Boolean(
+            evidence?.stdout
+            || evidence?.stderr
+            || evidence?.commandLine
+            || evidence?.cwd
+            || evidence?.sessionId
+            || typeof evidence?.code === "number"
+            || typeof evidence?.durationMs === "number"
+            || evidence?.summary
+            || evidence?.detail
+          );
+          return (
+            <details className={cx("run-timeline-row", event.status)} key={event.id}>
+              <summary>
+                <span className="run-timeline-dot" />
+                <div className="run-timeline-main">
+                  <strong>{event.title}</strong>
+                  {event.detail && <p>{event.detail}</p>}
+                </div>
+                <time>{formatDate(event.createdAt)}</time>
+              </summary>
+              <div className="run-timeline-evidence" aria-label={t.timelineEvidence}>
+                {hasRawEvidence ? (
+                  <>
+                    <dl className="run-timeline-evidence-meta">
+                      <div><dt>{t.timelineEventType}</dt><dd>{evidence.type || event.type || "-"}</dd></div>
+                      <div><dt>{t.scheduleStatus}</dt><dd>{runTimelineStatusLabel(event.status || evidence.status, t)}</dd></div>
+                      <div><dt>{t.activeProject}</dt><dd title={evidence.cwd || ""}>{evidence.project || "-"}</dd></div>
+                      <div><dt>{t.automationSession}</dt><dd>{evidence.sessionId || "-"}</dd></div>
+                      <div><dt>{t.commandExit}</dt><dd>{typeof evidence.code === "number" ? evidence.code : "-"}</dd></div>
+                      <div><dt>{t.commandDuration}</dt><dd>{formatDurationMs(evidence.durationMs)}</dd></div>
+                      {evidence.commandLine && (
+                        <div className="wide-evidence-row"><dt>{t.commandLine}</dt><dd title={evidence.commandLine}>{messageExcerpt(evidence.commandLine, 120)}</dd></div>
+                      )}
+                      {evidence.cwd && (
+                        <div className="wide-evidence-row"><dt>{t.commandCwd}</dt><dd title={evidence.cwd}>{compactPath(evidence.cwd, 90)}</dd></div>
+                      )}
+                    </dl>
+                    {(evidence.summary || evidence.detail) && <p className="run-timeline-summary">{evidence.summary || evidence.detail}</p>}
+                    {evidence.stdout && (
+                      <section>
+                        <span>{t.commandStdout}</span>
+                        <pre className="subagent-output secondary-output">{evidence.stdout}</pre>
+                      </section>
+                    )}
+                    {evidence.stderr && (
+                      <section>
+                        <span>{t.commandStderr}</span>
+                        <pre className="subagent-output secondary-output error-output">{evidence.stderr}</pre>
+                      </section>
+                    )}
+                    {evidence.artifacts?.length > 0 && (
+                      <div className="run-timeline-artifacts">
+                        <span>{t.subagentArtifacts}</span>
+                        {evidence.artifacts.map((artifact, index) => (
+                          <code key={`${artifact?.label || artifact?.path || index}`}>
+                            {artifact?.label || artifact?.path || artifact?.type || `${t.subagentArtifacts} ${index + 1}`}
+                          </code>
+                        ))}
+                      </div>
+                    )}
+                    <div className="run-timeline-actions">
+                      <button type="button" className="plain-action subtle-action" onClick={() => onCopy?.(runTimelineEvidenceText(event, evidence, t))}>
+                        <Copy size={13} />
+                        {t.copyAutomationEvidence}
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <p className="run-timeline-empty">{t.timelineEvidenceEmpty}</p>
+                )}
+              </div>
+            </details>
+          );
+        })}
       </div>
     </section>
   );
@@ -7054,7 +7279,24 @@ export function App() {
   }
 
   async function copyMessage(content) {
-    await navigator.clipboard.writeText(content || "");
+    const text = String(content || "");
+    try {
+      await navigator.clipboard.writeText(text);
+    } catch {
+      const textarea = document.createElement("textarea");
+      textarea.value = text;
+      textarea.setAttribute("readonly", "true");
+      textarea.style.position = "fixed";
+      textarea.style.left = "-9999px";
+      textarea.style.top = "0";
+      document.body.appendChild(textarea);
+      textarea.select();
+      try {
+        document.execCommand("copy");
+      } finally {
+        textarea.remove();
+      }
+    }
     showToast(t.copied);
   }
 

@@ -179,6 +179,39 @@ async function runTest() {
       return Boolean(document.querySelector('.run-timeline') && row);
     })()
   `, 10000));
+  assertStep("PASS53_TIMELINE_EVIDENCE_DETAILS", await waitFor(win, `
+    (() => {
+      const row = Array.from(document.querySelectorAll('.run-timeline-row.ok'))
+        .find((item) => /workspace-evidence-ok/.test(item.textContent || '') || /退出码: 0/.test(item.textContent || ''));
+      const summary = row?.querySelector('summary');
+      if (!row || !summary) return false;
+      if (!row.open) summary.click();
+      const text = row.textContent || '';
+      return Boolean(
+        row.open &&
+        /Timeline 证据|事件类型/.test(text) &&
+        /标准输出/.test(text) &&
+        /workspace-evidence-ok/.test(text) &&
+        /node -e/.test(text) &&
+        /复制证据/.test(text)
+      );
+    })()
+  `, 10000));
+  assertStep("PASS53_TIMELINE_COPY_EVIDENCE", await waitFor(win, `
+    (async function() {
+      const row = Array.from(document.querySelectorAll('.run-timeline-row.ok'))
+        .find((item) => /workspace-evidence-ok/.test(item.textContent || '') || /退出码: 0/.test(item.textContent || ''));
+      const button = Array.from(row?.querySelectorAll('button') || [])
+        .find((item) => /复制证据/.test(item.textContent || ''));
+      if (!button) return false;
+      if (!window.__pass53CopiedTimelineEvidence) {
+        window.__pass53CopiedTimelineEvidence = true;
+        button.click();
+      }
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      return /已复制/.test(document.body.textContent || '');
+    })();
+  `, 5000));
   assertStep("PASS53_BOTTOM_EVIDENCE_VISIBLE", await waitFor(win, `
     Boolean(document.querySelector('.command-evidence-stack') &&
       /Workspace|工作区|命令/.test(document.querySelector('.command-evidence-stack')?.textContent || '') &&
