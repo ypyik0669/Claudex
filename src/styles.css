@@ -3126,6 +3126,10 @@ select:focus-visible,
   background: var(--ok);
 }
 
+.command-history-item.cancelled .command-history-dot {
+  background: #aeb3b1;
+}
+
 .command-history-item summary strong {
   min-width: 0;
   overflow: hidden;
@@ -3169,6 +3173,10 @@ select:focus-visible,
 
 .command-output-card.error {
   border-color: rgba(211, 106, 92, 0.3);
+}
+
+.command-output-card.cancelled {
+  border-color: rgba(174, 179, 177, 0.28);
 }
 
 .command-output-head {

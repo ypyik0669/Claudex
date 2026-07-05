@@ -32,7 +32,7 @@ writeJson(DATA_FILE, {
   version: 1,
   settings: {
     provider: "anthropic",
-    model: "claude-sonnet-4-5-20250929",
+    model: "claude-haiku-4-5-20251001",
     baseUrl: "https://api.example.invalid",
     temperature: 0.2,
     timeoutMs: 600000,
@@ -213,15 +213,50 @@ app.whenReady().then(async () => {
         await new Promise((resolve) => setTimeout(resolve, 900));
         const state = await window.claudexDesktop.getState();
         const run = state.commandRuns?.[0];
+        const event = state.runEvents?.find((item) => item.type === 'workspace-command' && /pass50 should cancel/.test(item.commandLine || item.title || ''));
         return Boolean(
           run &&
           run.cancelled === true &&
           run.code === 130 &&
+          event &&
+          event.status === 'cancelled' &&
+          event.code === 130 &&
           /\\u547d\\u4ee4\\u5df2\\u53d6\\u6d88/.test(run.stderr || '') &&
-          /\\u547d\\u4ee4\\u5df2\\u505c\\u6b62/.test(document.body.textContent || '')
+          /\\u547d\\u4ee4\\u5df2\\u505c\\u6b62/.test(document.body.textContent || '') &&
+          document.querySelector('#workspace-tool-detail .command-output-card.cancelled')
         );
       })();
     `, 12000));
+
+    assertStep("PASS50_CANCEL_OUTPUTS_PANEL_EVIDENCE", await waitFor(win, `
+      (async function() {
+        const button = Array.from(document.querySelectorAll('.workspace-context-button, .bottom-panel-tabs button'))
+          .find((item) => /\\u8f93\\u51fa/.test(item.textContent || '') || (item.getAttribute('aria-label') || '').includes('\\u8f93\\u51fa'));
+        if (!button) return false;
+        button.click();
+        await new Promise((resolve) => setTimeout(resolve, 250));
+        const timelineText = document.querySelector('.run-timeline')?.textContent || '';
+        const evidenceText = document.querySelector('.bottom-work-panel .command-history')?.textContent || '';
+        return Boolean(
+          document.querySelector('.run-timeline-row.cancelled') &&
+          /pass50 should cancel/.test(timelineText) &&
+          /\\u547d\\u4ee4\\u5df2\\u505c\\u6b62/.test(timelineText) &&
+          /pass50 should cancel/.test(evidenceText) &&
+          /\\u547d\\u4ee4\\u5df2\\u505c\\u6b62/.test(evidenceText)
+        );
+      })();
+    `, 8000));
+
+    assertStep("PASS50_CANCEL_PERSISTED_RUN_EVENT", (() => {
+      const parsed = JSON.parse(fs.readFileSync(DATA_FILE, "utf8"));
+      const events = parsed.runEvents?.filter((event) =>
+        event.type === "workspace-command" &&
+        /pass50 should cancel/.test(event.commandLine || event.title || "")
+      ) || [];
+      return events.length === 1 &&
+        events[0].status === "cancelled" &&
+        events[0].code === 130;
+    })());
 
     console.log("PASS50_WORKSPACE_COMMAND_EVIDENCE_DONE");
     cleanup();

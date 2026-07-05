@@ -2269,7 +2269,7 @@ function Conversation({
 
 function CommandOutputCard({ commandLine, cwd, code, durationMs, stdout = "", stderr = "", live = false, cancelled = false, t }) {
   const [copied, setCopied] = useState(false);
-  const statusClass = live ? "live" : code === 0 ? "ok" : "error";
+  const statusClass = live ? "live" : cancelled ? "cancelled" : code === 0 ? "ok" : "error";
   const statusLabel = live ? t.commandRunning : cancelled ? t.commandCancelled : code === 0 ? t.commandSucceeded : t.commandFailed;
   const hasStdout = Boolean(String(stdout || "").trim());
   const hasStderr = Boolean(String(stderr || "").trim());
@@ -2346,7 +2346,7 @@ function CommandHistory({ title, liveEntry, entries, onClear, t }) {
           !liveEntry && index === 0 ? (
             <CommandOutputCard key={entry.id} {...entry} t={t} />
           ) : (
-            <details className={cx("command-history-item", entry.code === 0 ? "ok" : "error")} key={entry.id}>
+            <details className={cx("command-history-item", entry.cancelled ? "cancelled" : entry.code === 0 ? "ok" : "error")} key={entry.id}>
               <summary>
                 <span className="command-history-dot" />
                 <strong title={entry.commandLine}>{entry.commandLine}</strong>
@@ -3382,6 +3382,16 @@ function ToolsPanel({
   async function cancelWorkspaceCommand() {
     const requestId = commandRequestRef.current || commandRequestId;
     if (!requestId) return;
+    onRunEvent?.({
+      id: requestId,
+      type: "workspace-command",
+      status: "cancelled",
+      title: `${t.runCommand}: ${command.trim() || commandResult?.command || ""}`,
+      detail: t.commandCancelled,
+      commandLine: command.trim() || commandResult?.command || "",
+      cwd: activeProject?.path || "",
+      code: 130,
+    });
     try {
       if (desktopApi?.cancelWorkspaceCommand) {
         await desktopApi.cancelWorkspaceCommand({ requestId });
