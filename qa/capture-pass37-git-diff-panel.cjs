@@ -10,10 +10,12 @@ const USER_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "claudex-pass37-data
 const GIT_PROJECT_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "claudex-pass37-git-"));
 const TARGET_FILE = "pass37-target.txt";
 const SECOND_FILE = "pass37-second.txt";
+const UNTRACKED_FILE = "pass37-untracked.txt";
 const BASE_CONTENT = "pass37 baseline\n";
 const EDITED_CONTENT = "pass37 baseline\npass37-diff-evidence\n";
 const SECOND_BASE_CONTENT = "pass37 second baseline\n";
 const SECOND_EDITED_CONTENT = "pass37 second baseline\npass37-second-evidence\n";
+const UNTRACKED_CONTENT = "pass37 untracked evidence\n";
 
 function runGit(args) {
   const result = spawnSync("git", args, {
@@ -35,6 +37,7 @@ function setupGitProject() {
   runGit(["-c", "user.name=Claudex QA", "-c", "user.email=qa@example.invalid", "commit", "-m", "baseline"]);
   fs.writeFileSync(path.join(GIT_PROJECT_DIR, TARGET_FILE), EDITED_CONTENT, "utf8");
   fs.writeFileSync(path.join(GIT_PROJECT_DIR, SECOND_FILE), SECOND_EDITED_CONTENT, "utf8");
+  fs.writeFileSync(path.join(GIT_PROJECT_DIR, UNTRACKED_FILE), UNTRACKED_CONTENT, "utf8");
 }
 
 function cleanup() {
@@ -142,8 +145,11 @@ app.whenReady().then(async () => {
       /diff --git/.test(document.querySelector('.git-diff-preview')?.textContent || '') &&
       /pass37-diff-evidence/.test(document.querySelector('.git-diff-preview')?.textContent || '') &&
       /pass37-second-evidence/.test(document.querySelector('.git-diff-preview')?.textContent || '') &&
+      /pass37 untracked evidence/.test(document.querySelector('.git-diff-preview')?.textContent || '') &&
       /${TARGET_FILE}/.test(document.querySelector('.git-change-list')?.textContent || '') &&
-      /${SECOND_FILE}/.test(document.querySelector('.git-change-list')?.textContent || '')
+      /${SECOND_FILE}/.test(document.querySelector('.git-change-list')?.textContent || '') &&
+      /${UNTRACKED_FILE}/.test(document.querySelector('.git-change-list')?.textContent || '') &&
+      /\\+\\d+ -\\d+/.test(document.querySelector('.git-change-list')?.textContent || '')
     )
   `, 10000));
   assertStep("PASS37_FILE_FOCUS_CLICK", await win.webContents.executeJavaScript(`
@@ -177,7 +183,27 @@ app.whenReady().then(async () => {
   assertStep("PASS37_ALL_CHANGES_DIFF", await waitFor(win, `
     (function() {
       const preview = document.querySelector('.git-diff-preview')?.textContent || '';
-      return /pass37-diff-evidence/.test(preview) && /pass37-second-evidence/.test(preview);
+      return /pass37-diff-evidence/.test(preview) && /pass37-second-evidence/.test(preview) && /pass37 untracked evidence/.test(preview);
+    })()
+  `, 5000));
+  assertStep("PASS37_UNTRACKED_FOCUS_CLICK", await win.webContents.executeJavaScript(`
+    (function() {
+      const button = Array.from(document.querySelectorAll('.git-change-item'))
+        .find((item) => /${UNTRACKED_FILE}/.test(item.textContent || ''));
+      if (!button) return false;
+      button.click();
+      return true;
+    })();
+  `));
+  assertStep("PASS37_UNTRACKED_FOCUS_DIFF", await waitFor(win, `
+    (function() {
+      const preview = document.querySelector('.git-diff-preview')?.textContent || '';
+      const selected = document.querySelector('.git-change-item.selected')?.textContent || '';
+      return /${UNTRACKED_FILE}/.test(selected) &&
+        /new file mode/.test(preview) &&
+        /pass37 untracked evidence/.test(preview) &&
+        !/pass37-diff-evidence/.test(preview) &&
+        /\\+1 -0/.test(selected);
     })()
   `, 5000));
   await shot(win, "pass37-git-diff-panel.png");

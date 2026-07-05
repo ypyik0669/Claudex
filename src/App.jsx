@@ -2131,6 +2131,9 @@ function Conversation({
                       >
                         <span className="git-change-status">{item.status}</span>
                         <strong title={item.previousPath ? `${item.previousPath} -> ${item.path}` : item.path}>{item.path}</strong>
+                        {(typeof item.additions === "number" || typeof item.deletions === "number") && (
+                          <em>{`+${item.additions || 0} -${item.deletions || 0}`}</em>
+                        )}
                       </button>
                     ))}
                   </div>
@@ -2150,7 +2153,9 @@ function Conversation({
                       ))}
                     </div>
                   ) : (
-                    <p className="empty-list">{t.noGitDiff}</p>
+                    <p className="empty-list">
+                      {selectedGitDiffPath ? `${selectedGitDiffPath}: ${t.noGitDiff}` : t.noGitDiff}
+                    </p>
                   )}
                 </section>
                 <details className="git-raw-status">

@@ -1444,6 +1444,62 @@ function parseGitDiffFiles(diffText) {
   return files.slice(0, 80);
 }
 
+function resolveGitStatusPath(cwd, relativePath = "") {
+  const root = path.resolve(cwd);
+  const target = path.resolve(root, relativePath);
+  const relative = path.relative(root, target);
+  if (relative.startsWith("..") || path.isAbsolute(relative)) return null;
+  return target;
+}
+
+function buildUntrackedFileDiffs(cwd, files = [], maxChars = MAX_GIT_DIFF_CHARS) {
+  const sections = [];
+  const stats = [];
+  let usedChars = 0;
+  for (const item of files.filter((file) => file.status === "??").slice(0, 24)) {
+    const relativePath = slashPath(item.path || "");
+    const target = resolveGitStatusPath(cwd, relativePath);
+    if (!target || !fs.existsSync(target)) continue;
+    const stat = fs.statSync(target);
+    if (!stat.isFile()) continue;
+    const header = [
+      `diff --git a/${relativePath} b/${relativePath}`,
+      "new file mode 100644",
+      "--- /dev/null",
+      `+++ b/${relativePath}`,
+    ];
+    let body = [];
+    let additions = 0;
+    let previewNote = "";
+    if (stat.size > 65536) {
+      previewNote = `# Untracked file is ${stat.size} bytes; preview skipped.`;
+    } else {
+      const buffer = fs.readFileSync(target);
+      if (buffer.includes(0)) {
+        previewNote = "# Binary file preview skipped.";
+      } else {
+        const lines = buffer.toString("utf8").split(/\r?\n/);
+        if (lines.length > 1 && lines[lines.length - 1] === "") lines.pop();
+        additions = lines.length > 1 || lines[0] ? lines.length : 0;
+        body = [
+          `@@ -0,0 +1,${Math.max(additions, 1)} @@`,
+          ...lines.map((line) => `+${line}`),
+        ];
+      }
+    }
+    if (previewNote) body = [previewNote];
+    const text = [...header, ...body].join("\n");
+    if (usedChars + text.length > maxChars) break;
+    usedChars += text.length;
+    sections.push(text);
+    stats.push(`${relativePath} | ${additions || 0} ${additions ? "+".repeat(Math.min(additions, 40)) : ""}`);
+  }
+  return {
+    stat: stats.join("\n"),
+    text: sections.join("\n\n"),
+  };
+}
+
 async function loadGitEnvironment(cwd) {
   const status = parseGitEnvironment(await runProcess("git", ["status", "--short", "--branch"], { cwd, timeoutMs: 8000 }));
   if (!status.available) return status;
@@ -1461,18 +1517,31 @@ async function loadGitEnvironment(cwd) {
       maxOutputChars: MAX_GIT_DIFF_CHARS,
     }),
   ]);
+  const untrackedDiff = buildUntrackedFileDiffs(cwd, status.files);
   const statParts = [
     gitText(stagedStat),
     gitText(worktreeStat),
+    untrackedDiff.stat,
   ].filter(Boolean);
   const diffSections = [
     { label: "Staged changes", text: gitText(stagedDiff) },
     { label: "Working tree changes", text: gitText(worktreeDiff) },
+    { label: "Untracked files", text: untrackedDiff.text },
   ].filter((section) => section.text);
   const diffText = diffSections.map((section) => `# ${section.label}\n${section.text}`).join("\n\n");
   const fileDiffs = parseGitDiffFiles(diffText);
+  const filesWithDiffStats = status.files.map((file) => {
+    const diff = fileDiffs.find((item) => item.path === file.path || item.previousPath === file.path);
+    return diff ? {
+      ...file,
+      additions: diff.additions,
+      deletions: diff.deletions,
+      hasDiff: true,
+    } : file;
+  });
   return {
     ...status,
+    files: filesWithDiffStats,
     stat: statParts.join("\n"),
     diff: {
       text: trimOutput(diffText, MAX_GIT_DIFF_CHARS),
