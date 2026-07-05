@@ -212,6 +212,14 @@ async function runTest() {
       return Boolean(card && /plugin marketplace list/.test(text) && /23/.test(text) && /pass56 marketplace failed/.test(text));
     })();
   `, 10000));
+  assertStep("PASS56_MARKETPLACE_ROW_FAILURE_SUMMARY_VISIBLE", await waitFor(win, `
+    (function() {
+      const sourceCard = document.querySelector('.marketplace-workbench .marketplace-card');
+      const summary = sourceCard?.querySelector('.row-cli-action-evidence.error .row-cli-action-message');
+      const text = summary?.textContent || '';
+      return Boolean(summary && /pass56 marketplace failed/.test(text));
+    })();
+  `, 10000));
   assertStep("PASS56_NOTICE_RECORDED", await waitFor(win, `
     (async function() {
       const state = await window.claudexDesktop.getState();

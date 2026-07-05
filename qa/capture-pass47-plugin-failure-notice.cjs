@@ -203,6 +203,15 @@ async function runTest() {
       return Boolean(card && /plugin disable qa-failing-plugin@qa-market/.test(text) && /17/.test(text) && /pass47 disable failed/.test(text));
     })();
   `, 10000));
+  assertStep("PASS47_ROW_FAILURE_SUMMARY_VISIBLE", await waitFor(win, `
+    (function() {
+      const row = [...document.querySelectorAll('.structured-plugin-row')]
+        .find((item) => /qa-failing-plugin@qa-market/.test(item.textContent || ''));
+      const summary = row?.querySelector('.row-cli-action-evidence.error .row-cli-action-message');
+      const text = summary?.textContent || '';
+      return Boolean(summary && /pass47 disable failed/.test(text));
+    })();
+  `, 10000));
   assertStep("PASS47_NOTICE_RECORDED", await waitFor(win, `
     (async function() {
       const state = await window.claudexDesktop.getState();

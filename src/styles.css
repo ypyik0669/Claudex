@@ -3991,6 +3991,17 @@ kbd {
   white-space: nowrap;
 }
 
+.row-cli-action-message {
+  margin: -2px 8px 7px;
+  overflow: hidden;
+  color: #efb0a9;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.45;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 .row-cli-action-output {
   border-top: 1px solid rgba(255, 255, 255, 0.06);
   padding: 0 8px 7px;
