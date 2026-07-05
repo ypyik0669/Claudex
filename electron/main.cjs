@@ -2869,7 +2869,10 @@ ipcMain.handle("app:select-project", async () => {
 
 ipcMain.handle("app:set-active-project", (_event, project) => {
   const store = readStore();
-  const nextProject = project?.path ? projectFromPath(project.path) : { name: project?.name || "本地工作区", path: "" };
+  const projectName = String(project?.name || "").trim();
+  const nextProject = project?.path
+    ? { name: projectName || path.basename(project.path) || project.path, path: project.path }
+    : { name: projectName || "本地工作区", path: "" };
   addProject(store, nextProject);
   ensureActiveProjectDraftSession(store);
   writeStore(store);

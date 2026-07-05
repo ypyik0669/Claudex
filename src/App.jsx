@@ -711,6 +711,9 @@ const copy = {
     projectFilteredChats: "当前项目",
     allProjectChats: "全部项目",
     showArchivedChats: "查看归档",
+    threadScopeEvidence: "历史范围",
+    threadScopeMatch: "匹配 {shown}/{total}",
+    threadScopeCount: "{count} 条",
     emptySchedule: "还没有计划任务。",
     emptyScheduleHint: "有任务想先放着但不想新开聊天时，可以先保存到这里。",
     copiedPrompt: "提示词已填入",
@@ -1166,6 +1169,30 @@ function selectSessionIdForProject(nextState, t, activeProject, preferredId = ""
   if (preferredId && items.some((item) => item.session.id === preferredId)) return preferredId;
   if (projectScope === "archived") return items[0]?.session.id || "";
   return items[0]?.session.id || (nextState?.sessions || []).find((session) => !session.archived)?.id || nextState?.sessions?.[0]?.id || "";
+}
+
+function sidebarScopeCounts(sessions, t, activeProject) {
+  return {
+    current: sidebarThreadItems(sessions, t, activeProject, "current").length,
+    all: sidebarThreadItems(sessions, t, activeProject, "all").length,
+    archived: sidebarThreadItems(sessions, t, activeProject, "archived").length,
+  };
+}
+
+function threadScopeLabel(scope, t) {
+  if (scope === "all") return t.allProjectChats;
+  if (scope === "archived") return t.showArchivedChats;
+  return t.projectFilteredChats;
+}
+
+function threadScopeSummaryText({ scope, counts, activeProject, visibleCount, totalCount, query, t }) {
+  const base = `${threadScopeLabel(scope, t)} ${t.threadScopeCount.replace("{count}", totalCount)}`;
+  const project = scope === "all" ? t.allProjectChats : projectLabel(activeProject, t);
+  const match = query.trim() && visibleCount !== totalCount
+    ? ` · ${t.threadScopeMatch.replace("{shown}", visibleCount).replace("{total}", totalCount)}`
+    : "";
+  const archive = scope !== "archived" ? ` · ${t.showArchivedChats} ${counts.archived}` : "";
+  return `${project} · ${base}${archive}${match}`;
 }
 
 function projectKey(project) {
@@ -1895,6 +1922,7 @@ function Sidebar({
   t,
 }) {
   const threadItems = useMemo(() => sidebarThreadItems(state.sessions, t, activeProject, projectScope), [state.sessions, t, activeProject, projectScope]);
+  const scopeCounts = useMemo(() => sidebarScopeCounts(state.sessions, t, activeProject), [state.sessions, t, activeProject]);
   const filtered = useMemo(() => {
     const normalized = query.trim().toLowerCase();
     if (!normalized) return threadItems;
@@ -1905,6 +1933,15 @@ function Sidebar({
         .includes(normalized),
     );
   }, [query, threadItems]);
+  const scopeSummary = threadScopeSummaryText({
+    scope: projectScope,
+    counts: scopeCounts,
+    activeProject,
+    visibleCount: filtered.length,
+    totalCount: threadItems.length,
+    query,
+    t,
+  });
 
   const projects = visibleProjectsForUi(state, t);
 
@@ -1970,7 +2007,8 @@ function Sidebar({
                 onClick={() => onProjectScopeChange?.("current")}
                 title={activeProject?.path || activeProject?.name || t.projectFilteredChats}
               >
-                {t.projectFilteredChats}
+                <span>{t.projectFilteredChats}</span>
+                <em>{scopeCounts.current}</em>
               </button>
               <button
                 type="button"
@@ -1978,7 +2016,8 @@ function Sidebar({
                 onClick={() => onProjectScopeChange?.("all")}
                 title={t.allProjectChats}
               >
-                {t.allProjectChats}
+                <span>{t.allProjectChats}</span>
+                <em>{scopeCounts.all}</em>
               </button>
               <button
                 type="button"
@@ -1986,9 +2025,14 @@ function Sidebar({
                 onClick={() => onProjectScopeChange?.("archived")}
                 title={t.showArchivedChats}
               >
-                {t.showArchivedChats}
+                <span>{t.showArchivedChats}</span>
+                <em>{scopeCounts.archived}</em>
               </button>
             </div>
+          </div>
+          <div className="thread-scope-summary" aria-label={t.threadScopeEvidence} title={activeProject?.path || projectLabel(activeProject, t)}>
+            <span>{t.threadScopeEvidence}</span>
+            <strong>{scopeSummary}</strong>
           </div>
           <div className="thread-list">
             {loading ? (

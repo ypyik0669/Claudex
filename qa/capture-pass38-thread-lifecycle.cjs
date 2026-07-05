@@ -114,6 +114,9 @@ app.whenReady().then(async () => {
       const rows = Array.from(document.querySelectorAll('.thread-list .thread-item'));
       const listText = document.querySelector('.thread-list')?.textContent || '';
       const scopeText = document.querySelector('.chat-scope-toggle')?.textContent || '';
+      const scopeButtons = Array.from(document.querySelectorAll('.chat-scope-toggle button'));
+      const scopeCounts = scopeButtons.map((button) => button.querySelector('em')?.textContent || '').join('|');
+      const scopeSummary = document.querySelector('.thread-scope-summary')?.textContent || '';
       const headerText = document.querySelector('.thread-header')?.textContent || document.body.textContent || '';
       return rows.length === 1 &&
         /Active A thread/.test(rows[0].textContent || '') &&
@@ -121,6 +124,10 @@ app.whenReady().then(async () => {
         /\\u5f53\\u524d\\u9879\\u76ee/.test(scopeText) &&
         /\\u5168\\u90e8\\u9879\\u76ee/.test(scopeText) &&
         /\\u67e5\\u770b\\u5f52\\u6863/.test(scopeText) &&
+        scopeCounts === '1|2|1' &&
+        /Project A/.test(scopeSummary) &&
+        /当前项目 1 条/.test(scopeSummary) &&
+        /查看归档 1/.test(scopeSummary) &&
         !/Project B hidden thread/.test(listText) &&
         !/Archived A thread/.test(listText);
     })();
@@ -138,7 +145,9 @@ app.whenReady().then(async () => {
       await new Promise((resolve) => setTimeout(resolve, 300));
       const rows = Array.from(document.querySelectorAll('.thread-list .thread-item'));
       const listText = document.querySelector('.thread-list')?.textContent || '';
+      const scopeSummary = document.querySelector('.thread-scope-summary')?.textContent || '';
       return rows.length === 2 &&
+        /全部项目 2 条/.test(scopeSummary) &&
         /Active A thread/.test(listText) &&
         /Project B hidden thread/.test(listText) &&
         !/Archived A thread/.test(listText);
@@ -176,8 +185,10 @@ app.whenReady().then(async () => {
       await new Promise((resolve) => setTimeout(resolve, 300));
       const rows = Array.from(document.querySelectorAll('.thread-list .thread-item'));
       const listText = document.querySelector('.thread-list')?.textContent || '';
+      const scopeSummary = document.querySelector('.thread-scope-summary')?.textContent || '';
       const active = document.querySelector('.thread-list .thread-item.active')?.textContent || '';
       return rows.length === 1 &&
+        /查看归档 1 条/.test(scopeSummary) &&
         /Archived A thread/.test(rows[0].textContent || '') &&
         /Archived A thread/.test(active) &&
         !/Active A thread|Project B hidden thread/.test(listText);
@@ -198,8 +209,10 @@ app.whenReady().then(async () => {
       const state = await window.claudexDesktop.getState();
       const rows = Array.from(document.querySelectorAll('.thread-list .thread-item'));
       const listText = document.querySelector('.thread-list')?.textContent || '';
+      const scopeCounts = Array.from(document.querySelectorAll('.chat-scope-toggle button')).map((button) => button.querySelector('em')?.textContent || '').join('|');
       return state.sessions.find((item) => item.id === 'project-a-archived')?.archived === false &&
         rows.length === 2 &&
+        scopeCounts === '2|3|0' &&
         /Archived A thread/.test(listText) &&
         /Active A thread/.test(listText);
     })();
@@ -218,8 +231,10 @@ app.whenReady().then(async () => {
       await new Promise((resolve) => setTimeout(resolve, 500));
       const state = await window.claudexDesktop.getState();
       const rows = Array.from(document.querySelectorAll('.thread-list .thread-item'));
+      const scopeCounts = Array.from(document.querySelectorAll('.chat-scope-toggle button')).map((button) => button.querySelector('em')?.textContent || '').join('|');
       return state.sessions.find((item) => item.id === 'project-a-archived')?.archived === true &&
         rows.length === 1 &&
+        scopeCounts === '1|2|1' &&
         /Active A thread/.test(rows[0].textContent || '');
     })();
   `, 10000));
@@ -325,7 +340,12 @@ app.whenReady().then(async () => {
       await new Promise((resolve) => setTimeout(resolve, 500));
       const rows = Array.from(document.querySelectorAll('.thread-list .thread-item'));
       const listText = document.querySelector('.thread-list')?.textContent || '';
+      const scopeCounts = Array.from(document.querySelectorAll('.chat-scope-toggle button')).map((button) => button.querySelector('em')?.textContent || '').join('|');
+      const scopeSummary = document.querySelector('.thread-scope-summary')?.textContent || '';
       return rows.length === 1 &&
+        scopeCounts === '1|2|0' &&
+        /Project B/.test(scopeSummary) &&
+        /当前项目 1 条/.test(scopeSummary) &&
         /Project B hidden thread/.test(rows[0].textContent || '') &&
         !/Renamed A thread|Fork: Renamed A thread|Archived A thread/.test(listText);
     })();
