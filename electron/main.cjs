@@ -383,6 +383,33 @@ function upsertSubagentRun(store, run) {
   return run;
 }
 
+function subagentRunEventTitle(run) {
+  return `子代理：${titleFromUserContent(run?.nickname || "Subagent")}`;
+}
+
+function subagentRunEventDetail(run) {
+  const project = run?.project?.name || run?.project?.path || "本地工作区";
+  const output = run?.summary || run?.stderr || run?.stdout || run?.task || "";
+  return [project, output].filter(Boolean).join(" · ");
+}
+
+function upsertSubagentRunEvent(store, run, status) {
+  return upsertRunEvent(store, {
+    id: run.requestId || run.id,
+    type: "subagent",
+    status,
+    title: subagentRunEventTitle(run),
+    detail: subagentRunEventDetail(run),
+    commandLine: [run.command, ...(run.args || [])].filter(Boolean).join(" "),
+    cwd: run.cwd || run.project?.path || "",
+    code: typeof run.code === "number" ? run.code : null,
+    durationMs: typeof run.durationMs === "number" ? run.durationMs : null,
+    project: run.project,
+    sessionId: run.sessionId || "",
+    createdAt: run.startedAt || now(),
+  });
+}
+
 function normalizeCommandRun(item, store) {
   const project = normalizeAutomationProject(item?.project, store);
   const startedAt = isoOrEmpty(item?.startedAt) || now();
@@ -2355,6 +2382,7 @@ async function runSubagent(payload = {}, sender) {
     artifacts: [],
   }, store);
   upsertSubagentRun(store, run);
+  upsertSubagentRunEvent(store, run, "running");
   writeStore(store);
   emitSubagentEvent(sender, { type: "start", run });
 
@@ -2402,6 +2430,11 @@ async function runSubagent(payload = {}, sender) {
     }),
   }, nextStore);
   upsertSubagentRun(nextStore, finalRun);
+  upsertSubagentRunEvent(
+    nextStore,
+    finalRun,
+    finalStatus === "done" ? "ok" : finalStatus === "cancelled" ? "cancelled" : "error",
+  );
   writeStore(nextStore);
   emitSubagentEvent(sender, { type: finalStatus, run: finalRun });
   return {
@@ -2627,7 +2660,8 @@ ipcMain.handle("subagent:cancel", (_event, { runId, requestId } = {}) => {
     run.status = "cancelled";
     run.endedAt = now();
     run.stderr = trimOutput(`${run.stderr || ""}\n子代理已停止。`);
-    upsertSubagentRun(store, normalizeSubagentRun(run, store));
+    const cancelledRun = upsertSubagentRun(store, normalizeSubagentRun(run, store));
+    upsertSubagentRunEvent(store, cancelledRun, "cancelled");
     writeStore(store);
   }
   return sanitizeStore(store);

@@ -161,17 +161,24 @@ app.whenReady().then(async () => {
         await new Promise((resolve) => setTimeout(resolve, 900));
         const state = await window.claudexDesktop.getState();
         const run = state.subagentRuns?.[0];
+        const event = state.runEvents?.find((item) => item.id === run?.requestId);
         return Boolean(
           run &&
           run.status === 'done' &&
           run.nickname === 'QA Subagent' &&
           /pass41 inspect subagent evidence/.test(run.task || '') &&
           /pass41-subagent-ok/.test(run.summary || '') &&
+          event?.type === 'subagent' &&
+          event.status === 'ok' &&
+          /pass41-subagent-ok/.test(event.detail || '') &&
           run.artifacts?.some((artifact) => artifact.type === 'summary' && /pass41-subagent-ok/.test(artifact.content || '')) &&
           /pass41-subagent-ok/.test(document.body.textContent || '') &&
           document.querySelector('.subagent-run-card.done') &&
           document.querySelector('.subagent-evidence-stack') &&
           document.querySelector('.subagent-evidence-details') &&
+          /pass41-project/.test(document.body.textContent || '') &&
+          /default/.test(document.body.textContent || '') &&
+          /claude\.cmd/.test(document.body.textContent || '') &&
           /产物: 2/.test(document.body.textContent || '')
         );
       })();
@@ -179,10 +186,15 @@ app.whenReady().then(async () => {
 
     assertStep("PASS41_STORE_PERSISTED", (() => {
       const parsed = JSON.parse(fs.readFileSync(DATA_FILE, "utf8"));
+      const run = parsed.subagentRuns?.[0];
+      const event = parsed.runEvents?.find((item) => item.id === run?.requestId);
       return parsed.subagentRuns?.length === 1 &&
-        parsed.subagentRuns[0].status === "done" &&
-        /pass41-subagent-ok/.test(parsed.subagentRuns[0].summary || "") &&
-        parsed.subagentRuns[0].artifacts?.length >= 2;
+        run.status === "done" &&
+        /pass41-subagent-ok/.test(run.summary || "") &&
+        run.artifacts?.length >= 2 &&
+        event?.type === "subagent" &&
+        event.status === "ok" &&
+        /pass41-subagent-ok/.test(event.detail || "");
     })());
 
     assertStep("PASS41_COPY_SUBAGENT_EVIDENCE", await win.webContents.executeJavaScript(`
@@ -219,11 +231,15 @@ app.whenReady().then(async () => {
         }
         await new Promise((resolve) => setTimeout(resolve, 900));
         const state = await window.claudexDesktop.getState();
+        const run = state.subagentRuns?.[0];
+        const event = state.runEvents?.find((item) => item.id === run?.requestId);
         return Boolean(
           state.subagentRuns?.length >= 2 &&
-          state.subagentRuns[0].status === 'done' &&
-          /pass41 inspect subagent evidence/.test(state.subagentRuns[0].task || '') &&
-          /pass41-subagent-ok/.test(state.subagentRuns[0].summary || '') &&
+          run?.status === 'done' &&
+          /pass41 inspect subagent evidence/.test(run.task || '') &&
+          /pass41-subagent-ok/.test(run.summary || '') &&
+          event?.type === 'subagent' &&
+          event.status === 'ok' &&
           document.querySelectorAll('.subagent-run-card.done').length >= 2
         );
       })();

@@ -496,6 +496,8 @@ const copy = {
     subagentStdout: "标准输出",
     subagentStderr: "标准错误",
     subagentExitCode: "退出码",
+    subagentCommand: "命令",
+    subagentSession: "会话",
     copySubagentEvidence: "复制证据",
     copiedSubagentEvidence: "证据已复制",
     openRunTimeline: "查看 timeline",
@@ -1070,6 +1072,10 @@ function subagentStatusLabel(status, t) {
   if (status === "error") return t.subagentStatusError;
   if (status === "cancelled") return t.subagentStatusCancelled;
   return t.subagentStatusDone;
+}
+
+function subagentCommandLine(run) {
+  return [run?.command, ...(Array.isArray(run?.args) ? run.args : [])].filter(Boolean).join(" ");
 }
 
 function upsertSubagentRunForUi(runs = [], run) {
@@ -2648,8 +2654,11 @@ function SubagentWorkbench({
                   <details className="subagent-evidence-details">
                     <summary>{t.subagentEvidence}</summary>
                     <dl className="subagent-evidence-meta">
+                      <div><dt>{t.activeProject}</dt><dd title={run.project?.path || run.cwd || ""}>{projectLabel(run.project, t)}</dd></div>
+                      <div><dt>{t.subagentSession}</dt><dd>{run.sessionId || "-"}</dd></div>
                       <div><dt>{t.subagentExitCode}</dt><dd>{run.code ?? "-"}</dd></div>
-                      <div><dt>{t.commandDuration}</dt><dd>{typeof run.durationMs === "number" && run.durationMs > 0 ? `${run.durationMs}ms` : "-"}</dd></div>
+                      <div><dt>{t.commandDuration}</dt><dd>{formatDurationMs(run.durationMs)}</dd></div>
+                      <div className="wide-evidence-row"><dt>{t.subagentCommand}</dt><dd title={subagentCommandLine(run)}>{messageExcerpt(subagentCommandLine(run), 120) || "-"}</dd></div>
                     </dl>
                     {run.stdout && (
                       <section>
@@ -2681,7 +2690,7 @@ function SubagentWorkbench({
             )}
             <div className="subagent-run-foot">
               <span>{formatDate(run.endedAt || run.startedAt)}</span>
-              {typeof run.durationMs === "number" && run.durationMs > 0 && <span>{run.durationMs}ms</span>}
+              {typeof run.durationMs === "number" && run.durationMs > 0 && <span>{formatDurationMs(run.durationMs)}</span>}
               <span>{t.subagentArtifacts}: {run.artifacts?.length || 0}</span>
               <button type="button" className="plain-action subtle-action" onClick={() => copySubagentEvidence(run)}>
                 <Copy size={13} />
@@ -6340,6 +6349,7 @@ export function App() {
       requestId,
     });
     setState(next);
+    if (Array.isArray(next?.runEvents)) setRunEvents((current) => mergeRunEvents(current, next.runEvents));
     const run = next.subagentRun;
     const ok = run?.status === "done";
     recordRunEvent({
@@ -6356,6 +6366,7 @@ export function App() {
     if (!desktopApi?.cancelSubagent || !run) return;
     const next = await desktopApi.cancelSubagent({ runId: run.id, requestId: run.requestId });
     setState(next);
+    if (Array.isArray(next?.runEvents)) setRunEvents((current) => mergeRunEvents(current, next.runEvents));
     recordRunEvent({
       id: run.requestId || run.id,
       type: "subagent",

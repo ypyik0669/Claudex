@@ -5229,15 +5229,24 @@ kbd {
 }
 
 .subagent-evidence-meta {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 7px 12px;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 7px;
   margin: 8px 0 0;
 }
 
 .subagent-evidence-meta div {
-  display: flex;
-  gap: 5px;
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+  border: 1px solid #222222;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.02);
+  padding: 5px 6px;
+}
+
+.subagent-evidence-meta .wide-evidence-row {
+  grid-column: 1 / -1;
 }
 
 .subagent-evidence-meta dt {
@@ -5247,8 +5256,12 @@ kbd {
 
 .subagent-evidence-meta dd {
   margin: 0;
+  overflow: hidden;
   color: #d8d8d5;
+  font-family: var(--font-mono);
   font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .subagent-artifact-list {
