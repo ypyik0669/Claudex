@@ -4292,6 +4292,13 @@ kbd {
   font-size: 12px;
 }
 
+.structured-registry-head-actions {
+  display: inline-flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
 .structured-registry-head strong {
   color: #f0eee8;
   font-size: 13px;

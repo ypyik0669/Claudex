@@ -555,6 +555,7 @@ const copy = {
     noMarketplacePlugins: "本地市场目录里没有找到可安装插件。",
     noMcpServers: "没有配置 MCP 服务器。",
     mcpServers: "MCP 服务器",
+    recordMcpStatus: "记录 MCP 状态",
     mcpStatusOk: "可用",
     mcpStatusPending: "待确认",
     mcpStatusError: "异常",
@@ -940,6 +941,10 @@ function findRecentPluginActionRun(runs, identifiers, actions) {
 
 function findRecentMarketplaceActionRun(runs) {
   return runs.find((run) => /(?:^|\s)plugin\s+marketplace\s+(?:list|update)(?=\s|$)/i.test(capabilityCommandLine(run))) || null;
+}
+
+function findRecentMcpActionRun(runs) {
+  return runs.find((run) => /(?:^|\s)mcp\s+list(?=\s|$)/i.test(capabilityCommandLine(run))) || null;
 }
 
 function cliStatusIssue(label, commandLine, commandState, t, jsonCommandLine = "") {
@@ -5137,6 +5142,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
   const mcpServerRows = (Array.isArray(cliStatus?.mcpServers) ? cliStatus.mcpServers : []).filter((item) => structuredQueryMatch(item, normalizedQuery));
   const recentCapabilityRuns = useMemo(() => capabilityRunsNewestFirst(state.commandRuns), [state.commandRuns]);
   const recentMarketplaceActionRun = findRecentMarketplaceActionRun(recentCapabilityRuns);
+  const recentMcpActionRun = findRecentMcpActionRun(recentCapabilityRuns);
   const cliWorking = cliBusy || marketplaceBusy || Boolean(cliAction);
   const cliStatusIssueByTab = {
     plugins: cliStatusIssue(t.plugins, "plugin list", cliStatus?.pluginCommand, t, "plugin list --json"),
@@ -5694,8 +5700,21 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
               <section className="structured-registry-section" aria-label={t.mcpServers}>
                 <div className="structured-registry-head">
                   <span>{t.mcpServers}</span>
-                  <strong>{mcpServerRows.length}</strong>
+                  <div className="structured-registry-head-actions">
+                    <strong>{mcpServerRows.length}</strong>
+                    <button
+                      type="button"
+                      className="plain-action subtle-action"
+                      onClick={() => runCapabilityClaude("mcp list")}
+                      disabled={cliWorking}
+                      title={cliWorking ? t.workingHint : undefined}
+                    >
+                      <RefreshCw size={13} className={cliAction === "mcp list" ? "spin" : undefined} />
+                      {t.recordMcpStatus}
+                    </button>
+                  </div>
                 </div>
+                <RowCliActionEvidence run={recentMcpActionRun} t={t} />
                 {mcpServerRows.length === 0 && <p className="empty-list">{t.noMcpServers}</p>}
                 {mcpServerRows.map((server) => (
                   <article className="structured-plugin-row" key={`${server.name}-${server.raw}`}>
