@@ -12,6 +12,7 @@ import {
   Clock3,
   Code2,
   Copy,
+  Download,
   ExternalLink,
   Folder,
   FileText,
@@ -480,6 +481,27 @@ const copy = {
     pluginStatusEnabled: "已启用",
     pluginStatusDisabled: "已禁用",
     enablePlugin: "启用",
+    uninstallPlugin: "卸载",
+    installedCliPlugins: "CLI 已安装插件",
+    marketplaceCatalog: "市场插件目录",
+    marketplaceSources: "已配置市场",
+    marketplacePluginCount: "{count} 个可安装插件",
+    noMarketplacePlugins: "本地市场目录里没有找到可安装插件。",
+    noMcpServers: "没有配置 MCP 服务器。",
+    mcpServers: "MCP 服务器",
+    mcpStatusOk: "可用",
+    mcpStatusPending: "待确认",
+    mcpStatusError: "异常",
+    mcpStatusUnknown: "未知",
+    installFromMarketplace: "从市场安装",
+    openHomepage: "主页",
+    source: "来源",
+    category: "分类",
+    author: "作者",
+    scope: "范围",
+    version: "版本",
+    installPath: "安装路径",
+    rawOutput: "原始输出",
     runStreaming: "正在运行，输出会实时显示在下面。",
     doctor: "诊断",
     help: "帮助",
@@ -863,6 +885,31 @@ function compactPath(value, max = 54) {
   const tail = parts.slice(-2).join("\\");
   const head = normalized.slice(0, Math.max(12, max - tail.length - 3));
   return `${head}…\\${tail}`;
+}
+
+function structuredQueryMatch(item, query) {
+  const normalized = String(query || "").trim().toLowerCase();
+  if (!normalized) return true;
+  return [
+    item?.id,
+    item?.name,
+    item?.marketplace,
+    item?.description,
+    item?.category,
+    item?.author,
+    item?.source,
+    item?.repo,
+    item?.scope,
+    item?.status,
+    item?.detail,
+  ].join(" ").toLowerCase().includes(normalized);
+}
+
+function mcpStatusLabel(status, t) {
+  if (status === "ok") return t.mcpStatusOk;
+  if (status === "pending") return t.mcpStatusPending;
+  if (status === "error") return t.mcpStatusError;
+  return t.mcpStatusUnknown;
 }
 
 function authLabel(auth, settings) {
@@ -2713,6 +2760,7 @@ function ToolsPanel({
       stderr: claudeStream.stderr,
     }
     : null;
+  const installedPluginItems = pluginItems || claudeStatus?.pluginItems || [];
 
   return (
     <aside className="tools-panel">
@@ -3158,14 +3206,16 @@ function ToolsPanel({
                 </div>
                 {pluginsLoading && !pluginItems && <p className="empty-list">{t.pluginsLoading}</p>}
                 {pluginsError && <p className="empty-list">{pluginsError}</p>}
-                {!pluginsLoading && !pluginsError && pluginItems?.length === 0 && <p className="empty-list">{t.pluginsEmpty}</p>}
-                {pluginItems?.length > 0 && (
+                {!pluginsLoading && !pluginsError && installedPluginItems.length === 0 && <p className="empty-list">{t.pluginsEmpty}</p>}
+                {installedPluginItems.length > 0 && (
                   <div className="plugin-status-items">
-                    {pluginItems.map((plugin) => (
+                    {installedPluginItems.map((plugin) => (
                       <div className="plugin-status-item" key={plugin.id}>
                         <div>
                           <strong>{plugin.id}</strong>
-                          <span>{plugin.version && plugin.version !== "unknown" ? `v${plugin.version}` : plugin.scope}</span>
+                          <span title={plugin.installPath || ""}>
+                            {[plugin.version && plugin.version !== "unknown" ? `v${plugin.version}` : "", plugin.scope, plugin.marketplace].filter(Boolean).join(" · ") || t.installedLocal}
+                          </span>
                         </div>
                         <em className={cx("plugin-status-badge", plugin.enabled ? "enabled" : "disabled")}>
                           {plugin.enabled ? t.pluginStatusEnabled : t.pluginStatusDisabled}
@@ -3942,6 +3992,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
   const [cliStatus, setCliStatus] = useState(null);
   const [cliBusy, setCliBusy] = useState(false);
   const [cliError, setCliError] = useState("");
+  const [cliAction, setCliAction] = useState("");
   const [marketplaceOutput, setMarketplaceOutput] = useState("");
   const [marketplaceBusy, setMarketplaceBusy] = useState(false);
   const [customMarketplaceUrl, setCustomMarketplaceUrl] = useState("");
@@ -3970,6 +4021,11 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
     skills: visibleRows.filter((item) => item.type === "skill"),
     mcp: visibleRows.filter((item) => item.type === "tool" && /mcp/i.test(item.id + item.name + item.description)),
   };
+  const installedPluginRows = (Array.isArray(cliStatus?.pluginItems) ? cliStatus.pluginItems : []).filter((item) => structuredQueryMatch(item, normalizedQuery));
+  const marketplaceRows = (Array.isArray(cliStatus?.marketplaces) ? cliStatus.marketplaces : []).filter((item) => structuredQueryMatch(item, normalizedQuery));
+  const marketplacePluginRows = (Array.isArray(cliStatus?.marketplacePlugins) ? cliStatus.marketplacePlugins : []).filter((item) => structuredQueryMatch(item, normalizedQuery));
+  const mcpServerRows = (Array.isArray(cliStatus?.mcpServers) ? cliStatus.mcpServers : []).filter((item) => structuredQueryMatch(item, normalizedQuery));
+  const cliWorking = cliBusy || marketplaceBusy || Boolean(cliAction);
   const searchPlaceholder =
     activeTab === "skills" ? t.searchSkills : activeTab === "marketplace" ? t.searchMarketplace : t.searchPlugins;
 
@@ -3999,11 +4055,33 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
       });
       if (result.code !== 0) throw new Error(result.stderr || result.stdout || t.pluginsLoadError);
       setMarketplaceOutput(result.stdout || result.stderr || t.noCliOutputYet);
+      refreshCliStatus();
     } catch (error) {
       setCliError(error.message || String(error));
       setMarketplaceOutput("");
     } finally {
       setMarketplaceBusy(false);
+    }
+  }
+
+  async function runCapabilityClaude(args) {
+    const nextArgs = String(args || "").trim();
+    if (!desktopApi?.runClaudeCommand || !nextArgs) return;
+    setCliAction(nextArgs);
+    setCliError("");
+    try {
+      const result = await desktopApi.runClaudeCommand({
+        projectPath: activeProject?.path,
+        args: nextArgs,
+        requestId: `capability_${Date.now()}_${Math.random().toString(16).slice(2)}`,
+      });
+      if (result.code !== 0) throw new Error(result.stderr || result.stdout || t.pluginsLoadError);
+      if (/plugin marketplace/i.test(nextArgs)) setMarketplaceOutput(result.stdout || result.stderr || "");
+      await refreshCliStatus();
+    } catch (error) {
+      setCliError(error.message || String(error));
+    } finally {
+      setCliAction("");
     }
   }
 
@@ -4053,7 +4131,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
           <strong>{cliBusy ? `${t.loading}...` : cliStatus?.available ? cliStatus.version || t.ready : t.needsKey}</strong>
           <small>{projectLabel(activeProject, t)}</small>
         </div>
-        <button type="button" className="plain-action subtle-action" onClick={refreshCliStatus} disabled={cliBusy} title={cliBusy ? t.workingHint : t.refreshCliStatus}>
+        <button type="button" className="plain-action subtle-action" onClick={refreshCliStatus} disabled={cliWorking} title={cliWorking ? t.workingHint : t.refreshCliStatus}>
           <RefreshCw size={14} className={cliBusy ? "spin" : undefined} />
           {t.refresh}
         </button>
@@ -4079,10 +4157,10 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
       </div>
       <div className="plugin-manager-tabs" role="tablist" aria-label={t.capabilities}>
         {tabs.map(([id, label]) => {
-          const count = id === "plugins" ? capabilityRows.filter((item) => item.type === "plugin").length
+          const count = id === "plugins" ? installedPluginRows.length || capabilityRows.filter((item) => item.type === "plugin").length
             : id === "skills" ? capabilityRows.filter((item) => item.type === "skill").length
-              : id === "mcp" ? tabRows.mcp.length
-                : 1;
+              : id === "mcp" ? mcpServerRows.length || tabRows.mcp.length
+                : marketplacePluginRows.length || marketplaceRows.length || 1;
           return (
             <button type="button" key={id} className={cx(activeTab === id && "active")} onClick={() => setActiveTab(id)} role="tab" aria-selected={activeTab === id}>
               <span>{label}</span>
@@ -4098,21 +4176,80 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
               <div className="marketplace-card-head">
                 <div>
                   <span>{t.marketplaceSourceClaude}</span>
-                  <strong>{t.marketplace}</strong>
+                  <strong>{t.marketplaceSources}</strong>
                 </div>
                 <div className="marketplace-actions">
                   <button type="button" className="plain-action subtle-action" onClick={onOpenClaudePanel}>
                     <Bot size={14} />
                     {t.openClaudePanel}
                   </button>
-                  <button type="button" className="plain-action" onClick={fetchMarketplace} disabled={marketplaceBusy} title={marketplaceBusy ? t.workingHint : t.fetchMarketplace}>
+                  <button type="button" className="plain-action subtle-action" onClick={() => runCapabilityClaude("plugin marketplace update")} disabled={cliWorking} title={cliWorking ? t.workingHint : undefined}>
+                    <RefreshCw size={14} className={cliAction === "plugin marketplace update" ? "spin" : undefined} />
+                    {t.updatePlugin}
+                  </button>
+                  <button type="button" className="plain-action" onClick={fetchMarketplace} disabled={cliWorking} title={cliWorking ? t.workingHint : t.fetchMarketplace}>
                     <RefreshCw size={14} className={marketplaceBusy ? "spin" : undefined} />
                     {marketplaceBusy ? t.loading : t.fetchMarketplace}
                   </button>
                 </div>
               </div>
               <p>{t.marketplaceHint}</p>
-              <pre className="settings-raw-output marketplace-output">{marketplaceOutput || t.noCliOutputYet}</pre>
+              <div className="marketplace-source-list structured-source-list">
+                {marketplaceRows.length === 0 && <p className="empty-list">{t.noCliOutputYet}</p>}
+                {marketplaceRows.map((item) => (
+                  <article className="marketplace-source-row structured-source-row" key={item.name}>
+                    <div>
+                      <strong>{item.name}</strong>
+                      <span title={item.repo || item.source}>{item.repo || item.source || t.marketplaceSourceClaude}</span>
+                    </div>
+                    <em>{item.source || t.source}</em>
+                  </article>
+                ))}
+              </div>
+              <details className="raw-output-details">
+                <summary>{t.rawOutput}</summary>
+                <pre className="settings-raw-output marketplace-output">{marketplaceOutput || cliStatus?.marketplaceOutput || t.noCliOutputYet}</pre>
+              </details>
+            </section>
+            <section className="marketplace-card">
+              <div className="marketplace-card-head">
+                <div>
+                  <span>{t.marketplaceSourceClaude}</span>
+                  <strong>{t.marketplaceCatalog}</strong>
+                </div>
+                <em className="settings-badge">{t.marketplacePluginCount.replace("{count}", marketplacePluginRows.length)}</em>
+              </div>
+              <div className="marketplace-plugin-grid">
+                {marketplacePluginRows.length === 0 && <p className="empty-list">{t.noMarketplacePlugins}</p>}
+                {marketplacePluginRows.slice(0, 80).map((item) => (
+                  <article className={cx("marketplace-plugin-card", item.installed && "installed")} key={item.id}>
+                    <div className="marketplace-plugin-card-head">
+                      <div>
+                        <strong>{item.name}</strong>
+                        <span>{[item.marketplace, item.category].filter(Boolean).join(" · ") || t.marketplace}</span>
+                      </div>
+                      <em>{item.installed ? t.installedLocal : t.marketplace}</em>
+                    </div>
+                    <p>{messageExcerpt(item.description, 150) || item.source || item.id}</p>
+                    <dl className="marketplace-plugin-meta">
+                      {item.author && <div><dt>{t.author}</dt><dd>{item.author}</dd></div>}
+                      {item.source && <div><dt>{t.source}</dt><dd title={item.source}>{compactPath(item.source, 54)}</dd></div>}
+                    </dl>
+                    <div className="marketplace-card-actions">
+                      <button type="button" className="plain-action" onClick={() => runCapabilityClaude(`plugin install ${item.id}`)} disabled={cliWorking || item.installed} title={item.installed ? t.installedLocal : cliWorking ? t.workingHint : t.installFromMarketplace}>
+                        <Download size={14} />
+                        {item.installed ? t.installedLocal : t.installFromMarketplace}
+                      </button>
+                      {item.homepage && (
+                        <button type="button" className="plain-action subtle-action" onClick={() => desktopApi?.openBrowserUrl?.(item.homepage)}>
+                          <ExternalLink size={13} />
+                          {t.openHomepage}
+                        </button>
+                      )}
+                    </div>
+                  </article>
+                ))}
+              </div>
             </section>
             <section className="marketplace-card">
               <div className="marketplace-card-head">
@@ -4151,19 +4288,67 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
             </section>
           </div>
         ) : (
-          (activeTab === "mcp" ? tabRows.mcp : activeTab === "skills" ? tabRows.skills : tabRows.plugins).map((item) => (
-            <PluginManagerRow
-              key={item.id}
-              icon={item.type === "plugin" ? <Plug size={17} /> : item.type === "skill" ? <Blocks size={17} /> : <SquareTerminal size={17} />}
-              title={item.name}
-              subtitle={item.description}
-              enabled={item.enabled}
-              onToggle={() => onToggle(item.id, !item.enabled)}
-              t={t}
-            />
-          ))
+          <>
+            {activeTab === "plugins" && (
+              <section className="structured-registry-section" aria-label={t.installedCliPlugins}>
+                <div className="structured-registry-head">
+                  <span>{t.installedCliPlugins}</span>
+                  <strong>{installedPluginRows.length}</strong>
+                </div>
+                {installedPluginRows.length === 0 && <p className="empty-list">{t.pluginsEmpty}</p>}
+                {installedPluginRows.map((plugin) => (
+                  <article className="structured-plugin-row" key={plugin.id}>
+                    <span className="plugin-manager-icon"><Plug size={17} /></span>
+                    <div className="plugin-manager-copy">
+                      <strong>{plugin.id}</strong>
+                      <small title={plugin.installPath || ""}>{[plugin.version && plugin.version !== "unknown" ? `${t.version}: ${plugin.version}` : "", plugin.scope && `${t.scope}: ${plugin.scope}`, plugin.marketplace].filter(Boolean).join(" · ") || t.installedLocal}</small>
+                    </div>
+                    <em className={cx("plugin-status-badge", plugin.enabled ? "enabled" : "disabled")}>{plugin.enabled ? t.pluginStatusEnabled : t.pluginStatusDisabled}</em>
+                    <div className="structured-row-actions">
+                      {plugin.enabled ? (
+                        <button type="button" className="plain-action subtle-action" onClick={() => runCapabilityClaude(`plugin disable ${plugin.id}`)} disabled={cliWorking} title={cliWorking ? t.workingHint : undefined}>{t.disablePlugin}</button>
+                      ) : (
+                        <button type="button" className="plain-action subtle-action" onClick={() => runCapabilityClaude(`plugin enable ${plugin.id}`)} disabled={cliWorking} title={cliWorking ? t.workingHint : undefined}>{t.enablePlugin}</button>
+                      )}
+                      <button type="button" className="plain-action subtle-action" onClick={() => runCapabilityClaude(`plugin update ${plugin.id}`)} disabled={cliWorking} title={cliWorking ? t.workingHint : undefined}>{t.updatePlugin}</button>
+                    </div>
+                  </article>
+                ))}
+              </section>
+            )}
+            {activeTab === "mcp" && (
+              <section className="structured-registry-section" aria-label={t.mcpServers}>
+                <div className="structured-registry-head">
+                  <span>{t.mcpServers}</span>
+                  <strong>{mcpServerRows.length}</strong>
+                </div>
+                {mcpServerRows.length === 0 && <p className="empty-list">{t.noMcpServers}</p>}
+                {mcpServerRows.map((server) => (
+                  <article className="structured-plugin-row" key={`${server.name}-${server.raw}`}>
+                    <span className="plugin-manager-icon"><Blocks size={17} /></span>
+                    <div className="plugin-manager-copy">
+                      <strong>{server.name}</strong>
+                      <small title={server.raw}>{server.detail || server.raw}</small>
+                    </div>
+                    <em className={cx("plugin-status-badge", server.status)}>{mcpStatusLabel(server.status, t)}</em>
+                  </article>
+                ))}
+              </section>
+            )}
+            {(activeTab === "mcp" ? tabRows.mcp : activeTab === "skills" ? tabRows.skills : tabRows.plugins).map((item) => (
+              <PluginManagerRow
+                key={item.id}
+                icon={item.type === "plugin" ? <Plug size={17} /> : item.type === "skill" ? <Blocks size={17} /> : <SquareTerminal size={17} />}
+                title={item.name}
+                subtitle={item.description}
+                enabled={item.enabled}
+                onToggle={() => onToggle(item.id, !item.enabled)}
+                t={t}
+              />
+            ))}
+          </>
         )}
-        {activeTab !== "marketplace" && (activeTab === "mcp" ? tabRows.mcp : activeTab === "skills" ? tabRows.skills : tabRows.plugins).length === 0 && (
+        {activeTab !== "marketplace" && (activeTab === "mcp" ? tabRows.mcp : activeTab === "skills" ? tabRows.skills : tabRows.plugins).length === 0 && activeTab === "skills" && (
           <p className="empty-list">{t.noCapabilities}</p>
         )}
         {activeTab === "plugins" && (

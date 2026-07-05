@@ -482,6 +482,16 @@ function fileSnapshot(target, content) {
   };
 }
 
+function spawnDescriptor(command, args = []) {
+  if (process.platform === "win32" && /\.(cmd|bat)$/i.test(String(command || ""))) {
+    return {
+      command: process.env.ComSpec || "cmd.exe",
+      args: ["/d", "/c", command, ...args],
+    };
+  }
+  return { command, args };
+}
+
 function runProcess(command, args = [], options = {}) {
   const timeoutMs = Number(options.timeoutMs || CLAUDE_TIMEOUT_MS);
   const maxOutputChars = Number(options.maxOutputChars || MAX_COMMAND_OUTPUT_CHARS);
@@ -493,7 +503,8 @@ function runProcess(command, args = [], options = {}) {
       for (const [key, value] of Object.entries(childEnv)) {
         if (value === undefined || value === null) delete childEnv[key];
       }
-      child = spawn(command, args, {
+      const spawnTarget = spawnDescriptor(command, args);
+      child = spawn(spawnTarget.command, spawnTarget.args, {
         cwd: options.cwd || app.getPath("home"),
         windowsHide: true,
         env: childEnv,
@@ -559,7 +570,8 @@ function runStreamingProcess(command, args = [], options = {}) {
       for (const [key, value] of Object.entries(childEnv)) {
         if (value === undefined || value === null) delete childEnv[key];
       }
-      child = spawn(command, args, {
+      const spawnTarget = spawnDescriptor(command, args);
+      child = spawn(spawnTarget.command, spawnTarget.args, {
         cwd: options.cwd || app.getPath("home"),
         windowsHide: true,
         env: childEnv,
@@ -630,7 +642,7 @@ function runStreamingProcess(command, args = [], options = {}) {
 function parseJsonOutput(output) {
   const trimmed = String(output || "").trim();
   if (!trimmed) return null;
-  const candidates = [trimmed, ...trimmed.split(/\r?\n/).filter((line) => line.trim().startsWith("{"))].reverse();
+  const candidates = [trimmed, ...trimmed.split(/\r?\n/).filter((line) => /^[\[{]/.test(line.trim()))].reverse();
   for (const candidate of candidates) {
     try {
       return JSON.parse(candidate);
@@ -641,8 +653,189 @@ function parseJsonOutput(output) {
   return null;
 }
 
+function parseJsonArrayOutput(output) {
+  const parsed = parseJsonOutput(output);
+  return Array.isArray(parsed) ? parsed : [];
+}
+
 function stripAnsi(value) {
   return String(value || "").replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, "");
+}
+
+function pluginNameFromId(idValue) {
+  const idText = String(idValue || "").trim();
+  return idText.split("@")[0] || idText;
+}
+
+function pluginMarketplaceFromId(idValue) {
+  const idText = String(idValue || "").trim();
+  return idText.includes("@") ? idText.split("@").slice(1).join("@") : "";
+}
+
+function parseClaudePluginText(rawOutput) {
+  const lines = stripAnsi(rawOutput).split(/\r?\n/);
+  const items = [];
+  let current = null;
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    const head = line.match(/^>\s+(.+)$/);
+    if (head) {
+      if (current?.id) items.push(current);
+      current = {
+        id: head[1].trim(),
+        name: pluginNameFromId(head[1]),
+        marketplace: pluginMarketplaceFromId(head[1]),
+        source: "claude-code",
+      };
+      continue;
+    }
+    if (!current) continue;
+    const pair = line.match(/^([^:]+):\s*(.+)$/);
+    if (!pair) continue;
+    const key = pair[1].trim().toLowerCase();
+    const value = pair[2].trim();
+    if (key === "version") current.version = value;
+    if (key === "scope") current.scope = value;
+    if (key === "status") {
+      current.status = value;
+      current.enabled = /enabled/i.test(value);
+    }
+  }
+  if (current?.id) items.push(current);
+  return items;
+}
+
+function normalizeClaudePluginItems(jsonOutput, rawOutput) {
+  const jsonItems = parseJsonArrayOutput(jsonOutput);
+  const sourceItems = jsonItems.length ? jsonItems : parseClaudePluginText(rawOutput);
+  return sourceItems.map((plugin) => {
+    const idText = String(plugin.id || plugin.name || "").trim();
+    const enabled = typeof plugin.enabled === "boolean" ? plugin.enabled : /enabled/i.test(plugin.status || "");
+    return {
+      id: idText,
+      name: String(plugin.name || pluginNameFromId(idText)).trim() || idText,
+      marketplace: String(plugin.marketplace || pluginMarketplaceFromId(idText)).trim(),
+      version: String(plugin.version || "unknown"),
+      scope: String(plugin.scope || ""),
+      enabled,
+      status: enabled ? "enabled" : "disabled",
+      installPath: String(plugin.installPath || ""),
+      installedAt: String(plugin.installedAt || ""),
+      lastUpdated: String(plugin.lastUpdated || ""),
+      source: "claude-code",
+    };
+  }).filter((plugin) => plugin.id);
+}
+
+function normalizeMarketplaceItems(jsonOutput, rawOutput) {
+  const jsonItems = parseJsonArrayOutput(jsonOutput);
+  if (jsonItems.length) {
+    return jsonItems.map((item) => ({
+      name: String(item.name || "").trim(),
+      source: String(item.source || ""),
+      repo: String(item.repo || item.url || item.path || ""),
+      installLocation: String(item.installLocation || item.path || ""),
+      raw: item,
+    })).filter((item) => item.name);
+  }
+
+  const lines = stripAnsi(rawOutput).split(/\r?\n/);
+  const items = [];
+  let current = null;
+  for (const rawLine of lines) {
+    const line = rawLine.trim();
+    if (!line) continue;
+    const head = line.match(/^>\s+(.+)$/);
+    if (head) {
+      if (current?.name) items.push(current);
+      current = { name: head[1].trim(), source: "", repo: "", installLocation: "", raw: {} };
+      continue;
+    }
+    const sourceMatch = line.match(/^Source:\s*(.+)$/i);
+    if (current && sourceMatch) {
+      const source = sourceMatch[1].trim();
+      current.source = source;
+      current.repo = source;
+    }
+  }
+  if (current?.name) items.push(current);
+  return items;
+}
+
+function readJsonFileSafe(file) {
+  try {
+    if (!file || !fs.existsSync(file)) return null;
+    return JSON.parse(fs.readFileSync(file, "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+function marketplacePluginSourceSummary(source) {
+  if (!source) return "";
+  if (typeof source === "string") return source;
+  return [source.source, source.url, source.path, source.ref].filter(Boolean).join(" · ");
+}
+
+function loadMarketplacePluginCatalog(marketplaces, installedPlugins) {
+  const installedIds = new Set();
+  for (const plugin of installedPlugins || []) {
+    if (plugin.id) installedIds.add(String(plugin.id).toLowerCase());
+    if (plugin.name) installedIds.add(String(plugin.name).toLowerCase());
+    if (plugin.name && plugin.marketplace) installedIds.add(`${plugin.name}@${plugin.marketplace}`.toLowerCase());
+  }
+  const catalog = [];
+  for (const marketplace of marketplaces || []) {
+    const manifest = readJsonFileSafe(path.join(marketplace.installLocation || "", ".claude-plugin", "marketplace.json"));
+    const plugins = Array.isArray(manifest?.plugins) ? manifest.plugins : [];
+    for (const plugin of plugins) {
+      const name = String(plugin.name || "").trim();
+      if (!name) continue;
+      const idText = `${name}@${marketplace.name}`;
+      const author = typeof plugin.author === "string" ? plugin.author : plugin.author?.name || manifest?.owner?.name || "";
+      const installed = installedIds.has(idText.toLowerCase()) || installedIds.has(name.toLowerCase());
+      catalog.push({
+        id: idText,
+        name,
+        marketplace: marketplace.name,
+        description: String(plugin.description || manifest?.description || manifest?.metadata?.description || ""),
+        category: String(plugin.category || ""),
+        author: String(author || ""),
+        homepage: String(plugin.homepage || ""),
+        source: marketplacePluginSourceSummary(plugin.source),
+        installed,
+      });
+      if (catalog.length >= 240) return catalog;
+    }
+  }
+  return catalog;
+}
+
+function parseMcpServers(rawOutput) {
+  const text = stripAnsi(rawOutput).trim();
+  if (!text || /no mcp servers configured/i.test(text)) return [];
+  return text
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .filter((line) => !/^checking|^name\s+/i.test(line))
+    .map((line) => {
+      const clean = line.replace(/^[✓✔✗×!⏸\-\*]\s*/, "").trim();
+      const pair = clean.match(/^([^:\s]+)\s*[:\s]\s*(.*)$/);
+      const name = pair?.[1] || clean.split(/\s+/)[0] || clean;
+      const detail = pair?.[2] || clean.replace(name, "").trim();
+      const lower = line.toLowerCase();
+      const status = /pending|paused|⏸/.test(lower)
+        ? "pending"
+        : /failed|error|✗|×/.test(lower)
+          ? "error"
+          : /connected|ok|✓|✔/.test(lower)
+            ? "ok"
+            : "unknown";
+      return { name, detail, status, raw: line };
+    })
+    .filter((item) => item.name);
 }
 
 function splitArgs(value) {
@@ -874,6 +1067,10 @@ async function runClaudeCommand(command, args = [], options = {}) {
     if (!(result.code === 1 && /ENOENT/i.test(result.stderr || ""))) return result;
   }
   return lastResult || { code: 1, stdout: "", stderr: "未找到 Claude 命令。", durationMs: 0 };
+}
+
+function configuredClaudeCommand(store = readStore()) {
+  return String(store.settings?.claudeCode?.claudeCommand || "claude").trim() || "claude";
 }
 
 function claudeProcessEnv(extra = {}) {
@@ -1682,18 +1879,33 @@ ipcMain.handle("app:get-environment", async (_event, { projectPath } = {}) => {
 
 ipcMain.handle("claude:status", async (_event, { projectPath } = {}) => {
   const cwd = projectPath && fs.existsSync(projectPath) ? projectPath : app.getPath("home");
-  const [version, auth, plugins, mcp] = await Promise.all([
-    runClaudeCommand("claude", ["--version"], { cwd, timeoutMs: 20000 }),
-    runClaudeCommand("claude", ["auth", "status"], { cwd, timeoutMs: 30000 }),
-    runClaudeCommand("claude", ["plugin", "list"], { cwd, timeoutMs: 30000 }),
-    runClaudeCommand("claude", ["mcp", "list"], { cwd, timeoutMs: 30000 }),
+  const claudeCommand = configuredClaudeCommand();
+  const [version, auth, plugins, pluginsJson, mcp, marketplaces, marketplacesJson] = await Promise.all([
+    runClaudeCommand(claudeCommand, ["--version"], { cwd, timeoutMs: 20000 }),
+    runClaudeCommand(claudeCommand, ["auth", "status"], { cwd, timeoutMs: 30000 }),
+    runClaudeCommand(claudeCommand, ["plugin", "list"], { cwd, timeoutMs: 30000 }),
+    runClaudeCommand(claudeCommand, ["plugin", "list", "--json"], { cwd, timeoutMs: 30000 }),
+    runClaudeCommand(claudeCommand, ["mcp", "list"], { cwd, timeoutMs: 30000 }),
+    runClaudeCommand(claudeCommand, ["plugin", "marketplace", "list"], { cwd, timeoutMs: 30000 }),
+    runClaudeCommand(claudeCommand, ["plugin", "marketplace", "list", "--json"], { cwd, timeoutMs: 30000 }),
   ]);
+  const pluginItems = normalizeClaudePluginItems(pluginsJson.stdout, plugins.stdout || plugins.stderr);
+  const marketplaceItems = normalizeMarketplaceItems(marketplacesJson.stdout, marketplaces.stdout || marketplaces.stderr);
+  const mcpRaw = stripAnsi(mcp.stdout || mcp.stderr).trim();
   return {
     available: version.code === 0,
     version: stripAnsi(version.stdout || version.stderr).trim(),
     auth: parseJsonOutput(auth.stdout) || { raw: stripAnsi(auth.stdout || auth.stderr).trim(), code: auth.code },
     plugins: stripAnsi(plugins.stdout || plugins.stderr).trim(),
-    mcp: stripAnsi(mcp.stdout || mcp.stderr).trim(),
+    pluginItems,
+    pluginCommand: { code: plugins.code, jsonCode: pluginsJson.code, error: stripAnsi(pluginsJson.stderr || plugins.stderr).trim() },
+    mcp: mcpRaw,
+    mcpServers: parseMcpServers(mcpRaw),
+    mcpCommand: { code: mcp.code, error: stripAnsi(mcp.stderr).trim() },
+    marketplaces: marketplaceItems,
+    marketplacePlugins: loadMarketplacePluginCatalog(marketplaceItems, pluginItems),
+    marketplaceOutput: stripAnsi(marketplaces.stdout || marketplaces.stderr).trim(),
+    marketplaceCommand: { code: marketplaces.code, jsonCode: marketplacesJson.code, error: stripAnsi(marketplacesJson.stderr || marketplaces.stderr).trim() },
   };
 });
 
@@ -1701,8 +1913,9 @@ ipcMain.handle("claude:run", async (_event, { projectPath, args, requestId } = {
   const cwd = projectPath && fs.existsSync(projectPath) ? projectPath : app.getPath("home");
   const argv = Array.isArray(args) ? args.map(String).filter(Boolean) : splitArgs(args);
   if (!argv.length) throw new Error("Claude 命令为空。");
+  const claudeCommand = configuredClaudeCommand();
   let lastResult = null;
-  for (const candidate of commandCandidates("claude")) {
+  for (const candidate of commandCandidates(claudeCommand)) {
     const result = await runStreamingProcess(candidate, argv, {
       cwd,
       requestId,

@@ -3354,7 +3354,27 @@ select:focus-visible,
   background: rgba(155, 179, 108, 0.14);
 }
 
+.plugin-status-badge.ok {
+  color: #b9c7ab;
+  background: rgba(155, 179, 108, 0.14);
+}
+
 .plugin-status-badge.disabled {
+  color: #8f918f;
+  background: rgba(255, 255, 255, 0.06);
+}
+
+.plugin-status-badge.pending {
+  color: #d4a27b;
+  background: rgba(209, 131, 87, 0.12);
+}
+
+.plugin-status-badge.error {
+  color: #ef8b8b;
+  background: rgba(239, 113, 113, 0.12);
+}
+
+.plugin-status-badge.unknown {
   color: #8f918f;
   background: rgba(255, 255, 255, 0.06);
 }
@@ -3779,6 +3799,49 @@ kbd {
   opacity: 1;
 }
 
+.structured-registry-section {
+  display: grid;
+  gap: 7px;
+  border: 1px solid #242424;
+  border-radius: var(--radius);
+  background: #0f0f0f;
+  padding: 10px;
+}
+
+.structured-registry-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.structured-registry-head strong {
+  color: #f0eee8;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.structured-plugin-row {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: 10px;
+  border: 1px solid #272727;
+  border-radius: var(--radius-sm);
+  background: #111111;
+  padding: 9px;
+}
+
+.structured-row-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
 .plugin-manager-icon {
   width: 34px;
   height: 34px;
@@ -4068,6 +4131,141 @@ kbd {
   font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.structured-source-row strong {
+  display: block;
+  min-width: 0;
+  overflow: hidden;
+  color: #f0eee8;
+  font-size: 13px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.structured-source-row em {
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #a4aaa7;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-style: normal;
+  white-space: nowrap;
+}
+
+.raw-output-details {
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+}
+
+.raw-output-details summary {
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 12px;
+}
+
+.marketplace-plugin-grid {
+  display: grid;
+  gap: 8px;
+}
+
+.marketplace-plugin-card {
+  min-width: 0;
+  display: grid;
+  gap: 8px;
+  border: 1px solid #242424;
+  border-radius: var(--radius-sm);
+  background: #0d0d0d;
+  padding: 10px;
+}
+
+.marketplace-plugin-card.installed {
+  border-color: rgba(155, 179, 108, 0.22);
+  background: rgba(155, 179, 108, 0.06);
+}
+
+.marketplace-plugin-card-head {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: start;
+  gap: 8px;
+}
+
+.marketplace-plugin-card-head strong,
+.marketplace-plugin-card-head span {
+  min-width: 0;
+  overflow: hidden;
+  display: block;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.marketplace-plugin-card-head strong {
+  color: #f0eee8;
+  font-size: 13.5px;
+  font-weight: 500;
+}
+
+.marketplace-plugin-card-head span {
+  margin-top: 2px;
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
+.marketplace-plugin-card-head em {
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.06);
+  color: #a4aaa7;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-style: normal;
+  white-space: nowrap;
+}
+
+.marketplace-plugin-card.installed .marketplace-plugin-card-head em {
+  background: rgba(155, 179, 108, 0.14);
+  color: #b9c7ab;
+}
+
+.marketplace-plugin-meta {
+  display: grid;
+  gap: 4px;
+  margin: 0;
+}
+
+.marketplace-plugin-meta div {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 62px minmax(0, 1fr);
+  gap: 8px;
+}
+
+.marketplace-plugin-meta dt,
+.marketplace-plugin-meta dd {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  font-size: 11.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.marketplace-plugin-meta dt {
+  color: #7f8582;
+}
+
+.marketplace-plugin-meta dd {
+  color: #c6cbc6;
+}
+
+.marketplace-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 7px;
 }
 
 .settings-status-grid {

@@ -153,7 +153,7 @@ app.whenReady().then(async () => {
 
   assertStep("PASS32_PLUGINS_OPEN", await win.webContents.executeJavaScript(`
     (function() {
-      const button = [...document.querySelectorAll('.nav-stack button')].find((candidate) => /Plugins/i.test(candidate.textContent || ''));
+      const button = [...document.querySelectorAll('.nav-stack button')].find((candidate) => /Plugins|插件/i.test(candidate.textContent || ''));
       if (!button) return false;
       button.click();
       return true;
@@ -164,7 +164,7 @@ app.whenReady().then(async () => {
 
   assertStep("PASS32_MARKETPLACE_TAB", await win.webContents.executeJavaScript(`
     (function() {
-      const button = [...document.querySelectorAll('.plugin-manager-tabs button')].find((candidate) => /Marketplace/i.test(candidate.textContent || ''));
+      const button = [...document.querySelectorAll('.plugin-manager-tabs button')].find((candidate) => /Marketplace|市场/i.test(candidate.textContent || ''));
       if (!button) return false;
       button.click();
       return true;
