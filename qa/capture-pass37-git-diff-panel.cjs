@@ -38,6 +38,7 @@ function setupGitProject() {
   fs.writeFileSync(path.join(GIT_PROJECT_DIR, TARGET_FILE), EDITED_CONTENT, "utf8");
   fs.writeFileSync(path.join(GIT_PROJECT_DIR, SECOND_FILE), SECOND_EDITED_CONTENT, "utf8");
   fs.writeFileSync(path.join(GIT_PROJECT_DIR, UNTRACKED_FILE), UNTRACKED_CONTENT, "utf8");
+  runGit(["add", SECOND_FILE]);
 }
 
 function cleanup() {
@@ -146,6 +147,10 @@ app.whenReady().then(async () => {
       /pass37-diff-evidence/.test(document.querySelector('.git-diff-preview')?.textContent || '') &&
       /pass37-second-evidence/.test(document.querySelector('.git-diff-preview')?.textContent || '') &&
       /pass37 untracked evidence/.test(document.querySelector('.git-diff-preview')?.textContent || '') &&
+      /已暂存\\s*1/.test(document.querySelector('.git-change-summary')?.textContent || '') &&
+      /未暂存\\s*1/.test(document.querySelector('.git-change-summary')?.textContent || '') &&
+      /未跟踪\\s*1/.test(document.querySelector('.git-change-summary')?.textContent || '') &&
+      /git status --short --branch/.test(document.querySelector('.git-change-summary')?.textContent || '') &&
       /${TARGET_FILE}/.test(document.querySelector('.git-change-list')?.textContent || '') &&
       /${SECOND_FILE}/.test(document.querySelector('.git-change-list')?.textContent || '') &&
       /${UNTRACKED_FILE}/.test(document.querySelector('.git-change-list')?.textContent || '') &&

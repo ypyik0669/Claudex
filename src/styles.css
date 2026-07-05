@@ -6956,6 +6956,82 @@ kbd {
   max-height: 96px;
 }
 
+.git-change-summary {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 0.9fr) minmax(0, 1.1fr);
+  align-items: center;
+  gap: 10px;
+  border: 1px solid #252525;
+  border-radius: var(--radius-sm);
+  background: #0c0c0c;
+  padding: 9px 10px;
+}
+
+.git-change-summary > div:first-child {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.git-change-summary span {
+  color: #f0eee8;
+  font-size: 12.5px;
+  font-weight: 500;
+}
+
+.git-change-summary small {
+  min-width: 0;
+  overflow: hidden;
+  color: #8f9692;
+  font-size: 11.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.git-change-summary-chips {
+  display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.git-summary-chip {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.04);
+  color: #d8d8d3;
+  padding: 3px 8px;
+  font-size: 11px;
+  font-style: normal;
+  white-space: nowrap;
+}
+
+.git-summary-chip.staged {
+  border-color: rgba(155, 179, 108, 0.28);
+  background: rgba(155, 179, 108, 0.1);
+  color: #c6dda0;
+}
+
+.git-summary-chip.unstaged,
+.git-summary-chip.mixed {
+  border-color: rgba(209, 131, 87, 0.28);
+  background: rgba(209, 131, 87, 0.1);
+  color: #f0c3a2;
+}
+
+.git-summary-chip.untracked {
+  border-color: rgba(93, 130, 177, 0.3);
+  background: rgba(93, 130, 177, 0.12);
+  color: #bcd3f1;
+}
+
+.git-summary-chip.conflicted {
+  border-color: rgba(211, 106, 92, 0.32);
+  background: rgba(211, 106, 92, 0.12);
+  color: #efb0aa;
+}
+
 .git-diff-preview {
   min-width: 0;
   display: grid;
@@ -7068,6 +7144,25 @@ kbd {
 .git-change-item:hover,
 .git-change-item.selected {
   background: rgba(255, 255, 255, 0.045);
+}
+
+.git-change-item.kind-staged .git-change-status {
+  border-color: rgba(155, 179, 108, 0.28);
+  background: rgba(155, 179, 108, 0.12);
+  color: #c6dda0;
+}
+
+.git-change-item.kind-untracked .git-change-status {
+  border-color: rgba(93, 130, 177, 0.32);
+  background: rgba(93, 130, 177, 0.14);
+  color: #bcd3f1;
+}
+
+.git-change-item.kind-mixed .git-change-status,
+.git-change-item.kind-unstaged .git-change-status {
+  border-color: rgba(209, 131, 87, 0.28);
+  background: rgba(209, 131, 87, 0.12);
+  color: #f0c3a2;
 }
 
 .git-change-item.selected {

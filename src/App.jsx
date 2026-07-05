@@ -777,6 +777,15 @@ const copy = {
     gitRawStatus: "Raw Status",
     noGitDiff: "当前没有可显示的 diff 统计。",
     allChanges: "全部变更",
+    gitSummary: "Git 变更摘要",
+    stagedChanges: "已暂存",
+    unstagedChanges: "未暂存",
+    untrackedChanges: "未跟踪",
+    mixedChanges: "混合",
+    renamedChanges: "重命名",
+    deletedChanges: "删除",
+    conflictedChanges: "冲突",
+    gitSummaryBackedByCli: "来自 git status --short --branch 与 git diff",
     focusFileDiff: "聚焦文件 diff",
     focusedFileDiff: "已聚焦文件",
     runCommand: "运行命令",
@@ -1952,6 +1961,16 @@ function Conversation({
   const branchLabel = git?.branch || t.gitUnavailable;
   const rawGitStatus = String(git?.raw || "").trim();
   const gitFiles = Array.isArray(git?.files) ? git.files : [];
+  const gitSummary = git?.summary || {};
+  const gitSummaryItems = [
+    [t.stagedChanges, gitSummary.staged || 0, "staged"],
+    [t.unstagedChanges, gitSummary.unstaged || 0, "unstaged"],
+    [t.untrackedChanges, gitSummary.untracked || 0, "untracked"],
+    [t.mixedChanges, gitSummary.mixed || 0, "mixed"],
+    [t.renamedChanges, gitSummary.renamed || 0, "renamed"],
+    [t.deletedChanges, gitSummary.deleted || 0, "deleted"],
+    [t.conflictedChanges, gitSummary.conflicted || 0, "conflicted"],
+  ].filter(([, count]) => Number(count) > 0);
   const gitStat = String(git?.stat || "").trim();
   const gitDiffText = String(git?.diff?.text || "").trim();
   const gitFileDiffs = Array.isArray(git?.diff?.fileDiffs) ? git.diff.fileDiffs : [];
@@ -2281,6 +2300,10 @@ function Conversation({
                     <p>{activeProject?.path ? compactPath(activeProject.path, 78) : t.noProjectPath}</p>
                   </div>
                   <div className="bottom-panel-actions">
+                    <button type="button" className="plain-action subtle-action" onClick={onRefreshEnvironment}>
+                      <RefreshCw size={14} />
+                      {t.refresh}
+                    </button>
                     <button type="button" className="plain-action subtle-action" onClick={() => onActivateTool("workspace")}>
                       <FileText size={14} />
                       {t.reviewChanges}
@@ -2291,6 +2314,21 @@ function Conversation({
                     </button>
                   </div>
                 </div>
+                <section className="git-change-summary" aria-label={t.gitSummary}>
+                  <div>
+                    <span>{t.gitSummary}</span>
+                    <small>{t.gitSummaryBackedByCli}</small>
+                  </div>
+                  <div className="git-change-summary-chips">
+                    {gitSummaryItems.length > 0 ? gitSummaryItems.map(([label, count, kind]) => (
+                      <em className={cx("git-summary-chip", kind)} key={label}>
+                        {label} {count}
+                      </em>
+                    )) : (
+                      <em className="git-summary-chip clean">{gitAvailable ? t.noGitDiff : t.gitUnavailable}</em>
+                    )}
+                  </div>
+                </section>
                 {gitFiles.length > 0 && (
                   <div className="git-change-list" aria-label={t.changes}>
                     <button
@@ -2305,7 +2343,7 @@ function Conversation({
                     {gitFiles.slice(0, 12).map((item) => (
                       <button
                         type="button"
-                        className={cx("git-change-item", selectedGitDiffPath === item.path && "selected")}
+                        className={cx("git-change-item", item.kind && `kind-${item.kind}`, selectedGitDiffPath === item.path && "selected")}
                         key={`${item.status}-${item.path}`}
                         onClick={() => setSelectedGitDiffPath(item.path)}
                         title={item.previousPath ? `${item.previousPath} -> ${item.path}` : `${t.focusFileDiff}: ${item.path}`}

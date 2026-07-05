@@ -1474,6 +1474,7 @@ function parseGitEnvironment(result) {
       branch: "",
       changes: 0,
       files: [],
+      summary: gitStatusSummary([]),
       raw: output,
     };
   }
@@ -1487,6 +1488,7 @@ function parseGitEnvironment(result) {
     branch,
     changes,
     files,
+    summary: gitStatusSummary(files),
     raw: output,
   };
 }
@@ -1496,14 +1498,35 @@ function parseGitStatusFiles(lines) {
     const code = line.slice(0, 2);
     const pathPart = line.slice(3).trim();
     const [from, to] = pathPart.split(/\s+->\s+/);
+    const isUntracked = code === "??";
+    const staged = Boolean(code[0] && code[0] !== " " && code[0] !== "?");
+    const unstaged = Boolean(code[1] && code[1] !== " " && code[1] !== "?");
+    const conflict = /U|AA|DD/.test(code);
+    const kind = isUntracked ? "untracked" : staged && unstaged ? "mixed" : staged ? "staged" : unstaged ? "unstaged" : "changed";
     return {
       status: code.trim() || code,
-      staged: code[0] && code[0] !== " " && code[0] !== "?",
-      unstaged: code[1] && code[1] !== " ",
+      staged,
+      unstaged,
+      untracked: isUntracked,
+      conflict,
+      kind,
       path: to || from || pathPart,
       previousPath: to ? from : "",
     };
   }).filter((item) => item.path);
+}
+
+function gitStatusSummary(files = []) {
+  return {
+    total: files.length,
+    staged: files.filter((file) => file.staged).length,
+    unstaged: files.filter((file) => file.unstaged).length,
+    untracked: files.filter((file) => file.untracked).length,
+    mixed: files.filter((file) => file.kind === "mixed").length,
+    renamed: files.filter((file) => /R/.test(file.status || "") || file.previousPath).length,
+    deleted: files.filter((file) => /D/.test(file.status || "")).length,
+    conflicted: files.filter((file) => file.conflict).length,
+  };
 }
 
 function gitText(result) {
