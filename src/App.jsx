@@ -703,6 +703,8 @@ const copy = {
     commandHistory: "最近运行",
     workspaceCommandEvidence: "Workspace 命令证据",
     workspaceCommandBackedByStore: "来自主进程本地 commandRuns",
+    claudeCommandEvidence: "Claude CLI 证据",
+    claudeCommandBackedByStore: "来自主进程本地 commandRuns · Claude Code panel 真实 CLI 操作",
     capabilityCommandEvidence: "Plugin/MCP CLI 证据",
     capabilityCommandBackedByTimeline: "来自主进程本地 commandRuns · Capability workbench 真实 Claude Code CLI 操作",
     clearHistory: "清空",
@@ -1770,6 +1772,7 @@ function Conversation({
   const activeNotices = useMemo(() => (notices || []).filter((notice) => !notice.dismissedAt), [notices]);
   const automationItemsForUi = Array.isArray(automations) ? automations : [];
   const workspaceCommandRuns = useMemo(() => commandRunsToHistory(commandRuns, "workspace"), [commandRuns]);
+  const claudeCommandRuns = useMemo(() => commandRunsToHistory(commandRuns, "claude"), [commandRuns]);
   const capabilityCommandRuns = useMemo(() => commandRunsToHistory(commandRuns, "capability"), [commandRuns]);
   const activeTaskCount = automationItemsForUi.filter((item) => ["running", "scheduled"].includes(item.status)).length
     + (subagentRuns || []).filter((run) => run.status === "running").length;
@@ -2002,6 +2005,18 @@ function Conversation({
                     <CommandHistory
                       title={t.workspaceCommandEvidence}
                       entries={workspaceCommandRuns}
+                      liveEntry={null}
+                      onClear={null}
+                      t={t}
+                    />
+                  </div>
+                )}
+                {claudeCommandRuns.length > 0 && (
+                  <div className="bottom-panel-stack command-evidence-stack claude-command-evidence-stack">
+                    <div className="command-evidence-note">{t.claudeCommandBackedByStore}</div>
+                    <CommandHistory
+                      title={t.claudeCommandEvidence}
+                      entries={claudeCommandRuns}
                       liveEntry={null}
                       onClear={null}
                       t={t}
@@ -2916,7 +2931,7 @@ function ToolsPanel({
   const [claudeBusy, setClaudeBusy] = useState(false);
   const [claudeRunningArgs, setClaudeRunningArgs] = useState("");
   const [claudeResult, setClaudeResult] = useState(null);
-  const [claudeHistory, setClaudeHistory] = useState([]);
+  const [claudeHistory, setClaudeHistory] = useState(() => commandRunsToHistory(commandRuns, "claude"));
   const [claudeStream, setClaudeStream] = useState({ stdout: "", stderr: "" });
   const [claudeRequestId, setClaudeRequestId] = useState("");
   const claudeRequestRef = useRef("");
@@ -2932,6 +2947,9 @@ function ToolsPanel({
 
   useEffect(() => {
     setCommandHistory(commandRunsToHistory(commandRuns, "workspace"));
+  }, [commandRuns]);
+  useEffect(() => {
+    setClaudeHistory(commandRunsToHistory(commandRuns, "claude"));
   }, [commandRuns]);
 
   const hasUnsavedFile = Boolean(file && fileDraft !== file.content);
@@ -3370,17 +3388,27 @@ function ToolsPanel({
       detail: activeProject?.path || "",
     });
     try {
-      const result = await desktopApi.runClaudeCommand({ projectPath: activeProject?.path, args: nextArgs, requestId });
+      const result = await desktopApi.runClaudeCommand({
+        projectPath: activeProject?.path,
+        args: nextArgs,
+        requestId,
+        persistCommandRun: true,
+        commandRunKind: "claude",
+      });
       setClaudeResult(result);
-      setClaudeHistory((current) => prependCommandHistory(current, {
-        id: requestId,
-        commandLine: `claude ${result.args?.join(" ") || nextArgs}`,
-        cwd: result.cwd || activeProject?.path || "",
-        code: result.code,
-        durationMs: result.durationMs,
-        stdout: result.stdout || "",
-        stderr: result.stderr || "",
-      }));
+      if (Array.isArray(result.commandRuns)) {
+        onCommandRuns?.(result.commandRuns);
+      } else {
+        setClaudeHistory((current) => prependCommandHistory(current, {
+          id: requestId,
+          commandLine: `claude ${result.args?.join(" ") || nextArgs}`,
+          cwd: result.cwd || activeProject?.path || "",
+          code: result.code,
+          durationMs: result.durationMs,
+          stdout: result.stdout || "",
+          stderr: result.stderr || "",
+        }));
+      }
       onRunEvent?.({
         type: "claude-command",
         status: result.code === 0 ? "ok" : "error",
