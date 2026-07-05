@@ -1228,6 +1228,55 @@ function loadMarketplacePluginCatalog(marketplaces, installedPlugins) {
   return catalog;
 }
 
+function mcpOutputSegments(value) {
+  return String(value || "")
+    .split(/\s*(?:·|\|)\s*/)
+    .map((segment) => segment.trim())
+    .filter(Boolean);
+}
+
+function parseMcpTools(segments) {
+  const segment = segments.find((item) => /\b\d+\s*(?:tools?|工具)/i.test(item));
+  const match = segment?.match(/\b(\d+)\s*(?:tools?|工具)/i);
+  return match ? Number(match[1]) : null;
+}
+
+function parseMcpSource(segments) {
+  const segment = segments.find((item) => (
+    /https?:\/\/|wss?:\/\//i.test(item) ||
+    /^[A-Za-z]:[\\/]/.test(item) ||
+    /^[/~]/.test(item) ||
+    /\.(?:c?js|mjs|py|ts|json)\b/i.test(item) ||
+    /\b(?:npx|node|python|python3|uvx|docker)\b/i.test(item)
+  ));
+  return segment || "";
+}
+
+function parseMcpTransport(segments, source) {
+  const explicit = segments.find((item) => /^(?:stdio|sse|http|https|websocket|ws|wss|tcp|ipc)$/i.test(item));
+  if (explicit) return explicit.toLowerCase();
+  const sourceText = String(source || "").toLowerCase();
+  if (/^wss?:\/\//.test(sourceText)) return "ws";
+  if (/\/sse\b|transport=sse/.test(sourceText)) return "sse";
+  if (/^https?:\/\//.test(sourceText)) return "http";
+  if (sourceText) return "stdio";
+  return "";
+}
+
+function parseMcpError(segments, status, source) {
+  if (status !== "error") return "";
+  const sourceText = String(source || "");
+  const segment = segments.find((item) => (
+    item !== sourceText &&
+    !/\b\d+\s*(?:tools?|工具)/i.test(item) &&
+    !/^(?:stdio|sse|http|https|websocket|ws|wss|tcp|ipc)$/i.test(item) &&
+    /\b(?:disconnected|not connected|failed|failure|error|unavailable|denied|missing|timeout|timed out|auth|token)\b/i.test(item)
+  ));
+  return String(segment || "")
+    .replace(/^(?:error|failed|failure|disconnected|not connected)[:\s-]*/i, "")
+    .trim();
+}
+
 function parseMcpServers(rawOutput) {
   const text = stripAnsi(rawOutput).trim();
   if (!text || /no mcp servers configured/i.test(text)) return [];
@@ -1249,7 +1298,12 @@ function parseMcpServers(rawOutput) {
           : /\b(connected|ok|running|enabled)\b|[✓✔]/.test(lower)
             ? "ok"
             : "unknown";
-      return { name, detail, status, raw: line };
+      const segments = mcpOutputSegments(detail);
+      const tools = parseMcpTools(segments);
+      const source = parseMcpSource(segments);
+      const transport = parseMcpTransport(segments, source);
+      const error = parseMcpError(segments, status, source);
+      return { name, detail, status, raw: line, tools, transport, source, error };
     })
     .filter((item) => item.name);
 }

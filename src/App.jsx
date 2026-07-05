@@ -557,6 +557,8 @@ const copy = {
     mcpServers: "MCP 服务器",
     recordMcpStatus: "记录 MCP 状态",
     copyRawMcpStatus: "复制原始输出",
+    mcpTransport: "传输",
+    mcpError: "错误",
     mcpStatusOk: "可用",
     mcpStatusPending: "待确认",
     mcpStatusError: "异常",
@@ -1168,6 +1170,9 @@ function structuredQueryMatch(item, query) {
     item?.scope,
     item?.status,
     item?.detail,
+    item?.tools,
+    item?.transport,
+    item?.error,
   ].join(" ").toLowerCase().includes(normalized);
 }
 
@@ -5737,12 +5742,28 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                 {mcpServerRows.map((server) => {
                   const rowKey = mcpServerKey(server);
                   const rowRecording = cliAction === "mcp list";
+                  const rowMeta = [
+                    typeof server.tools === "number" ? [t.tools, String(server.tools)] : null,
+                    server.transport ? [t.mcpTransport, server.transport] : null,
+                    server.source ? [t.source, compactPath(server.source, 62), server.source] : null,
+                    server.error ? [t.mcpError, messageExcerpt(server.error, 72), server.error] : null,
+                  ].filter(Boolean);
                   return (
                     <article className="structured-plugin-row" key={rowKey}>
                       <span className="plugin-manager-icon"><Blocks size={17} /></span>
                       <div className="plugin-manager-copy">
                         <strong>{server.name}</strong>
                         <small title={server.raw}>{server.detail || server.raw}</small>
+                        {rowMeta.length > 0 && (
+                          <dl className="structured-row-meta" aria-label={`${server.name} MCP metadata`}>
+                            {rowMeta.map(([label, value, title]) => (
+                              <div key={`${label}:${value}`}>
+                                <dt>{label}</dt>
+                                <dd title={title || value}>{value}</dd>
+                              </div>
+                            ))}
+                          </dl>
+                        )}
                       </div>
                       <em className={cx("plugin-status-badge", server.status)}>{mcpStatusLabel(server.status, t)}</em>
                       <div className="structured-row-actions">
