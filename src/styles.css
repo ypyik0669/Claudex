@@ -718,6 +718,7 @@ select:focus-visible,
   min-width: 0;
   min-height: 0;
   display: grid;
+  grid-template-rows: minmax(0, 1fr) auto;
   background: var(--app-bg);
   border-right: 1px solid var(--line);
 }
@@ -7155,11 +7156,11 @@ kbd {
 }
 
 .bottom-work-panel {
-  position: absolute;
-  z-index: 5;
-  right: 12px;
-  bottom: 12px;
-  left: 12px;
+  position: relative;
+  z-index: 3;
+  min-width: 0;
+  max-height: min(38vh, 360px);
+  margin: 0 12px 12px;
   display: grid;
   grid-template-rows: auto minmax(0, 1fr);
   border: 1px solid #2a2a2a;
@@ -7203,6 +7204,8 @@ kbd {
 }
 
 .bottom-panel-body {
+  min-height: 0;
+  overflow: auto;
   padding: 13px 15px;
 }
 
