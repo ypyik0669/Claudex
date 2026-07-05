@@ -168,6 +168,8 @@ app.whenReady().then(async () => {
       /已暂存\\s*1/.test(document.querySelector('.git-change-summary')?.textContent || '') &&
       /未暂存\\s*1/.test(document.querySelector('.git-change-summary')?.textContent || '') &&
       /未跟踪\\s*1/.test(document.querySelector('.git-change-summary')?.textContent || '') &&
+      /origin\\/master/.test(document.querySelector('.git-selected-evidence-panel')?.textContent || '') &&
+      /已同步/.test(document.querySelector('.git-selected-evidence-panel')?.textContent || '') &&
       /git status --short --branch/.test(document.querySelector('.git-change-summary')?.textContent || '') &&
       /${TARGET_FILE}/.test(document.querySelector('.git-change-list')?.textContent || '') &&
       /${SECOND_FILE}/.test(document.querySelector('.git-change-list')?.textContent || '') &&
@@ -345,6 +347,7 @@ app.whenReady().then(async () => {
       return runs.some((run) => /git commit -m/.test(run.command || '') && /pass37 commit evidence/.test(run.command || '') && run.code === 0) &&
         events.some((event) => event.type === 'git-command' && event.status === 'ok' && /提交已暂存/.test(event.title || '')) &&
         /未暂存\\s*2/.test(summary) &&
+        /未推送\\s*1/.test(panel) &&
         !/已暂存\\s*1/.test(summary) &&
         !/未跟踪\\s*1/.test(summary) &&
         /全部变更/.test(panel) &&
@@ -365,8 +368,10 @@ app.whenReady().then(async () => {
       const state = await window.claudexDesktop.getState();
       const runs = state.commandRuns || [];
       const events = state.runEvents || [];
+      const panel = document.querySelector('.git-selected-evidence-panel')?.textContent || '';
       return runs.some((run) => /^git push$/.test(run.command || '') && run.code === 0) &&
-        events.some((event) => event.type === 'git-command' && event.status === 'ok' && /推送分支/.test(event.title || ''));
+        events.some((event) => event.type === 'git-command' && event.status === 'ok' && /推送分支/.test(event.title || '')) &&
+        /已同步/.test(panel);
     })()
   `, 10000));
   const remoteCommitCount = spawnSync("git", ["rev-list", "--count", "master"], {

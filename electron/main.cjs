@@ -1478,12 +1478,35 @@ function ideOptions() {
     .filter((item) => item.executable);
 }
 
+function parseGitBranchStatus(firstLine) {
+  const first = String(firstLine || "");
+  if (!first.startsWith("## ")) {
+    return { branch: "", upstream: "", remote: "", ahead: 0, behind: 0, upstreamStatus: "" };
+  }
+  const raw = first.slice(3).trim();
+  const statusMatch = raw.match(/\s+\[([^\]]+)\]$/);
+  const upstreamStatus = statusMatch?.[1] || "";
+  const head = statusMatch ? raw.slice(0, statusMatch.index).trim() : raw;
+  const [branchPart, upstreamPart = ""] = head.split("...");
+  const branch = branchPart.replace(/^No commits yet on\s+/, "").trim();
+  const upstream = upstreamPart.trim();
+  const remote = upstream.includes("/") ? upstream.split("/")[0] : "";
+  const ahead = Number((upstreamStatus.match(/ahead\s+(\d+)/i) || [])[1] || 0);
+  const behind = Number((upstreamStatus.match(/behind\s+(\d+)/i) || [])[1] || 0);
+  return { branch, upstream, remote, ahead, behind, upstreamStatus };
+}
+
 function parseGitEnvironment(result) {
   const output = stripAnsi(`${result.stdout || ""}\n${result.stderr || ""}`).trim();
   if (result.code !== 0) {
     return {
       available: false,
       branch: "",
+      upstream: "",
+      remote: "",
+      ahead: 0,
+      behind: 0,
+      upstreamStatus: "",
       changes: 0,
       files: [],
       summary: gitStatusSummary([]),
@@ -1492,12 +1515,12 @@ function parseGitEnvironment(result) {
   }
   const lines = output.split(/\r?\n/).filter(Boolean);
   const first = lines[0] || "";
-  const branch = first.startsWith("## ") ? first.slice(3).split("...")[0].trim() : "";
+  const branchStatus = parseGitBranchStatus(first);
   const files = parseGitStatusFiles(lines.filter((line) => !line.startsWith("## ")));
   const changes = files.length;
   return {
     available: result.code === 0,
-    branch,
+    ...branchStatus,
     changes,
     files,
     summary: gitStatusSummary(files),
@@ -1543,6 +1566,21 @@ function gitStatusSummary(files = []) {
 
 function gitText(result) {
   return stripAnsi(result.stdout || result.stderr).trim();
+}
+
+function parseGitRemotes(result) {
+  const output = gitText(result);
+  const byName = new Map();
+  for (const line of output.split(/\r?\n/)) {
+    const match = /^(\S+)\s+(\S+)\s+\((fetch|push)\)$/.exec(line.trim());
+    if (!match) continue;
+    const [, name, url, kind] = match;
+    const existing = byName.get(name) || { name, fetchUrl: "", pushUrl: "" };
+    if (kind === "fetch") existing.fetchUrl = url;
+    if (kind === "push") existing.pushUrl = url;
+    byName.set(name, existing);
+  }
+  return [...byName.values()];
 }
 
 function parseDiffGitPath(value) {
@@ -1666,7 +1704,8 @@ function buildUntrackedFileDiffs(cwd, files = [], maxChars = MAX_GIT_DIFF_CHARS)
 async function loadGitEnvironment(cwd) {
   const status = parseGitEnvironment(await runProcess("git", ["status", "--short", "--branch"], { cwd, timeoutMs: 8000 }));
   if (!status.available) return status;
-  const [worktreeStat, stagedStat, worktreeDiff, stagedDiff] = await Promise.all([
+  const [remoteResult, worktreeStat, stagedStat, worktreeDiff, stagedDiff] = await Promise.all([
+    runProcess("git", ["remote", "-v"], { cwd, timeoutMs: 8000 }),
     runProcess("git", ["diff", "--stat", "--no-ext-diff"], { cwd, timeoutMs: 8000 }),
     runProcess("git", ["diff", "--cached", "--stat", "--no-ext-diff"], { cwd, timeoutMs: 8000 }),
     runProcess("git", ["diff", "--no-ext-diff", "--find-renames", "--unified=3", "--"], {
@@ -1680,6 +1719,10 @@ async function loadGitEnvironment(cwd) {
       maxOutputChars: MAX_GIT_DIFF_CHARS,
     }),
   ]);
+  const remotes = parseGitRemotes(remoteResult);
+  const primaryRemote = status.remote
+    ? remotes.find((remote) => remote.name === status.remote) || remotes[0]
+    : remotes[0];
   const untrackedDiff = buildUntrackedFileDiffs(cwd, status.files);
   const statParts = [
     gitText(stagedStat),
@@ -1704,6 +1747,9 @@ async function loadGitEnvironment(cwd) {
   });
   return {
     ...status,
+    remotes,
+    remote: status.remote || primaryRemote?.name || "",
+    remoteUrl: primaryRemote?.pushUrl || primaryRemote?.fetchUrl || "",
     files: filesWithDiffStats,
     stat: statParts.join("\n"),
     diff: {

@@ -456,6 +456,14 @@ const copy = {
     changes: "变更",
     local: "本地",
     branch: "分支",
+    upstream: "Upstream",
+    remote: "远端",
+    noGitUpstream: "无 upstream",
+    noGitRemote: "无远端",
+    gitAhead: "未推送",
+    gitBehind: "落后",
+    gitSynced: "已同步",
+    gitSyncStatus: "同步状态",
     commitOrPush: "提交或推送",
     sources: "来源",
     subagents: "子代理",
@@ -811,6 +819,7 @@ const copy = {
     gitCommandHint: "通过真实 Git CLI 执行，结果写入 run timeline 和命令 evidence。",
     gitNoStagedChanges: "没有已暂存文件",
     gitPushHint: "推送当前分支到已配置的 upstream/remote。",
+    gitPushUnavailableNoUpstream: "无 upstream，先在终端设置远端。",
     gitActionRunning: "Git 操作中",
     confirmGitActionTitle: "确认执行 Git 操作",
     confirmGitStageWarning: "这会在当前项目暂存文件：{path}",
@@ -1730,10 +1739,23 @@ function gitBranchCanPush(branchLabel, t) {
   return Boolean(value && value !== t.gitUnavailable && value !== "-");
 }
 
+function gitAheadBehindLabel(git, t) {
+  const ahead = Number(git?.ahead || 0);
+  const behind = Number(git?.behind || 0);
+  const parts = [];
+  if (ahead > 0) parts.push(`${t.gitAhead} ${ahead}`);
+  if (behind > 0) parts.push(`${t.gitBehind} ${behind}`);
+  if (parts.length) return parts.join(" · ");
+  return git?.upstream ? t.gitSynced : t.noGitUpstream;
+}
+
 function gitEvidenceText({
   t,
   activeProject,
   branchLabel,
+  upstreamLabel,
+  remoteLabel,
+  aheadBehindLabel,
   selectedFile,
   selectedPath,
   selectedDiffText,
@@ -1749,6 +1771,9 @@ function gitEvidenceText({
     `${t.activeProject}: ${projectLabel(activeProject, t)}`,
     `${t.path}: ${activeProject?.path || "-"}`,
     `${t.branch}: ${branchLabel || "-"}`,
+    `${t.upstream}: ${upstreamLabel || "-"}`,
+    `${t.remote}: ${remoteLabel || "-"}`,
+    `${t.gitSyncStatus}: ${aheadBehindLabel || "-"}`,
     `${t.scheduleStatus}: ${selectedFile ? gitChangeKindLabel(selectedFile.kind, t) : t.allChanges}`,
     `${t.gitSummary}: ${summary || "-"}`,
     selectedFile ? `${t.changedLines}: +${selectedFile.additions || 0} -${selectedFile.deletions || 0}` : "",
@@ -2238,6 +2263,9 @@ function Conversation({
   const gitAvailable = Boolean(git?.available);
   const gitChangesLabel = gitAvailable ? String(git.changes || 0) : t.gitUnavailable;
   const branchLabel = git?.branch || t.gitUnavailable;
+  const upstreamLabel = git?.upstream || t.noGitUpstream;
+  const remoteLabel = git?.remote || t.noGitRemote;
+  const aheadBehindLabel = gitAheadBehindLabel(git, t);
   const rawGitStatus = String(git?.raw || "").trim();
   const gitFiles = Array.isArray(git?.files) ? git.files : [];
   const gitSummary = git?.summary || {};
@@ -2263,7 +2291,8 @@ function Conversation({
   const gitStagedCount = Number(gitSummary.staged || 0);
   const gitCommitMessageValue = gitCommitMessage.trim();
   const gitCanCommit = gitAvailable && gitStagedCount > 0 && Boolean(gitCommitMessageValue) && !gitActionWorking;
-  const gitCanPush = gitAvailable && gitBranchCanPush(branchLabel, t) && !gitActionWorking;
+  const gitCanPush = gitAvailable && gitBranchCanPush(branchLabel, t) && Boolean(git?.upstream) && !gitActionWorking;
+  const gitPushTitle = git?.upstream ? t.gitPushHint : t.gitPushUnavailableNoUpstream;
   const selectedGitFileDiff = selectedGitDiffPath
     ? gitFileDiffs.find((item) => item.path === selectedGitDiffPath || item.previousPath === selectedGitDiffPath)
     : null;
@@ -2272,13 +2301,16 @@ function Conversation({
     t,
     activeProject,
     branchLabel,
+    upstreamLabel,
+    remoteLabel,
+    aheadBehindLabel,
     selectedFile: selectedGitFile,
     selectedPath: selectedGitDiffPath,
     selectedDiffText: displayedGitDiffText,
     gitStat,
     rawGitStatus,
     gitSummaryItems,
-  }), [t, activeProject, branchLabel, selectedGitFile, selectedGitDiffPath, displayedGitDiffText, gitStat, rawGitStatus, gitSummaryItems]);
+  }), [t, activeProject, branchLabel, upstreamLabel, remoteLabel, aheadBehindLabel, selectedGitFile, selectedGitDiffPath, displayedGitDiffText, gitStat, rawGitStatus, gitSummaryItems]);
   const gitDiffRows = useMemo(() => buildGitDiffRows(displayedGitDiffText), [displayedGitDiffText]);
   useEffect(() => {
     if (!selectedGitDiffPath) return;
@@ -2349,6 +2381,7 @@ function Conversation({
     const isCommit = action === "commit";
     const message = gitCommitMessage.trim();
     if (isCommit && (!message || gitStagedCount <= 0)) return;
+    if (!isCommit && !git?.upstream) return;
     const command = isCommit ? `git commit -m ${quoteWorkspaceCommandPath(message)}` : "git push";
     const actionLabel = isCommit ? t.commitStaged : t.pushBranch;
     const warning = isCommit ? t.confirmGitCommitWarning.replace("{message}", message) : t.confirmGitPushWarning;
@@ -2741,6 +2774,7 @@ function Conversation({
                 </div>
                 <dl>
                   <div><dt>{t.branch}</dt><dd>{branchLabel}</dd></div>
+                  <div><dt>{t.upstream}</dt><dd>{upstreamLabel}</dd></div>
                   <div><dt>{t.changes}</dt><dd>{gitChangesLabel}</dd></div>
                   <div><dt>{t.openInIde}</dt><dd>{ideOptions?.map((item) => item.label).join(", ") || t.ideUnavailable}</dd></div>
                 </dl>
@@ -2752,7 +2786,7 @@ function Conversation({
                   <div>
                     <span>{t.changes}</span>
                     <strong>{gitAvailable ? `${gitChangesLabel} · ${branchLabel}` : t.noGitProject}</strong>
-                    <p>{activeProject?.path ? compactPath(activeProject.path, 78) : t.noProjectPath}</p>
+                    <p>{gitAvailable ? `${upstreamLabel} · ${aheadBehindLabel}` : activeProject?.path ? compactPath(activeProject.path, 78) : t.noProjectPath}</p>
                   </div>
                   <div className="bottom-panel-actions">
                     <button type="button" className="plain-action subtle-action" onClick={onRefreshEnvironment}>
@@ -2879,6 +2913,9 @@ function Conversation({
                     </div>
                     <dl className="git-selected-evidence-meta">
                       <div><dt>{t.branch}</dt><dd>{branchLabel}</dd></div>
+                      <div><dt>{t.upstream}</dt><dd>{upstreamLabel}</dd></div>
+                      <div><dt>{t.remote}</dt><dd title={git?.remoteUrl || remoteLabel}>{remoteLabel}</dd></div>
+                      <div><dt>{t.gitSyncStatus}</dt><dd>{aheadBehindLabel}</dd></div>
                       <div><dt>{t.scheduleStatus}</dt><dd>{selectedGitFile ? gitChangeKindLabel(selectedGitFile.kind, t) : t.allChanges}</dd></div>
                       <div><dt>{t.changedLines}</dt><dd>{selectedGitFile ? `+${selectedGitFile.additions || 0} -${selectedGitFile.deletions || 0}` : `${gitFiles.length}`}</dd></div>
                       <div><dt>{t.gitRawStatus}</dt><dd>{selectedGitFile?.status || "Σ"}</dd></div>
@@ -2912,13 +2949,13 @@ function Conversation({
                             className="plain-action subtle-action"
                             onClick={() => runGitRepoAction("push")}
                             disabled={!gitCanPush}
-                            title={t.gitPushHint}
+                            title={gitPushTitle}
                           >
                             <GitBranch size={13} />
                             {gitActionWorkingPath === "repo:push" ? t.gitActionRunning : t.pushBranch}
                           </button>
                         </div>
-                        <p>{t.gitCommandHint}</p>
+                        <p>{git?.upstream ? `${t.gitCommandHint} ${branchLabel} → ${upstreamLabel} · ${aheadBehindLabel}` : `${t.gitCommandHint} ${t.gitPushUnavailableNoUpstream}`}</p>
                       </section>
                     )}
                     <div className="git-selected-diff" aria-label={t.gitDiffPreview}>
@@ -3729,6 +3766,8 @@ function EnvironmentOverview({
 }) {
   const git = environment?.git;
   const selectedIde = ideOptions?.find((option) => option.id === selectedIdeId) || ideOptions?.[0];
+  const upstreamLabel = git?.upstream || t.noGitUpstream;
+  const syncLabel = gitAheadBehindLabel(git, t);
   return (
     <section className="environment-card" aria-label={t.environment}>
       <div className="environment-card-head">
@@ -3756,10 +3795,10 @@ function EnvironmentOverview({
           <span>{t.branch}</span>
           <em>{git?.branch || t.gitUnavailable}</em>
         </button>
-        <button type="button" className="environment-row muted" disabled>
+        <button type="button" className="environment-row muted" disabled title={git?.available ? `${upstreamLabel} · ${syncLabel}` : t.gitUnavailable}>
           <GitCommit size={15} />
           <span>{t.commitOrPush}</span>
-          <em>{git?.available ? "Git CLI" : t.gitUnavailable}</em>
+          <em>{git?.available ? syncLabel : t.gitUnavailable}</em>
         </button>
       </div>
       <div className="environment-ide-row">
