@@ -4912,6 +4912,11 @@ kbd {
   line-height: 1.4;
 }
 
+.subagent-evidence-stack {
+  display: grid;
+  gap: 7px;
+}
+
 .subagent-output {
   max-height: 160px;
   margin: 0;
@@ -4924,6 +4929,78 @@ kbd {
   font-size: 11.5px;
   line-height: 1.45;
   white-space: pre-wrap;
+}
+
+.secondary-output {
+  max-height: 120px;
+  margin-top: 6px;
+  color: #bfc0bc;
+}
+
+.error-output {
+  color: #efb0b0;
+}
+
+.subagent-evidence-details {
+  border: 1px solid #252525;
+  border-radius: var(--radius-sm);
+  background: #0f0f0f;
+  padding: 7px 8px;
+}
+
+.subagent-evidence-details summary {
+  cursor: pointer;
+  color: #d8d8d5;
+  font-size: 11.5px;
+  font-weight: 650;
+}
+
+.subagent-evidence-details section {
+  margin-top: 8px;
+}
+
+.subagent-evidence-details section > span {
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
+.subagent-evidence-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px 12px;
+  margin: 8px 0 0;
+}
+
+.subagent-evidence-meta div {
+  display: flex;
+  gap: 5px;
+}
+
+.subagent-evidence-meta dt {
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.subagent-evidence-meta dd {
+  margin: 0;
+  color: #d8d8d5;
+  font-size: 11px;
+}
+
+.subagent-artifact-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+
+.subagent-artifact-list code {
+  border: 1px solid #2e2e2e;
+  border-radius: 999px;
+  background: #151515;
+  color: #d7d7d4;
+  padding: 3px 7px;
+  font-size: 11px;
 }
 
 .subagent-run-foot {

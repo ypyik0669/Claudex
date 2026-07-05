@@ -167,8 +167,12 @@ app.whenReady().then(async () => {
           run.nickname === 'QA Subagent' &&
           /pass41 inspect subagent evidence/.test(run.task || '') &&
           /pass41-subagent-ok/.test(run.summary || '') &&
+          run.artifacts?.some((artifact) => artifact.type === 'summary' && /pass41-subagent-ok/.test(artifact.content || '')) &&
           /pass41-subagent-ok/.test(document.body.textContent || '') &&
-          document.querySelector('.subagent-run-card.done')
+          document.querySelector('.subagent-run-card.done') &&
+          document.querySelector('.subagent-evidence-stack') &&
+          document.querySelector('.subagent-evidence-details') &&
+          /产物: 2/.test(document.body.textContent || '')
         );
       })();
     `, 12000));
@@ -177,8 +181,53 @@ app.whenReady().then(async () => {
       const parsed = JSON.parse(fs.readFileSync(DATA_FILE, "utf8"));
       return parsed.subagentRuns?.length === 1 &&
         parsed.subagentRuns[0].status === "done" &&
-        /pass41-subagent-ok/.test(parsed.subagentRuns[0].summary || "");
+        /pass41-subagent-ok/.test(parsed.subagentRuns[0].summary || "") &&
+        parsed.subagentRuns[0].artifacts?.length >= 2;
     })());
+
+    assertStep("PASS41_COPY_SUBAGENT_EVIDENCE", await win.webContents.executeJavaScript(`
+      (async function() {
+        const copy = Array.from(document.querySelectorAll('.subagent-run-foot button'))
+          .find((button) => /复制证据/.test(button.textContent || ''));
+        if (!copy) return false;
+        copy.click();
+        await new Promise((resolve) => setTimeout(resolve, 250));
+        return /已复制/.test(document.body.textContent || '');
+      })();
+    `));
+
+    assertStep("PASS41_OPEN_TIMELINE_FROM_SUBAGENT", await waitFor(win, `
+      (async function() {
+        const open = Array.from(document.querySelectorAll('.subagent-run-foot button'))
+          .find((button) => /timeline/.test(button.textContent || ''));
+        if (!open) return false;
+        open.click();
+        await new Promise((resolve) => setTimeout(resolve, 250));
+        return Boolean(document.querySelector('.run-timeline-row.ok') && /pass41-subagent-ok/.test(document.body.textContent || ''));
+      })();
+    `, 5000));
+
+    assertStep("PASS41_REOPEN_SUBAGENTS_FOR_RETRY", await openSubagents(win));
+    assertStep("PASS41_RETRY_SUBAGENT", await waitFor(win, `
+      (async function() {
+        if (!window.__pass41RetryClicked) {
+          window.__pass41RetryClicked = true;
+          const retry = Array.from(document.querySelectorAll('.subagent-run-foot button'))
+            .find((button) => /重试子代理/.test(button.textContent || ''));
+          if (!retry) return false;
+          retry.click();
+        }
+        await new Promise((resolve) => setTimeout(resolve, 900));
+        const state = await window.claudexDesktop.getState();
+        return Boolean(
+          state.subagentRuns?.length >= 2 &&
+          state.subagentRuns[0].status === 'done' &&
+          /pass41 inspect subagent evidence/.test(state.subagentRuns[0].task || '') &&
+          /pass41-subagent-ok/.test(state.subagentRuns[0].summary || '') &&
+          document.querySelectorAll('.subagent-run-card.done').length >= 2
+        );
+      })();
+    `, 12000));
 
     assertStep("PASS41_TIMELINE_EVIDENCE", await waitFor(win, `
       (async function() {
@@ -196,7 +245,12 @@ app.whenReady().then(async () => {
     assertStep("PASS41_RELOAD_READY", await waitFor(win, "Boolean(document.querySelector('.app-grid') && window.claudexDesktop)", 15000));
     assertStep("PASS41_REOPEN_SUBAGENTS", await openSubagents(win));
     assertStep("PASS41_RELOAD_PERSISTED_UI", await waitFor(win, `
-      Boolean(document.querySelector('.subagent-run-card.done') && /pass41-subagent-ok/.test(document.body.textContent || ''))
+      Boolean(
+        document.querySelectorAll('.subagent-run-card.done').length >= 2 &&
+        document.querySelector('.subagent-evidence-stack') &&
+        /pass41-subagent-ok/.test(document.body.textContent || '') &&
+        /产物:/.test(document.body.textContent || '')
+      )
     `, 10000));
 
     console.log("PASS41_SUBAGENT_WORKBENCH_DONE");

@@ -2046,6 +2046,32 @@ function subagentPrompt(task, nickname) {
   ].join("\n");
 }
 
+function subagentArtifactsFromResult({ summary = "", stdout = "", stderr = "" } = {}) {
+  const artifacts = [];
+  if (String(summary || "").trim()) {
+    artifacts.push({
+      type: "summary",
+      label: "Summary",
+      content: trimOutput(String(summary || ""), 6000),
+    });
+  }
+  if (String(stdout || "").trim()) {
+    artifacts.push({
+      type: "stdout",
+      label: "stdout",
+      content: trimOutput(String(stdout || ""), 6000),
+    });
+  }
+  if (String(stderr || "").trim()) {
+    artifacts.push({
+      type: "stderr",
+      label: "stderr",
+      content: trimOutput(String(stderr || ""), 6000),
+    });
+  }
+  return artifacts.slice(0, 12);
+}
+
 function emitSubagentEvent(sender, payload) {
   if (!sender || sender.isDestroyed?.()) return;
   sender.send("subagent:stream-event", payload);
@@ -2111,17 +2137,25 @@ async function runSubagent(payload = {}, sender) {
   const wasCancelled = cancelledSubagentRuns.delete(runId) || cancelledSubagentRuns.delete(requestId);
   const finalStatus = wasCancelled ? "cancelled" : result.code === 0 && !parsed?.is_error ? "done" : "error";
   const summary = parsed?.result || (result.stdout || result.stderr || "").trim();
+  const cleanStdout = stripAnsi(result.stdout || stdout);
+  const cleanStderr = stripAnsi(result.stderr || stderr);
+  const cleanSummary = stripAnsi(summary);
   const nextStore = readStore();
   const existing = (nextStore.subagentRuns || []).find((item) => item.id === runId) || run;
   const finalRun = normalizeSubagentRun({
     ...existing,
     status: finalStatus,
-    stdout: stripAnsi(result.stdout || stdout),
-    stderr: stripAnsi(result.stderr || stderr),
-    summary: stripAnsi(summary),
+    stdout: cleanStdout,
+    stderr: cleanStderr,
+    summary: cleanSummary,
     code: wasCancelled ? 130 : result.code,
     durationMs: result.durationMs,
     endedAt: now(),
+    artifacts: subagentArtifactsFromResult({
+      summary: cleanSummary,
+      stdout: cleanStdout,
+      stderr: cleanStderr,
+    }),
   }, nextStore);
   upsertSubagentRun(nextStore, finalRun);
   writeStore(nextStore);

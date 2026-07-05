@@ -492,6 +492,14 @@ const copy = {
     subagentStatusCancelled: "已停止",
     subagentArtifacts: "产物",
     noSubagentArtifacts: "暂无产物",
+    subagentEvidence: "证据",
+    subagentStdout: "标准输出",
+    subagentStderr: "标准错误",
+    subagentExitCode: "退出码",
+    copySubagentEvidence: "复制证据",
+    copiedSubagentEvidence: "证据已复制",
+    openRunTimeline: "查看 timeline",
+    retrySubagent: "重试子代理",
     subagentStarted: "子代理已启动",
     subagentFinished: "子代理已完成",
     subagentFailed: "子代理失败",
@@ -2046,6 +2054,8 @@ function Conversation({
                 onDeleteAutomation={onDeleteAutomation}
                 onRunSubagent={onRunSubagent}
                 onCancelSubagent={onCancelSubagent}
+                onOpenRunTimeline={() => setBottomPanel("outputs")}
+                onCopy={onCopy}
                 onOpenInteractiveClaude={onOpenInteractiveClaude}
                 onOpenClaudePanel={() => onActivateTool("claude")}
                 t={t}
@@ -2206,6 +2216,8 @@ function SubagentWorkbench({
   onDeleteAutomation,
   onRunSubagent,
   onCancelSubagent,
+  onOpenRunTimeline,
+  onCopy,
   onOpenInteractiveClaude,
   onOpenClaudePanel,
   t,
@@ -2253,6 +2265,18 @@ function SubagentWorkbench({
     } finally {
       setAutomationWorkingId("");
     }
+  }
+
+  async function copySubagentEvidence(run) {
+    const output = run?.summary || run?.stdout || run?.stderr || "";
+    await onCopy?.([
+      `${t.subagents}: ${run?.nickname || "Subagent"}`,
+      `${t.subagentTask}: ${run?.task || ""}`,
+      `${t.scheduleStatus}: ${subagentStatusLabel(run?.status, t)}`,
+      `${t.subagentExitCode}: ${run?.code ?? ""}`,
+      "",
+      output,
+    ].filter((line, index) => index < 4 || line).join("\n"));
   }
 
   return (
@@ -2389,13 +2413,64 @@ function SubagentWorkbench({
               <span className={cx("subagent-status-badge", run.status)}>{subagentStatusLabel(run.status, t)}</span>
             </div>
             <p className="subagent-task-text">{run.task}</p>
-            {(run.summary || run.stdout || run.stderr) && (
-              <pre className="subagent-output">{run.summary || run.stdout || run.stderr}</pre>
+            {(run.summary || run.stdout || run.stderr || run.artifacts?.length) && (
+              <div className="subagent-evidence-stack" aria-label={t.subagentEvidence}>
+                {run.summary && (
+                  <pre className="subagent-output">{run.summary}</pre>
+                )}
+                {(run.stdout || run.stderr || typeof run.code === "number") && (
+                  <details className="subagent-evidence-details">
+                    <summary>{t.subagentEvidence}</summary>
+                    <dl className="subagent-evidence-meta">
+                      <div><dt>{t.subagentExitCode}</dt><dd>{run.code ?? "-"}</dd></div>
+                      <div><dt>{t.commandDuration}</dt><dd>{typeof run.durationMs === "number" && run.durationMs > 0 ? `${run.durationMs}ms` : "-"}</dd></div>
+                    </dl>
+                    {run.stdout && (
+                      <section>
+                        <span>{t.subagentStdout}</span>
+                        <pre className="subagent-output secondary-output">{run.stdout}</pre>
+                      </section>
+                    )}
+                    {run.stderr && (
+                      <section>
+                        <span>{t.subagentStderr}</span>
+                        <pre className="subagent-output secondary-output error-output">{run.stderr}</pre>
+                      </section>
+                    )}
+                  </details>
+                )}
+                {run.artifacts?.length > 0 && (
+                  <details className="subagent-evidence-details">
+                    <summary>{t.subagentArtifacts}: {run.artifacts.length}</summary>
+                    <div className="subagent-artifact-list">
+                      {run.artifacts.map((artifact, index) => (
+                        <code key={`${artifact?.label || artifact?.path || index}`}>
+                          {artifact?.label || artifact?.path || artifact?.type || `${t.subagentArtifacts} ${index + 1}`}
+                        </code>
+                      ))}
+                    </div>
+                  </details>
+                )}
+              </div>
             )}
             <div className="subagent-run-foot">
               <span>{formatDate(run.endedAt || run.startedAt)}</span>
               {typeof run.durationMs === "number" && run.durationMs > 0 && <span>{run.durationMs}ms</span>}
               <span>{t.subagentArtifacts}: {run.artifacts?.length || 0}</span>
+              <button type="button" className="plain-action subtle-action" onClick={() => copySubagentEvidence(run)}>
+                <Copy size={13} />
+                {t.copySubagentEvidence}
+              </button>
+              <button type="button" className="plain-action subtle-action" onClick={onOpenRunTimeline}>
+                <FileText size={13} />
+                {t.openRunTimeline}
+              </button>
+              {run.status !== "running" && (
+                <button type="button" className="plain-action subtle-action" onClick={() => onRunSubagent?.(run.task, run.nickname || "Subagent")}>
+                  <RefreshCw size={13} />
+                  {t.retrySubagent}
+                </button>
+              )}
               {run.status === "running" && (
                 <button type="button" className="plain-action subtle-action" onClick={() => onCancelSubagent?.(run)}>
                   <X size={13} />
