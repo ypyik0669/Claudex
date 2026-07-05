@@ -4756,14 +4756,14 @@ function ShellModal({ title, subtitle, onClose, children, className = "", closeL
   );
 }
 
-function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenClaudePanel, onNotice, surface = false }) {
+function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenClaudePanel, onNotice, surface = false, initialTab = "plugins" }) {
   const tabs = [
     ["plugins", t.plugins],
     ["mcp", t.mcps],
     ["skills", t.skills],
     ["marketplace", t.marketplace],
   ];
-  const [activeTab, setActiveTab] = useState("plugins");
+  const [activeTab, setActiveTab] = useState(initialTab || "plugins");
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState("all");
   const [cliStatus, setCliStatus] = useState(null);
@@ -4920,6 +4920,10 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
     refreshCliStatus();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [activeProject?.path]);
+  useEffect(() => {
+    if (tabs.some(([id]) => id === initialTab)) setActiveTab(initialTab);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [initialTab]);
   return (
     <ShellModal title={t.capabilities} subtitle={t.capabilitiesSubtitle} onClose={onClose} closeLabel={surface ? t.backToApp : t.close} className="capability-modal plugin-manager-modal" surface={surface}>
       <div className="installed-capability-strip" aria-label={t.installed}>
@@ -5680,6 +5684,7 @@ export function App() {
   const [busy, setBusy] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [capabilitiesOpen, setCapabilitiesOpen] = useState(false);
+  const [capabilityInitialTab, setCapabilityInitialTab] = useState("plugins");
   const [projectsOpen, setProjectsOpen] = useState(false);
   const [commandsOpen, setCommandsOpen] = useState(false);
   const [scheduledOpen, setScheduledOpen] = useState(false);
@@ -6173,11 +6178,13 @@ export function App() {
     setSettingsOpen(true);
   }
 
-  function openCapabilitiesSurface() {
+  function openCapabilitiesSurface(initialTab = "plugins") {
+    const nextTab = ["plugins", "mcp", "skills", "marketplace"].includes(initialTab) ? initialTab : "plugins";
     setSettingsOpen(false);
     setProjectsOpen(false);
     setScheduledOpen(false);
     setCommandsOpen(false);
+    setCapabilityInitialTab(nextTab);
     setCapabilitiesOpen(true);
   }
 
@@ -6293,6 +6300,9 @@ export function App() {
     { id: "terminal", title: t.openTerminal, subtitle: projectLabel(activeProject, t), keywords: "终端 shell powershell", action: openTerminal },
     { id: "settings", title: t.settings, subtitle: t.setupProvider, keywords: "服务商 api key 模型 设置", action: openSettingsSurface },
     { id: "capabilities", title: t.capabilities, subtitle: t.plugins, keywords: "插件 技能 工具", action: openCapabilitiesSurface },
+    { id: "capability-plugins", title: t.plugins, subtitle: t.capabilities, keywords: "plugins installed installed plugins claude code 插件 已安装 capability", action: () => openCapabilitiesSurface("plugins") },
+    { id: "capability-mcp", title: t.mcps, subtitle: t.mcpServers, keywords: "mcp servers tools mcps server 工具 服务器", action: () => openCapabilitiesSurface("mcp") },
+    { id: "capability-marketplace", title: t.marketplace, subtitle: t.marketplaceCatalog, keywords: "marketplace catalog install plugin 市场 插件目录 安装", action: () => openCapabilitiesSurface("marketplace") },
     { id: "automation", title: t.scheduled, subtitle: t.scheduledTitle, keywords: "automation schedule 自动化 计划 任务", action: openScheduledSurface },
     { id: "tool-workspace", title: t.workspaceTool, subtitle: t.openSidePanel, keywords: "workspace files editor diff 工作区 文件 编辑", action: () => activateTool("workspace") },
     { id: "tool-claude", title: t.claudeCodeTool, subtitle: t.openSidePanel, keywords: "claude code cli plugin mcp terminal", action: () => activateTool("claude") },
@@ -6304,6 +6314,7 @@ export function App() {
     { id: "panel-changes", title: t.changes, subtitle: t.gitDiffPreview, keywords: "changes git diff status 变更 差异", action: () => openBottomPanel("changes") },
     { id: "panel-sources", title: t.sources, subtitle: t.bottomPanel, keywords: "sources files project 来源 文件", action: () => openBottomPanel("sources") },
     { id: "panel-subagents", title: t.subagents, subtitle: t.bottomPanel, keywords: "subagents agents 子代理 agent", action: () => openBottomPanel("subagents") },
+    { id: "panel-task-center", title: t.taskCenter, subtitle: t.bottomPanel, keywords: "task center automations subagents evidence 任务中心 自动化 子代理", action: () => openBottomPanel("subagents") },
     { id: "review", title: t.quickReview, subtitle: t.schedulePrompt, keywords: "审查 代码 风险", action: () => setDraft(t.quickReview) },
     { id: "plan", title: t.quickPlan, subtitle: t.schedulePrompt, keywords: "计划 实现 验证", action: () => setDraft(t.quickPlan) },
     {
@@ -6392,6 +6403,7 @@ export function App() {
             onOpenClaudePanel={() => activateTool("claude")}
             onNotice={recordNotice}
             surface
+            initialTab={capabilityInitialTab}
           />
         ) : (
         <Conversation
