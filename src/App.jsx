@@ -531,6 +531,7 @@ const copy = {
     pluginNamePlaceholder: "github@openai 或 plugin@marketplace",
     pluginActions: "插件操作",
     pluginActionEvidence: "最近 CLI 操作证据",
+    pluginRowActionEvidence: "最近执行",
     confirmDisableTitle: "要禁用这个插件吗？",
     confirmDisableWarning: "这会禁用「{name}」。之后可以通过重新安装或更新来重新启用它。",
     confirmDisableButton: "确认禁用",
@@ -901,6 +902,46 @@ function cliActionEvidenceDetail(evidence, t) {
   return parts.join(" · ");
 }
 
+function escapeRegExp(value) {
+  return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function capabilityCommandLine(run) {
+  return String(run?.command || run?.commandLine || "").trim();
+}
+
+function commandRunTime(run) {
+  const value = run?.endedAt || run?.startedAt || "";
+  const time = value ? new Date(value).getTime() : 0;
+  return Number.isNaN(time) ? 0 : time;
+}
+
+function capabilityRunsNewestFirst(runs = []) {
+  return (runs || [])
+    .filter((run) => (run?.kind || "workspace") === "capability" && capabilityCommandLine(run))
+    .slice()
+    .sort((a, b) => commandRunTime(b) - commandRunTime(a));
+}
+
+function pluginActionRegex(identifier, actions = ["install", "update", "disable", "enable"]) {
+  const id = String(identifier || "").trim();
+  if (!id) return null;
+  const suffix = id.includes("@") ? "" : "(?:@[^\\s]+)?";
+  return new RegExp(`(?:^|\\s)plugin\\s+(?:${actions.join("|")})\\s+${escapeRegExp(id)}${suffix}(?=\\s|$)`, "i");
+}
+
+function findRecentPluginActionRun(runs, identifiers, actions) {
+  const patterns = [...new Set((identifiers || []).map((item) => String(item || "").trim()).filter(Boolean))]
+    .map((item) => pluginActionRegex(item, actions))
+    .filter(Boolean);
+  if (!patterns.length) return null;
+  return runs.find((run) => patterns.some((pattern) => pattern.test(capabilityCommandLine(run)))) || null;
+}
+
+function findRecentMarketplaceActionRun(runs) {
+  return runs.find((run) => /(?:^|\s)plugin\s+marketplace\s+(?:list|update)(?=\s|$)/i.test(capabilityCommandLine(run))) || null;
+}
+
 function cliStatusIssue(label, commandLine, commandState, t, jsonCommandLine = "") {
   if (!commandState) return null;
   const plainCode = typeof commandState.code === "number" ? commandState.code : null;
@@ -949,6 +990,30 @@ function CliStatusDetail({ issue, t, onRetry, onOpenClaudePanel, disabled, spinn
           {t.openClaudePanel}
         </button>
       </div>
+    </section>
+  );
+}
+
+function RowCliActionEvidence({ run, t }) {
+  if (!run) return null;
+  const commandLine = capabilityCommandLine(run);
+  const code = typeof run.code === "number" ? run.code : null;
+  const output = String(run.stderr || run.stdout || "");
+  const status = code === 0 ? "ok" : "error";
+  const duration = typeof run.durationMs === "number" ? `${run.durationMs}ms` : "";
+  return (
+    <section className={cx("row-cli-action-evidence", status)} aria-label={t.pluginRowActionEvidence}>
+      <div className="row-cli-action-evidence-head">
+        <span>{t.pluginRowActionEvidence}</span>
+        <code title={commandLine}>{messageExcerpt(commandLine.replace(/^claude\s+/i, ""), 96)}</code>
+        <em>{t.commandExit}: {code ?? "-"}{duration ? ` · ${duration}` : ""}</em>
+      </div>
+      {output && (
+        <details className="row-cli-action-output">
+          <summary>{t.rawOutput}</summary>
+          <pre>{messageExcerpt(output, 900)}</pre>
+        </details>
+      )}
     </section>
   );
 }
@@ -5068,6 +5133,8 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
   const marketplaceRows = (Array.isArray(cliStatus?.marketplaces) ? cliStatus.marketplaces : []).filter((item) => structuredQueryMatch(item, normalizedQuery));
   const marketplacePluginRows = (Array.isArray(cliStatus?.marketplacePlugins) ? cliStatus.marketplacePlugins : []).filter((item) => structuredQueryMatch(item, normalizedQuery));
   const mcpServerRows = (Array.isArray(cliStatus?.mcpServers) ? cliStatus.mcpServers : []).filter((item) => structuredQueryMatch(item, normalizedQuery));
+  const recentCapabilityRuns = useMemo(() => capabilityRunsNewestFirst(state.commandRuns), [state.commandRuns]);
+  const recentMarketplaceActionRun = findRecentMarketplaceActionRun(recentCapabilityRuns);
   const cliWorking = cliBusy || marketplaceBusy || Boolean(cliAction);
   const cliStatusIssueByTab = {
     plugins: cliStatusIssue(t.plugins, "plugin list", cliStatus?.pluginCommand, t, "plugin list --json"),
@@ -5486,6 +5553,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                 <summary>{t.rawOutput}</summary>
                 <pre className="settings-raw-output marketplace-output">{marketplaceOutput || cliStatus?.marketplaceOutput || t.noCliOutputYet}</pre>
               </details>
+              <RowCliActionEvidence run={recentMarketplaceActionRun} t={t} />
             </section>
             <section className="marketplace-card">
               <div className="marketplace-card-head">
@@ -5497,8 +5565,10 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
               </div>
               <div className="marketplace-plugin-grid">
                 {marketplacePluginRows.length === 0 && <p className="empty-list">{t.noMarketplacePlugins}</p>}
-                {marketplacePluginRows.slice(0, 80).map((item) => (
-                  <article className={cx("marketplace-plugin-card", item.installed && "installed")} key={item.id}>
+                {marketplacePluginRows.slice(0, 80).map((item) => {
+                  const recentRun = findRecentPluginActionRun(recentCapabilityRuns, [item.id, item.name], ["install", "update"]);
+                  return (
+                    <article className={cx("marketplace-plugin-card", item.installed && "installed")} key={item.id}>
                     <div className="marketplace-plugin-card-head">
                       <div>
                         <strong>{item.name}</strong>
@@ -5523,8 +5593,10 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                         </button>
                       )}
                     </div>
+                    <RowCliActionEvidence run={recentRun} t={t} />
                   </article>
-                ))}
+                  );
+                })}
               </div>
             </section>
             <section className="marketplace-card">
@@ -5582,8 +5654,10 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                   <strong>{installedPluginRows.length}</strong>
                 </div>
                 {installedPluginRows.length === 0 && <p className="empty-list">{t.pluginsEmpty}</p>}
-                {installedPluginRows.map((plugin) => (
-                  <article className="structured-plugin-row" key={plugin.id}>
+                {installedPluginRows.map((plugin) => {
+                  const recentRun = findRecentPluginActionRun(recentCapabilityRuns, [plugin.id, plugin.name], ["enable", "disable", "update", "install"]);
+                  return (
+                    <article className="structured-plugin-row" key={plugin.id}>
                     <span className="plugin-manager-icon"><Plug size={17} /></span>
                     <div className="plugin-manager-copy">
                       <strong>{plugin.id}</strong>
@@ -5598,8 +5672,10 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                       )}
                       <button type="button" className="plain-action subtle-action" onClick={() => requestCapabilityClaude(`plugin update ${plugin.id}`, `${t.updatePlugin}: ${plugin.id}`)} disabled={cliWorking} title={cliWorking ? t.workingHint : undefined}>{t.updatePlugin}</button>
                     </div>
+                    <RowCliActionEvidence run={recentRun} t={t} />
                   </article>
-                ))}
+                  );
+                })}
               </section>
             )}
             {activeTab === "mcp" && (
