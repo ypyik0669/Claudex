@@ -5045,22 +5045,72 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
 
   async function fetchMarketplace() {
     if (!desktopApi?.runClaudeCommand) return;
+    const args = "plugin marketplace list";
+    const requestId = `marketplace_${Date.now()}_${Math.random().toString(16).slice(2)}`;
     setMarketplaceBusy(true);
     setCliError("");
+    onRunEvent?.({
+      id: requestId,
+      type: "capability-cli",
+      status: "running",
+      title: `${t.marketplace}: claude ${args}`,
+      detail: projectLabel(activeProject, t),
+      commandLine: `claude ${args}`,
+      cwd: activeProject?.path || "",
+    });
+    let result = null;
     try {
-      const result = await desktopApi.runClaudeCommand({
+      result = await desktopApi.runClaudeCommand({
         projectPath: activeProject?.path,
-        args: "plugin marketplace list",
-        requestId: `marketplace_${Date.now()}_${Math.random().toString(16).slice(2)}`,
+        args,
+        requestId,
+        persistCommandRun: true,
+        commandRunKind: "capability",
       });
+      if (Array.isArray(result.commandRuns)) onCommandRuns?.(result.commandRuns);
+      const evidence = cliActionEvidenceFromResult(args, result);
+      setCliActionEvidence(evidence);
+      onRunEvent?.({
+        id: requestId,
+        type: "capability-cli",
+        status: evidence.status,
+        title: `${t.marketplace}: claude ${args}`,
+        detail: cliActionEvidenceDetail(evidence, t),
+        commandLine: `claude ${args}`,
+        cwd: result.cwd || activeProject?.path || "",
+        stdout: evidence.stdout,
+        stderr: evidence.stderr,
+        code: evidence.code,
+        durationMs: evidence.durationMs,
+        suppressNotice: true,
+      });
+      onOpenBottomPanel?.("outputs");
       if (result.code !== 0) throw new Error(result.stderr || result.stdout || t.pluginsLoadError);
       setMarketplaceOutput(result.stdout || result.stderr || t.noCliOutputYet);
-      refreshCliStatus();
+      await refreshCliStatus();
     } catch (error) {
       const message = error.message || String(error);
+      if (!result) {
+        const evidence = cliActionEvidenceFromResult(args, null, { code: 1, stderr: message });
+        setCliActionEvidence(evidence);
+        onRunEvent?.({
+          id: requestId,
+          type: "capability-cli",
+          status: "error",
+          title: `${t.marketplace}: claude ${args}`,
+          detail: cliActionEvidenceDetail(evidence, t),
+          commandLine: `claude ${args}`,
+          cwd: activeProject?.path || "",
+          stderr: evidence.stderr,
+          code: evidence.code,
+          durationMs: evidence.durationMs,
+          suppressNotice: true,
+        });
+        onOpenBottomPanel?.("outputs");
+      }
       setCliError(message);
       recordCapabilityNotice(`${t.marketplace}: ${t.fetchMarketplace}`, message, "capability:fetch-marketplace");
-      setMarketplaceOutput("");
+      setMarketplaceOutput(result?.stdout || result?.stderr || message);
     } finally {
       setMarketplaceBusy(false);
     }
