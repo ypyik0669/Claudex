@@ -1215,11 +1215,26 @@ function commandRunsToHistory(runs = [], kind = "workspace") {
 }
 
 function prependRunEvent(current, entry) {
-  return [{
-    id: `${Date.now()}_${Math.random().toString(16).slice(2)}`,
-    createdAt: new Date().toISOString(),
+  const eventId = entry?.id || `${Date.now()}_${Math.random().toString(16).slice(2)}`;
+  const existing = current.find((item) => item.id === eventId);
+  const createdAt = existing?.createdAt || entry?.createdAt || new Date().toISOString();
+  const incomingIsStaleStart = existing && existing.status !== "running" && entry?.status === "running";
+  const next = {
+    ...existing,
     ...entry,
-  }, ...current].slice(0, 14);
+    ...(incomingIsStaleStart ? existing : {}),
+    id: eventId,
+    createdAt,
+  };
+  return [next, ...current.filter((item) => item.id !== eventId)].slice(0, 14);
+}
+
+function mergeRunEvents(current, incoming) {
+  if (!Array.isArray(incoming)) return current;
+  return [...incoming]
+    .reverse()
+    .reduce((events, event) => prependRunEvent(events, event), current)
+    .slice(0, 14);
 }
 
 function isPermissionDeniedError(message) {
@@ -3307,10 +3322,13 @@ function ToolsPanel({
     setCommandStream({ stdout: "", stderr: "" });
     setCommandResult(null);
     onRunEvent?.({
+      id: requestId,
       type: "workspace-command",
       status: "running",
       title: `${t.runCommand}: ${nextCommand}`,
       detail: activeProject.path,
+      commandLine: nextCommand,
+      cwd: activeProject.path,
     });
     try {
       const result = await desktopApi.runWorkspaceCommand({ projectPath: activeProject.path, command: nextCommand, requestId });
@@ -3332,19 +3350,27 @@ function ToolsPanel({
       }
       onRefreshEnvironment?.();
       onRunEvent?.({
+        id: requestId,
         type: "workspace-command",
         status: result.cancelled ? "cancelled" : result.code === 0 ? "ok" : "error",
         title: `${t.runCommand}: ${result.command || nextCommand}`,
         detail: result.cancelled ? t.commandCancelled : `${t.commandExit}: ${result.code}`,
+        commandLine: result.command || nextCommand,
+        cwd: result.cwd || activeProject.path,
+        code: result.code,
+        durationMs: result.durationMs,
       });
     } catch (error) {
       setWorkspaceError(error.message || String(error));
       setWorkspaceErrorRetry(() => () => runCommand());
       onRunEvent?.({
+        id: requestId,
         type: "workspace-command",
         status: "error",
         title: `${t.runCommand}: ${nextCommand}`,
         detail: error.message || String(error),
+        commandLine: nextCommand,
+        cwd: activeProject.path,
       });
     } finally {
       setWorkspaceBusy(false);
@@ -3383,10 +3409,13 @@ function ToolsPanel({
     setClaudeStream({ stdout: "", stderr: "" });
     setClaudeResult(null);
     onRunEvent?.({
+      id: requestId,
       type: "claude-command",
       status: "running",
       title: `${t.runClaude}: claude ${nextArgs}`,
       detail: activeProject?.path || "",
+      commandLine: `claude ${nextArgs}`,
+      cwd: activeProject?.path || "",
     });
     try {
       const result = await desktopApi.runClaudeCommand({
@@ -3411,18 +3440,26 @@ function ToolsPanel({
         }));
       }
       onRunEvent?.({
+        id: requestId,
         type: "claude-command",
         status: result.code === 0 ? "ok" : "error",
         title: `${t.runClaude}: claude ${result.args?.join(" ") || nextArgs}`,
         detail: `${t.commandExit}: ${result.code}`,
+        commandLine: `claude ${result.args?.join(" ") || nextArgs}`,
+        cwd: result.cwd || activeProject?.path || "",
+        code: result.code,
+        durationMs: result.durationMs,
       });
     } catch (error) {
       setStatusError(error.message || String(error));
       onRunEvent?.({
+        id: requestId,
         type: "claude-command",
         status: "error",
         title: `${t.runClaude}: claude ${nextArgs}`,
         detail: error.message || String(error),
+        commandLine: `claude ${nextArgs}`,
+        cwd: activeProject?.path || "",
       });
     } finally {
       setClaudeBusy(false);
@@ -4928,20 +4965,24 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
   async function runCapabilityClaude(args) {
     const nextArgs = String(args || "").trim();
     if (!desktopApi?.runClaudeCommand || !nextArgs) return;
+    const requestId = `capability_${Date.now()}_${Math.random().toString(16).slice(2)}`;
     setCliAction(nextArgs);
     setCliError("");
     onRunEvent?.({
+      id: requestId,
       type: "capability-cli",
       status: "running",
       title: `${t.pluginActions}: claude ${nextArgs}`,
       detail: projectLabel(activeProject, t),
+      commandLine: `claude ${nextArgs}`,
+      cwd: activeProject?.path || "",
     });
     let result = null;
     try {
       result = await desktopApi.runClaudeCommand({
         projectPath: activeProject?.path,
         args: nextArgs,
-        requestId: `capability_${Date.now()}_${Math.random().toString(16).slice(2)}`,
+        requestId,
         persistCommandRun: true,
         commandRunKind: "capability",
       });
@@ -4949,6 +4990,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
       const evidence = cliActionEvidenceFromResult(nextArgs, result);
       setCliActionEvidence(evidence);
       onRunEvent?.({
+        id: requestId,
         type: "capability-cli",
         status: evidence.status,
         title: `${t.pluginActions}: claude ${nextArgs}`,
@@ -4971,6 +5013,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
         const evidence = cliActionEvidenceFromResult(nextArgs, null, { code: 1, stderr: message });
         setCliActionEvidence(evidence);
         onRunEvent?.({
+          id: requestId,
           type: "capability-cli",
           status: "error",
           title: `${t.pluginActions}: claude ${nextArgs}`,
@@ -5857,7 +5900,7 @@ export function App() {
         const next = await desktopApi.getState();
         if (!cancelled) {
           setState(next);
-          setRunEvents(Array.isArray(next.runEvents) ? next.runEvents : []);
+          setRunEvents((current) => mergeRunEvents(current, next.runEvents || []));
           setActiveSessionId(next.sessions[0]?.id || "");
           setLoadError("");
         }
@@ -5919,7 +5962,7 @@ export function App() {
     return desktopApi.onStateUpdate((next) => {
       if (!next?.settings) return;
       setState(next);
-      setRunEvents(Array.isArray(next.runEvents) ? next.runEvents : []);
+      setRunEvents((current) => mergeRunEvents(current, next.runEvents || []));
       setActiveSessionId((current) => (
         next.sessions?.some((session) => session.id === current) ? current : next.sessions?.[0]?.id || ""
       ));
@@ -6025,7 +6068,7 @@ export function App() {
         sessionId: activeSession?.id || "",
         ...optimisticEvent,
       }).then((next) => {
-        if (Array.isArray(next?.runEvents)) setRunEvents(next.runEvents);
+        if (Array.isArray(next?.runEvents)) setRunEvents((current) => mergeRunEvents(current, next.runEvents));
       }).catch(() => {});
     }
     if (entry?.status === "error" && !entry.suppressNotice) {
@@ -6154,6 +6197,7 @@ export function App() {
     const requestId = `automation_${Date.now()}_${Math.random().toString(16).slice(2)}`;
     setBottomPanel("outputs");
     recordRunEvent({
+      id: requestId,
       type: "automation",
       status: "running",
       title: `${t.scheduled}: ${messageExcerpt(automation.prompt, 60)}`,
@@ -6165,6 +6209,7 @@ export function App() {
     const run = next.automationRun;
     const succeeded = run?.status === "succeeded";
     recordRunEvent({
+      id: requestId,
       type: "automation",
       status: succeeded ? "ok" : "error",
       title: `${t.scheduled}: ${messageExcerpt(automation.prompt, 60)}`,
@@ -6178,6 +6223,7 @@ export function App() {
     const requestId = `subagent_${Date.now()}_${Math.random().toString(16).slice(2)}`;
     setBottomPanel("subagents");
     recordRunEvent({
+      id: requestId,
       type: "subagent",
       status: "running",
       title: `${t.subagents}: ${nickname || "Subagent"}`,
@@ -6195,6 +6241,7 @@ export function App() {
     const run = next.subagentRun;
     const ok = run?.status === "done";
     recordRunEvent({
+      id: run?.requestId || requestId,
       type: "subagent",
       status: ok ? "ok" : run?.status === "cancelled" ? "cancelled" : "error",
       title: `${t.subagents}: ${run?.nickname || nickname || "Subagent"}`,
@@ -6208,6 +6255,7 @@ export function App() {
     const next = await desktopApi.cancelSubagent({ runId: run.id, requestId: run.requestId });
     setState(next);
     recordRunEvent({
+      id: run.requestId || run.id,
       type: "subagent",
       status: "cancelled",
       title: `${t.subagents}: ${run.nickname || "Subagent"}`,
@@ -6223,6 +6271,7 @@ export function App() {
     setStreamingAssistant({ requestId, content: "", status: t.waiting, activities: [] });
     setBusy(true);
     recordRunEvent({
+      id: requestId,
       type: "chat",
       status: "running",
       title: `${t.activeThread}: ${activeSession.title || "Claudex"}`,
@@ -6233,6 +6282,7 @@ export function App() {
       setState(next);
       setActiveSessionId(activeSession.id);
       recordRunEvent({
+        id: requestId,
         type: "chat",
         status: "ok",
         title: `${t.activeThread}: ${activeSession.title || "Claudex"}`,
@@ -6240,6 +6290,7 @@ export function App() {
       });
     } catch (error) {
       recordRunEvent({
+        id: requestId,
         type: "chat",
         status: "error",
         title: `${t.activeThread}: ${activeSession.title || "Claudex"}`,

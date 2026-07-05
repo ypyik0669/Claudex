@@ -412,7 +412,14 @@ function normalizeRunEvent(item, store) {
 }
 
 function upsertRunEvent(store, event) {
-  const normalized = normalizeRunEvent(event, store);
+  const existing = (store.runEvents || []).find((item) => item.id && item.id === event?.id);
+  const incomingIsStaleStart = existing && existing.status !== "running" && event?.status === "running";
+  const normalized = normalizeRunEvent({
+    ...existing,
+    ...event,
+    ...(incomingIsStaleStart ? existing : {}),
+    createdAt: existing?.createdAt || event?.createdAt,
+  }, store);
   store.runEvents = [
     normalized,
     ...(store.runEvents || []).filter((item) => item.id !== normalized.id),
