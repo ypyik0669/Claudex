@@ -802,6 +802,12 @@ const copy = {
     gitEvidenceHint: "点击文件后固定显示真实 git status / diff 证据。",
     gitFileEvidence: "文件证据",
     copyGitEvidence: "复制 Git 证据",
+    stageFile: "暂存文件",
+    unstageFile: "取消暂存",
+    gitActionRunning: "Git 操作中",
+    confirmGitActionTitle: "确认执行 Git 操作",
+    confirmGitStageWarning: "这会在当前项目暂存文件：{path}",
+    confirmGitUnstageWarning: "这会从 index 取消暂存文件，但保留工作区内容：{path}",
     runCommand: "运行命令",
     runCommandShort: "运行",
     commandPlaceholder: "输入 shell 命令",
@@ -1694,6 +1700,22 @@ function gitChangeKindLabel(kind, t) {
   return t.changes;
 }
 
+function quoteWorkspaceCommandPath(pathValue) {
+  const raw = String(pathValue || "").replace(/[\r\n]/g, "");
+  if (typeof navigator !== "undefined" && /win/i.test(navigator.platform || "")) {
+    return `"${raw.replace(/"/g, "")}"`;
+  }
+  return `'${raw.replace(/'/g, "'\\''")}'`;
+}
+
+function gitFileCanStage(file) {
+  return Boolean(file && !file.conflict && (file.untracked || file.unstaged || file.kind === "untracked" || file.kind === "unstaged" || file.kind === "mixed"));
+}
+
+function gitFileCanUnstage(file) {
+  return Boolean(file && !file.conflict && (file.staged || file.kind === "staged" || file.kind === "mixed"));
+}
+
 function gitEvidenceText({
   t,
   activeProject,
@@ -2119,6 +2141,7 @@ function Conversation({
   onSelectProject,
   onSettings,
   onCapabilities,
+  onRunEvent,
   onCopy,
   onRetry,
   onOpenInteractiveClaude,
@@ -2138,6 +2161,7 @@ function Conversation({
   automations,
   subagentRuns,
   commandRuns,
+  onCommandRuns,
   sourceRefs,
   browserVisits,
   notices,
@@ -2194,6 +2218,7 @@ function Conversation({
   const emptyTitle = session ? t.selectedEmptyTitle : t.noSessionTitle;
   const emptyHint = session ? t.selectedEmptyHint : t.noSessionHint;
   const [selectedGitDiffPath, setSelectedGitDiffPath] = useState("");
+  const [gitActionWorkingPath, setGitActionWorkingPath] = useState("");
   const git = environment?.git;
   const gitAvailable = Boolean(git?.available);
   const gitChangesLabel = gitAvailable ? String(git.changes || 0) : t.gitUnavailable;
@@ -2216,6 +2241,9 @@ function Conversation({
   const selectedGitFile = selectedGitDiffPath
     ? gitFiles.find((item) => item.path === selectedGitDiffPath || item.previousPath === selectedGitDiffPath)
     : null;
+  const selectedGitCanStage = gitAvailable && gitFileCanStage(selectedGitFile);
+  const selectedGitCanUnstage = gitAvailable && gitFileCanUnstage(selectedGitFile);
+  const selectedGitActionBusy = Boolean(selectedGitFile?.path && gitActionWorkingPath === selectedGitFile.path);
   const selectedGitFileDiff = selectedGitDiffPath
     ? gitFileDiffs.find((item) => item.path === selectedGitDiffPath || item.previousPath === selectedGitDiffPath)
     : null;
@@ -2238,6 +2266,60 @@ function Conversation({
       || gitFileDiffs.some((item) => item.path === selectedGitDiffPath || item.previousPath === selectedGitDiffPath);
     if (!stillExists) setSelectedGitDiffPath("");
   }, [selectedGitDiffPath, gitFiles, gitFileDiffs]);
+  async function runGitFileAction(action, file = selectedGitFile) {
+    if (!file?.path || !activeProject?.path) return;
+    if (!desktopApi?.runWorkspaceCommand) {
+      window.alert?.(t.desktopOnly);
+      return;
+    }
+    const command = action === "stage"
+      ? `git add -- ${quoteWorkspaceCommandPath(file.path)}`
+      : `git restore --staged -- ${quoteWorkspaceCommandPath(file.path)}`;
+    const warning = action === "stage" ? t.confirmGitStageWarning : t.confirmGitUnstageWarning;
+    const confirmed = window.confirm?.(`${t.confirmGitActionTitle}\n\n${warning.replace("{path}", file.path)}\n\n$ ${command}`);
+    if (!confirmed) return;
+    const requestId = `git_command_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+    const actionLabel = action === "stage" ? t.stageFile : t.unstageFile;
+    setGitActionWorkingPath(file.path);
+    onRunEvent?.({
+      id: requestId,
+      type: "git-command",
+      status: "running",
+      title: `Git: ${actionLabel}`,
+      detail: file.path,
+      commandLine: command,
+      cwd: activeProject.path,
+    });
+    try {
+      const result = await desktopApi.runWorkspaceCommand({ projectPath: activeProject.path, command, requestId });
+      if (Array.isArray(result?.commandRuns)) onCommandRuns?.(result.commandRuns);
+      const code = typeof result?.code === "number" ? result.code : null;
+      onRunEvent?.({
+        id: requestId,
+        type: "git-command",
+        status: result?.cancelled ? "cancelled" : code === 0 ? "ok" : "error",
+        title: `Git: ${actionLabel}`,
+        detail: `${t.commandExit}: ${code ?? "-"}`,
+        commandLine: result?.command || command,
+        cwd: result?.cwd || activeProject.path,
+        code,
+        durationMs: typeof result?.durationMs === "number" ? result.durationMs : null,
+      });
+      await onRefreshEnvironment?.();
+    } catch (error) {
+      onRunEvent?.({
+        id: requestId,
+        type: "git-command",
+        status: "error",
+        title: `Git: ${actionLabel}`,
+        detail: error?.message || String(error),
+        commandLine: command,
+        cwd: activeProject.path,
+      });
+    } finally {
+      setGitActionWorkingPath("");
+    }
+  }
   const activeNotices = useMemo(() => (notices || []).filter((notice) => !notice.dismissedAt), [notices]);
   const automationItemsForUi = useMemo(() => (Array.isArray(automations) ? automations : []), [automations]);
   const workspaceCommandRuns = useMemo(() => commandRunsToHistory(commandRuns, "workspace"), [commandRuns]);
@@ -2688,10 +2770,36 @@ function Conversation({
                         <strong title={selectedGitDiffPath || t.allChanges}>{selectedGitDiffPath || t.allChanges}</strong>
                         <p>{t.gitEvidenceHint}</p>
                       </div>
-                      <button type="button" className="plain-action subtle-action" onClick={() => onCopy?.(gitEvidenceCopyText)}>
-                        <Copy size={13} />
-                        {t.copyGitEvidence}
-                      </button>
+                      <div className="git-selected-evidence-actions">
+                        <button type="button" className="plain-action subtle-action" onClick={() => onCopy?.(gitEvidenceCopyText)}>
+                          <Copy size={13} />
+                          {t.copyGitEvidence}
+                        </button>
+                        {selectedGitFile && selectedGitCanStage && (
+                          <button
+                            type="button"
+                            className="plain-action subtle-action"
+                            onClick={() => runGitFileAction("stage", selectedGitFile)}
+                            disabled={Boolean(gitActionWorkingPath)}
+                            title={gitActionWorkingPath ? t.gitActionRunning : t.stageFile}
+                          >
+                            <GitBranch size={13} />
+                            {selectedGitActionBusy ? t.gitActionRunning : t.stageFile}
+                          </button>
+                        )}
+                        {selectedGitFile && selectedGitCanUnstage && (
+                          <button
+                            type="button"
+                            className="plain-action subtle-action danger-inline-action"
+                            onClick={() => runGitFileAction("unstage", selectedGitFile)}
+                            disabled={Boolean(gitActionWorkingPath)}
+                            title={gitActionWorkingPath ? t.gitActionRunning : t.unstageFile}
+                          >
+                            <X size={13} />
+                            {selectedGitActionBusy ? t.gitActionRunning : t.unstageFile}
+                          </button>
+                        )}
+                      </div>
                     </div>
                     <dl className="git-selected-evidence-meta">
                       <div><dt>{t.branch}</dt><dd>{branchLabel}</dd></div>
@@ -7746,6 +7854,7 @@ export function App() {
           onSelectProject={openProjectsSurface}
           onSettings={openSettingsSurface}
           onCapabilities={openCapabilitiesSurface}
+          onRunEvent={recordRunEvent}
           onCopy={copyMessage}
           onRetry={retryLast}
           onOpenInteractiveClaude={openInteractiveClaudeFromChat}
@@ -7765,6 +7874,7 @@ export function App() {
           automations={state.automations}
           subagentRuns={state.subagentRuns}
           commandRuns={state.commandRuns}
+          onCommandRuns={(commandRuns) => setState((current) => ({ ...current, commandRuns }))}
           sourceRefs={state.sourceRefs}
           browserVisits={state.browserVisits}
           notices={state.notices}

@@ -128,6 +128,7 @@ app.whenReady().then(async () => {
   await wait(700);
 
   assertStep("PASS37_READY", await waitFor(win, "Boolean(document.querySelector('.app-grid'))", 15000));
+  await win.webContents.executeJavaScript("window.confirm = () => true; true;");
   assertStep("PASS37_CHANGES_CLICK", await win.webContents.executeJavaScript(`
     (function() {
       const button = Array.from(document.querySelectorAll('.workspace-context-button, .bottom-panel-tabs button'))
@@ -200,6 +201,32 @@ app.whenReady().then(async () => {
       return /已复制/.test(document.body.textContent || '');
     })()
   `, 5000));
+  assertStep("PASS37_UNSTAGE_CLICK", await win.webContents.executeJavaScript(`
+    (function() {
+      const button = Array.from(document.querySelectorAll('.git-selected-evidence-panel button'))
+        .find((item) => /取消暂存/.test(item.textContent || ''));
+      if (!button) return false;
+      button.click();
+      return true;
+    })();
+  `));
+  assertStep("PASS37_UNSTAGE_COMMAND_EVIDENCE", await waitFor(win, `
+    (async function() {
+      const state = await window.claudexDesktop.getState();
+      const runs = state.commandRuns || [];
+      const events = state.runEvents || [];
+      const summary = document.querySelector('.git-change-summary')?.textContent || '';
+      const panel = document.querySelector('.git-selected-evidence-panel')?.textContent || '';
+      const selected = document.querySelector('.git-change-item.selected')?.textContent || '';
+      return runs.some((run) => /git restore --staged/.test(run.command || '') && /${SECOND_FILE}/.test(run.command || '') && run.code === 0) &&
+        events.some((event) => event.type === 'git-command' && event.status === 'ok' && /取消暂存/.test(event.title || '')) &&
+        /未暂存\\s*2/.test(summary) &&
+        !/已暂存\\s*1/.test(summary) &&
+        /${SECOND_FILE}/.test(selected) &&
+        /未暂存/.test(panel) &&
+        /pass37-second-evidence/.test(panel);
+    })()
+  `, 10000));
   assertStep("PASS37_ALL_CHANGES_CLICK", await win.webContents.executeJavaScript(`
     (function() {
       const button = Array.from(document.querySelectorAll('.git-change-item'))
@@ -244,6 +271,33 @@ app.whenReady().then(async () => {
         /pass37 untracked evidence/.test(panel);
     })()
   `, 5000));
+  assertStep("PASS37_STAGE_UNTRACKED_CLICK", await win.webContents.executeJavaScript(`
+    (function() {
+      const button = Array.from(document.querySelectorAll('.git-selected-evidence-panel button'))
+        .find((item) => /暂存文件/.test(item.textContent || ''));
+      if (!button) return false;
+      button.click();
+      return true;
+    })();
+  `));
+  assertStep("PASS37_STAGE_COMMAND_EVIDENCE", await waitFor(win, `
+    (async function() {
+      const state = await window.claudexDesktop.getState();
+      const runs = state.commandRuns || [];
+      const events = state.runEvents || [];
+      const summary = document.querySelector('.git-change-summary')?.textContent || '';
+      const panel = document.querySelector('.git-selected-evidence-panel')?.textContent || '';
+      const selected = document.querySelector('.git-change-item.selected')?.textContent || '';
+      return runs.some((run) => /git add/.test(run.command || '') && /${UNTRACKED_FILE}/.test(run.command || '') && run.code === 0) &&
+        events.some((event) => event.type === 'git-command' && event.status === 'ok' && /暂存文件/.test(event.title || '')) &&
+        /已暂存\\s*1/.test(summary) &&
+        /未暂存\\s*2/.test(summary) &&
+        !/未跟踪\\s*1/.test(summary) &&
+        /${UNTRACKED_FILE}/.test(selected) &&
+        /已暂存/.test(panel) &&
+        /pass37 untracked evidence/.test(panel);
+    })()
+  `, 10000));
   await shot(win, "pass37-git-diff-panel.png");
 
   console.log("PASS37_DONE");
