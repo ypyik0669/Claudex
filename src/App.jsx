@@ -4402,7 +4402,7 @@ function ShellModal({ title, subtitle, onClose, children, className = "", closeL
   );
 }
 
-function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenClaudePanel, surface = false }) {
+function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenClaudePanel, onNotice, surface = false }) {
   const tabs = [
     ["plugins", t.plugins],
     ["mcp", t.mcps],
@@ -4453,6 +4453,17 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
   const searchPlaceholder =
     activeTab === "skills" ? t.searchSkills : activeTab === "marketplace" ? t.searchMarketplace : t.searchPlugins;
 
+  function recordCapabilityNotice(title, detail, key = "") {
+    onNotice?.({
+      level: "error",
+      source: "plugin/mcp",
+      title,
+      detail,
+      key: key || `capability:${title}:${detail}`,
+      projectPath: activeProject?.path || "",
+    });
+  }
+
   async function refreshCliStatus() {
     if (!desktopApi?.getClaudeStatus) return;
     setCliBusy(true);
@@ -4461,7 +4472,9 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
       const result = await desktopApi.getClaudeStatus({ projectPath: activeProject?.path });
       setCliStatus(result);
     } catch (error) {
-      setCliError(error.message || String(error));
+      const message = error.message || String(error);
+      setCliError(message);
+      recordCapabilityNotice(`${t.capabilities}: ${t.refreshCliStatus}`, message, "capability:refresh-status");
     } finally {
       setCliBusy(false);
     }
@@ -4481,7 +4494,9 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
       setMarketplaceOutput(result.stdout || result.stderr || t.noCliOutputYet);
       refreshCliStatus();
     } catch (error) {
-      setCliError(error.message || String(error));
+      const message = error.message || String(error);
+      setCliError(message);
+      recordCapabilityNotice(`${t.marketplace}: ${t.fetchMarketplace}`, message, "capability:fetch-marketplace");
       setMarketplaceOutput("");
     } finally {
       setMarketplaceBusy(false);
@@ -4503,7 +4518,9 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
       if (/plugin marketplace/i.test(nextArgs)) setMarketplaceOutput(result.stdout || result.stderr || "");
       await refreshCliStatus();
     } catch (error) {
-      setCliError(error.message || String(error));
+      const message = error.message || String(error);
+      setCliError(message);
+      recordCapabilityNotice(`${t.pluginActions}: ${nextArgs}`, message, `capability:action:${nextArgs}`);
     } finally {
       setCliAction("");
     }
@@ -4523,12 +4540,18 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
 
   async function saveCustomMarketplaces(items) {
     if (!desktopApi?.saveSettings) return;
-    const nextState = await desktopApi.saveSettings({
-      ...state.settings,
-      customMarketplaces: items,
-      apiKey: "",
-    });
-    onSaved?.(nextState);
+    try {
+      const nextState = await desktopApi.saveSettings({
+        ...state.settings,
+        customMarketplaces: items,
+        apiKey: "",
+      });
+      onSaved?.(nextState);
+    } catch (error) {
+      const message = error.message || String(error);
+      setCliError(message);
+      recordCapabilityNotice(`${t.marketplace}: ${t.customMarketplaces}`, message, "capability:save-custom-marketplaces");
+    }
   }
 
   async function addCustomMarketplace(event) {
@@ -5993,6 +6016,7 @@ export function App() {
             onToggle={toggleCapability}
             onSaved={(next) => setState(next)}
             onOpenClaudePanel={() => activateTool("claude")}
+            onNotice={recordNotice}
             surface
           />
         ) : (
