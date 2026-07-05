@@ -674,6 +674,8 @@ const copy = {
     browserStatusExternal: "外部打开",
     browserNoHistory: "还没有浏览器证据。",
     browserBackedByWebview: "来自真实 Electron webview 加载/失败事件",
+    browserErrorCode: "错误码",
+    browserMainFrame: "主框架",
     commandRunning: "运行中",
     cancelCommand: "停止命令",
     commandCancelled: "命令已停止",
@@ -2293,6 +2295,8 @@ function BrowserEvidenceList({ visits = [], t }) {
             <span>
               {browserStatusLabel(visit.status, t)}
               {visit.error ? ` · ${visit.error}` : ""}
+              {Number.isFinite(Number(visit.errorCode)) ? ` · ${t.browserErrorCode} ${visit.errorCode}` : ""}
+              {visit.isMainFrame ? ` · ${t.browserMainFrame}` : ""}
               {visit.lastEventAt ? ` · ${formatDate(visit.lastEventAt)}` : ""}
             </span>
             {visit.excerpt && <p title={visit.excerpt}>{visit.excerpt}</p>}
@@ -2703,7 +2707,14 @@ function ToolsPanel({
       setBrowserStatus("error");
       const error = event?.errorDescription || t.browserFailed;
       setBrowserError(error);
-      recordBrowserVisit({ url: event?.validatedURL || browserPreviewUrl, status: "error", error });
+      recordBrowserVisit({
+        url: event?.validatedURL || browserPreviewUrl,
+        status: "error",
+        error,
+        errorCode: event?.errorCode,
+        validatedUrl: event?.validatedURL || "",
+        isMainFrame: Boolean(event?.isMainFrame),
+      });
       onRunEvent?.({
         type: "browser",
         status: "error",

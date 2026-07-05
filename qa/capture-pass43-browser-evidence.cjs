@@ -168,7 +168,10 @@ async function runTest(server, goodUrl) {
           visit &&
           visit.url === 'http://127.0.0.1:9/pass43-error' &&
           visit.status === 'error' &&
-          document.querySelector('.browser-evidence-card.error')
+          visit.errorCode === -312 &&
+          visit.validatedUrl === 'http://127.0.0.1:9/pass43-error' &&
+          document.querySelector('.browser-evidence-card.error') &&
+          /-312/.test(document.body.textContent || '')
         );
       })();
     `, 15000));
@@ -187,6 +190,7 @@ async function runTest(server, goodUrl) {
         return Boolean(
           document.querySelector('.bottom-work-panel .browser-evidence-card.error') &&
           /127\\.0\\.0\\.1:9\\/pass43-error/.test(document.body.textContent || '') &&
+          /-312/.test(document.body.textContent || '') &&
           /Electron webview/.test(document.body.textContent || '')
         );
       })();
@@ -196,7 +200,7 @@ async function runTest(server, goodUrl) {
       const parsed = JSON.parse(fs.readFileSync(DATA_FILE, "utf8"));
       return parsed.browserVisits?.length >= 2 &&
         parsed.browserVisits.some((item) => item.status === "ready" && item.url === goodUrl && /pass43 snapshot body evidence/.test(item.excerpt || "")) &&
-        parsed.browserVisits.some((item) => item.status === "error" && item.url === "http://127.0.0.1:9/pass43-error");
+        parsed.browserVisits.some((item) => item.status === "error" && item.url === "http://127.0.0.1:9/pass43-error" && item.errorCode === -312 && item.validatedUrl === "http://127.0.0.1:9/pass43-error");
     })());
 
     win.webContents.reload();
@@ -216,6 +220,7 @@ async function runTest(server, goodUrl) {
         return Boolean(
           document.querySelector('.browser-evidence-card.error') &&
           /127\\.0\\.0\\.1:9\\/pass43-error/.test(document.body.textContent || '') &&
+          /-312/.test(document.body.textContent || '') &&
           /pass43 snapshot body evidence/.test(document.body.textContent || '')
         );
       })();
