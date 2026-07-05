@@ -601,6 +601,10 @@ const copy = {
     marketplaceSourceCustom: "自定义市场",
     managePlugins: "管理",
     openClaudePanel: "打开 Claude 面板",
+    capabilityStatusIssues: "CLI 状态告警",
+    capabilityStatusIssueCount: "{count} 个后台状态命令失败",
+    capabilityStatusBackedByStatus: "来自 Claude Code 状态刷新；只展示真实 CLI 失败，不写入 commandRuns。",
+    retryCliStatus: "重试状态",
     noCapabilities: "没有匹配的能力。",
     enabled: "已启用",
     disabled: "已关闭",
@@ -895,6 +899,25 @@ function cliActionEvidenceDetail(evidence, t) {
   if (typeof evidence.durationMs === "number") parts.push(`${t.commandDuration}: ${evidence.durationMs}ms`);
   if (evidence.stderr) parts.push(messageExcerpt(evidence.stderr, 120));
   return parts.join(" · ");
+}
+
+function cliStatusIssue(label, commandLine, commandState, t, jsonCommandLine = "") {
+  if (!commandState) return null;
+  const plainCode = typeof commandState.code === "number" ? commandState.code : null;
+  const jsonCode = typeof commandState.jsonCode === "number" ? commandState.jsonCode : null;
+  const jsonFailed = jsonCode !== null && jsonCode !== 0;
+  const plainFailed = plainCode !== null && plainCode !== 0;
+  if (!plainFailed && !jsonFailed) return null;
+  const code = jsonFailed ? jsonCode : plainCode;
+  const command = jsonFailed && jsonCommandLine ? jsonCommandLine : commandLine;
+  const error = String(commandState.error || "").trim();
+  return {
+    id: `${label}:${command}`,
+    label,
+    commandLine: command,
+    code,
+    error,
+  };
 }
 
 function isGenericSessionTitle(title, t) {
@@ -5013,6 +5036,11 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
   const marketplacePluginRows = (Array.isArray(cliStatus?.marketplacePlugins) ? cliStatus.marketplacePlugins : []).filter((item) => structuredQueryMatch(item, normalizedQuery));
   const mcpServerRows = (Array.isArray(cliStatus?.mcpServers) ? cliStatus.mcpServers : []).filter((item) => structuredQueryMatch(item, normalizedQuery));
   const cliWorking = cliBusy || marketplaceBusy || Boolean(cliAction);
+  const cliStatusIssues = [
+    cliStatusIssue(t.plugins, "plugin list", cliStatus?.pluginCommand, t, "plugin list --json"),
+    cliStatusIssue(t.mcps, "mcp list", cliStatus?.mcpCommand, t),
+    cliStatusIssue(t.marketplace, "plugin marketplace list", cliStatus?.marketplaceCommand, t, "plugin marketplace list --json"),
+  ].filter(Boolean);
   const searchPlaceholder =
     activeTab === "skills" ? t.searchSkills : activeTab === "marketplace" ? t.searchMarketplace : t.searchPlugins;
 
@@ -5261,6 +5289,40 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
           {t.refresh}
         </button>
       </section>
+      {cliStatusIssues.length > 0 && (
+        <section className="plugin-status-issues" aria-label={t.capabilityStatusIssues}>
+          <div className="plugin-status-issues-head">
+            <AlertTriangle size={15} />
+            <div>
+              <span>{t.capabilityStatusIssues}</span>
+              <strong>{t.capabilityStatusIssueCount.replace("{count}", cliStatusIssues.length)}</strong>
+            </div>
+            <div className="plugin-status-issues-actions">
+              <button type="button" className="plain-action subtle-action" onClick={refreshCliStatus} disabled={cliWorking} title={cliWorking ? t.workingHint : t.refreshCliStatus}>
+                <RefreshCw size={13} className={cliBusy ? "spin" : undefined} />
+                {t.retryCliStatus}
+              </button>
+              <button type="button" className="plain-action subtle-action" onClick={onOpenClaudePanel}>
+                <Bot size={13} />
+                {t.openClaudePanel}
+              </button>
+            </div>
+          </div>
+          <p>{t.capabilityStatusBackedByStatus}</p>
+          <div className="plugin-status-issue-list">
+            {cliStatusIssues.map((issue) => (
+              <article className="plugin-status-issue-row" key={issue.id}>
+                <div>
+                  <strong>{issue.label}</strong>
+                  <span>claude {issue.commandLine}</span>
+                </div>
+                <em>{t.commandExit}: {issue.code}</em>
+                {issue.error && <code title={issue.error}>{messageExcerpt(issue.error, 220)}</code>}
+              </article>
+            ))}
+          </div>
+        </section>
+      )}
       {cliError && <p className="plugin-cli-error">{cliError}</p>}
       {cliActionEvidence && (
         <section className={cx("plugin-cli-action-evidence", cliActionEvidence.status)} aria-label={t.pluginActionEvidence}>

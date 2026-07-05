@@ -3723,6 +3723,107 @@ kbd {
   font-size: 12px;
 }
 
+.plugin-status-issues {
+  display: grid;
+  gap: 8px;
+  border: 1px solid rgba(209, 131, 87, 0.28);
+  border-radius: var(--radius);
+  background: rgba(209, 131, 87, 0.06);
+  padding: 10px;
+  margin: -4px 0 12px;
+}
+
+.plugin-status-issues-head {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+}
+
+.plugin-status-issues-head > svg {
+  color: #d7a27a;
+}
+
+.plugin-status-issues-head span,
+.plugin-status-issues p {
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
+.plugin-status-issues-head strong {
+  display: block;
+  margin-top: 2px;
+  color: #f0eee8;
+  font-size: 13px;
+  font-weight: 550;
+}
+
+.plugin-status-issues p {
+  margin: 0;
+  line-height: 1.4;
+}
+
+.plugin-status-issues-actions {
+  display: inline-flex;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.plugin-status-issue-list {
+  display: grid;
+  gap: 6px;
+}
+
+.plugin-status-issue-row {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 6px 10px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: var(--radius-sm);
+  background: rgba(10, 10, 10, 0.52);
+  padding: 8px;
+}
+
+.plugin-status-issue-row strong,
+.plugin-status-issue-row span,
+.plugin-status-issue-row code {
+  min-width: 0;
+  overflow: hidden;
+  display: block;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.plugin-status-issue-row strong {
+  color: #f0eee8;
+  font-size: 12.5px;
+  font-weight: 550;
+}
+
+.plugin-status-issue-row span,
+.plugin-status-issue-row code {
+  margin-top: 2px;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.plugin-status-issue-row em {
+  border-radius: 999px;
+  background: rgba(211, 106, 92, 0.12);
+  color: #ef9b91;
+  padding: 2px 8px;
+  font-size: 11px;
+  font-style: normal;
+  white-space: nowrap;
+}
+
+.plugin-status-issue-row code {
+  grid-column: 1 / -1;
+  color: #efb0a9;
+}
+
 .plugin-cli-action-evidence {
   min-width: 0;
   overflow: hidden;
