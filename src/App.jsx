@@ -916,6 +916,18 @@ function isEditableTarget(target) {
     || Boolean(target.closest?.("[contenteditable='true']"));
 }
 
+function isPrimaryShortcut(event, key) {
+  return (event.ctrlKey || event.metaKey) && event.key.toLowerCase() === key;
+}
+
+function isShortcutHelpKey(event) {
+  return (event.ctrlKey || event.metaKey) && (event.key === "/" || event.code === "Slash");
+}
+
+function isEditableNavigationShortcut(event) {
+  return ["k", "p", "t"].some((key) => isPrimaryShortcut(event, key));
+}
+
 function providerDefaults(providerId) {
   return providers.find((provider) => provider.id === providerId) || providers[0];
 }
@@ -7912,19 +7924,23 @@ export function App() {
   useEffect(() => {
     const onKeyDown = (event) => {
       if (isEditableTarget(event.target)) {
-        if ((event.ctrlKey || event.metaKey) && event.key === "/") {
+        if (isShortcutHelpKey(event)) {
           event.preventDefault();
           setShortcutsOpen(true);
+          return;
+        }
+        if (isEditableNavigationShortcut(event)) {
+          event.preventDefault();
         }
         return;
       }
       // Cmd/Ctrl+K：命令面板
-      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
+      if (isPrimaryShortcut(event, "k")) {
         event.preventDefault();
         setCommandsOpen(true);
       }
       // Cmd/Ctrl+N：新聊天
-      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "n") {
+      if (isPrimaryShortcut(event, "n")) {
         event.preventDefault();
         createSession();
       }
@@ -7934,12 +7950,12 @@ export function App() {
         openSettingsSurface();
       }
       // Cmd/Ctrl+P：项目
-      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "p") {
+      if (isPrimaryShortcut(event, "p")) {
         event.preventDefault();
         openProjectsSurface();
       }
       // Cmd/Ctrl+B：打开/关闭左侧栏
-      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "b") {
+      if (isPrimaryShortcut(event, "b")) {
         event.preventDefault();
         setSidebarVisible((v) => !v);
       }
@@ -7955,12 +7971,12 @@ export function App() {
         document.querySelector('.nav-search input')?.focus();
       }
       // Cmd/Ctrl+/：快捷键帮助
-      if ((event.ctrlKey || event.metaKey) && event.key === "/") {
+      if (isShortcutHelpKey(event)) {
         event.preventDefault();
         setShortcutsOpen(true);
       }
       // Cmd/Ctrl+T：打开/关闭浏览器
-      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "t") {
+      if (isPrimaryShortcut(event, "t")) {
         event.preventDefault();
         setRightPanelVisible(true);
         setSelectedTool((current) => (current === "browser" ? "" : "browser"));
