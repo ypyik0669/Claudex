@@ -502,6 +502,9 @@ const copy = {
     confirmDisableTitle: "要禁用这个插件吗？",
     confirmDisableWarning: "这会禁用「{name}」。之后可以通过重新安装或更新来重新启用它。",
     confirmDisableButton: "确认禁用",
+    confirmCliActionTitle: "确认执行本机 CLI 操作",
+    confirmCliActionWarning: "这会通过 Claude Code CLI 修改本机插件或市场状态：{command}",
+    confirmCliActionButton: "确认执行",
     dismissAction: "取消",
     installedPlugins: "已安装的插件",
     pluginRefresh: "刷新",
@@ -4330,6 +4333,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
   const [cliBusy, setCliBusy] = useState(false);
   const [cliError, setCliError] = useState("");
   const [cliAction, setCliAction] = useState("");
+  const [confirmingCliCommand, setConfirmingCliCommand] = useState(null);
   const [marketplaceOutput, setMarketplaceOutput] = useState("");
   const [marketplaceBusy, setMarketplaceBusy] = useState(false);
   const [customMarketplaceUrl, setCustomMarketplaceUrl] = useState("");
@@ -4422,6 +4426,18 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
     }
   }
 
+  function requestCapabilityClaude(args, label = "") {
+    const nextArgs = String(args || "").trim();
+    if (!nextArgs || cliWorking) return;
+    setConfirmingCliCommand({ args: nextArgs, label: label || nextArgs });
+  }
+
+  async function confirmCapabilityClaude() {
+    const command = confirmingCliCommand?.args;
+    setConfirmingCliCommand(null);
+    await runCapabilityClaude(command);
+  }
+
   async function saveCustomMarketplaces(items) {
     if (!desktopApi?.saveSettings) return;
     const nextState = await desktopApi.saveSettings({
@@ -4474,6 +4490,18 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
         </button>
       </section>
       {cliError && <p className="plugin-cli-error">{cliError}</p>}
+      {confirmingCliCommand && (
+        <div className="dirty-confirm-banner plugin-cli-confirm" role="alertdialog" aria-label={t.confirmCliActionTitle}>
+          <span>{t.confirmCliActionWarning.replace("{command}", confirmingCliCommand.label || confirmingCliCommand.args)}</span>
+          <code>{confirmingCliCommand.args}</code>
+          <div className="dirty-confirm-actions">
+            <button type="button" className="plain-action" onClick={() => setConfirmingCliCommand(null)}>{t.dismissAction}</button>
+            <button type="button" className="danger-action" onClick={confirmCapabilityClaude} disabled={cliWorking} title={cliWorking ? t.workingHint : undefined}>
+              {t.confirmCliActionButton}
+            </button>
+          </div>
+        </div>
+      )}
       <div className="capability-toolbar">
         <label className="command-search capability-search">
           <Search size={16} />
@@ -4520,7 +4548,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                     <Bot size={14} />
                     {t.openClaudePanel}
                   </button>
-                  <button type="button" className="plain-action subtle-action" onClick={() => runCapabilityClaude("plugin marketplace update")} disabled={cliWorking} title={cliWorking ? t.workingHint : undefined}>
+                  <button type="button" className="plain-action subtle-action" onClick={() => requestCapabilityClaude("plugin marketplace update", t.updatePlugin)} disabled={cliWorking} title={cliWorking ? t.workingHint : undefined}>
                     <RefreshCw size={14} className={cliAction === "plugin marketplace update" ? "spin" : undefined} />
                     {t.updatePlugin}
                   </button>
@@ -4573,7 +4601,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                       {item.source && <div><dt>{t.source}</dt><dd title={item.source}>{compactPath(item.source, 54)}</dd></div>}
                     </dl>
                     <div className="marketplace-card-actions">
-                      <button type="button" className="plain-action" onClick={() => runCapabilityClaude(`plugin install ${item.id}`)} disabled={cliWorking || item.installed} title={item.installed ? t.installedLocal : cliWorking ? t.workingHint : t.installFromMarketplace}>
+                      <button type="button" className="plain-action" onClick={() => requestCapabilityClaude(`plugin install ${item.id}`, `${t.installFromMarketplace}: ${item.name || item.id}`)} disabled={cliWorking || item.installed} title={item.installed ? t.installedLocal : cliWorking ? t.workingHint : t.installFromMarketplace}>
                         <Download size={14} />
                         {item.installed ? t.installedLocal : t.installFromMarketplace}
                       </button>
@@ -4643,11 +4671,11 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                     <em className={cx("plugin-status-badge", plugin.enabled ? "enabled" : "disabled")}>{plugin.enabled ? t.pluginStatusEnabled : t.pluginStatusDisabled}</em>
                     <div className="structured-row-actions">
                       {plugin.enabled ? (
-                        <button type="button" className="plain-action subtle-action" onClick={() => runCapabilityClaude(`plugin disable ${plugin.id}`)} disabled={cliWorking} title={cliWorking ? t.workingHint : undefined}>{t.disablePlugin}</button>
+                        <button type="button" className="plain-action subtle-action" onClick={() => requestCapabilityClaude(`plugin disable ${plugin.id}`, `${t.disablePlugin}: ${plugin.id}`)} disabled={cliWorking} title={cliWorking ? t.workingHint : undefined}>{t.disablePlugin}</button>
                       ) : (
-                        <button type="button" className="plain-action subtle-action" onClick={() => runCapabilityClaude(`plugin enable ${plugin.id}`)} disabled={cliWorking} title={cliWorking ? t.workingHint : undefined}>{t.enablePlugin}</button>
+                        <button type="button" className="plain-action subtle-action" onClick={() => requestCapabilityClaude(`plugin enable ${plugin.id}`, `${t.enablePlugin}: ${plugin.id}`)} disabled={cliWorking} title={cliWorking ? t.workingHint : undefined}>{t.enablePlugin}</button>
                       )}
-                      <button type="button" className="plain-action subtle-action" onClick={() => runCapabilityClaude(`plugin update ${plugin.id}`)} disabled={cliWorking} title={cliWorking ? t.workingHint : undefined}>{t.updatePlugin}</button>
+                      <button type="button" className="plain-action subtle-action" onClick={() => requestCapabilityClaude(`plugin update ${plugin.id}`, `${t.updatePlugin}: ${plugin.id}`)} disabled={cliWorking} title={cliWorking ? t.workingHint : undefined}>{t.updatePlugin}</button>
                     </div>
                   </article>
                 ))}
