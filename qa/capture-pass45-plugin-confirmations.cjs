@@ -275,6 +275,13 @@ async function runTest() {
       /plugin install qa-structured-plugin/.test(document.querySelector('.capability-command-evidence-stack')?.textContent || '') &&
       /退出码/.test(document.querySelector('.capability-command-evidence-stack')?.textContent || ''))
   `, 8000));
+  assertStep("PASS45_CAPABILITY_COMMAND_PERSISTED", (() => {
+    const parsed = JSON.parse(fs.readFileSync(path.join(USER_DATA_DIR, "desktop-data.json"), "utf8"));
+    return parsed.commandRuns?.some((run) => run.kind === "capability" &&
+      /plugin install qa-structured-plugin/.test(run.command || "") &&
+      run.code === 0 &&
+      /ok plugin install qa-structured-plugin/.test(run.stdout || ""));
+  })());
 
   console.log("PASS45_PLUGIN_CONFIRMATIONS_DONE");
   cleanup();

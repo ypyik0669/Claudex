@@ -704,7 +704,7 @@ const copy = {
     workspaceCommandEvidence: "Workspace 命令证据",
     workspaceCommandBackedByStore: "来自主进程本地 commandRuns",
     capabilityCommandEvidence: "Plugin/MCP CLI 证据",
-    capabilityCommandBackedByTimeline: "来自 Capability workbench 的真实 Claude Code CLI 操作",
+    capabilityCommandBackedByTimeline: "来自主进程本地 commandRuns · Capability workbench 真实 Claude Code CLI 操作",
     clearHistory: "清空",
     runningNow: "正在运行",
     completedRuns: "{count} 条记录",
@@ -1209,23 +1209,6 @@ function commandRunsToHistory(runs = [], kind = "workspace") {
     .filter((run) => (run.kind || "workspace") === kind)
     .map(commandRunToHistoryEntry)
     .filter(Boolean)
-    .slice(0, COMMAND_HISTORY_LIMIT);
-}
-
-function runEventsToCapabilityCommandHistory(events = []) {
-  return (events || [])
-    .filter((event) => event?.type === "capability-cli" && typeof event.code === "number")
-    .map((event) => ({
-      id: event.id,
-      commandLine: event.commandLine || event.title || "",
-      cwd: event.cwd || "",
-      code: event.code,
-      durationMs: event.durationMs,
-      stdout: event.stdout || "",
-      stderr: event.stderr || "",
-      cancelled: event.status === "cancelled",
-    }))
-    .filter((event) => event.commandLine)
     .slice(0, COMMAND_HISTORY_LIMIT);
 }
 
@@ -1787,7 +1770,7 @@ function Conversation({
   const activeNotices = useMemo(() => (notices || []).filter((notice) => !notice.dismissedAt), [notices]);
   const automationItemsForUi = Array.isArray(automations) ? automations : [];
   const workspaceCommandRuns = useMemo(() => commandRunsToHistory(commandRuns, "workspace"), [commandRuns]);
-  const capabilityCommandRuns = useMemo(() => runEventsToCapabilityCommandHistory(runEvents), [runEvents]);
+  const capabilityCommandRuns = useMemo(() => commandRunsToHistory(commandRuns, "capability"), [commandRuns]);
   const activeTaskCount = automationItemsForUi.filter((item) => ["running", "scheduled"].includes(item.status)).length
     + (subagentRuns || []).filter((run) => run.status === "running").length;
   const contextTabs = [
@@ -4811,7 +4794,7 @@ function ShellModal({ title, subtitle, onClose, children, className = "", closeL
   );
 }
 
-function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenClaudePanel, onNotice, onRunEvent, onOpenBottomPanel, surface = false, initialTab = "plugins" }) {
+function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenClaudePanel, onNotice, onRunEvent, onOpenBottomPanel, onCommandRuns, surface = false, initialTab = "plugins" }) {
   const tabs = [
     ["plugins", t.plugins],
     ["mcp", t.mcps],
@@ -4930,7 +4913,10 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
         projectPath: activeProject?.path,
         args: nextArgs,
         requestId: `capability_${Date.now()}_${Math.random().toString(16).slice(2)}`,
+        persistCommandRun: true,
+        commandRunKind: "capability",
       });
+      if (Array.isArray(result.commandRuns)) onCommandRuns?.(result.commandRuns);
       const evidence = cliActionEvidenceFromResult(nextArgs, result);
       setCliActionEvidence(evidence);
       onRunEvent?.({
@@ -6533,6 +6519,7 @@ export function App() {
             onNotice={recordNotice}
             onRunEvent={recordRunEvent}
             onOpenBottomPanel={(panel) => setBottomPanel(panel)}
+            onCommandRuns={(commandRuns) => setState((current) => ({ ...current, commandRuns }))}
             surface
             initialTab={capabilityInitialTab}
           />

@@ -233,6 +233,13 @@ async function runTest() {
       /plugin disable qa-failing-plugin@qa-market/.test(document.querySelector('.capability-command-evidence-stack')?.textContent || '') &&
       /pass47 disable failed/.test(document.querySelector('.capability-command-evidence-stack')?.textContent || ''))
   `, 8000));
+  assertStep("PASS47_CAPABILITY_COMMAND_PERSISTED", (() => {
+    const parsed = JSON.parse(fs.readFileSync(DATA_FILE, "utf8"));
+    return parsed.commandRuns?.some((run) => run.kind === "capability" &&
+      /plugin disable qa-failing-plugin@qa-market/.test(run.command || "") &&
+      run.code === 17 &&
+      /pass47 disable failed/.test(run.stderr || ""));
+  })());
   assertStep("PASS47_OPEN_NOTICE_PANEL", await openNoticesPanel(win));
   assertStep("PASS47_NOTICE_VISIBLE", await waitFor(win, "Boolean(document.querySelector('.bottom-work-panel .notice-card.error') && /pass47 disable failed/.test(document.body.textContent || ''))", 8000));
 

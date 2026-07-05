@@ -362,10 +362,12 @@ function normalizeCommandRun(item, store) {
   const startedAt = isoOrEmpty(item?.startedAt) || now();
   const endedAt = isoOrEmpty(item?.endedAt) || startedAt;
   const command = String(item?.command || item?.commandLine || "").trim();
+  const rawKind = String(item?.kind || "workspace").trim();
+  const kind = ["workspace", "claude", "capability"].includes(rawKind) ? rawKind : "workspace";
   return {
     id: item?.id || id("command"),
     requestId: item?.requestId || "",
-    kind: item?.kind === "claude" ? "claude" : "workspace",
+    kind,
     command,
     commandLine: command,
     cwd: item?.cwd || project?.path || "",
@@ -2764,19 +2766,21 @@ ipcMain.handle("claude:status", async (_event, { projectPath } = {}) => {
   };
 });
 
-ipcMain.handle("claude:run", async (_event, { projectPath, args, requestId } = {}) => {
+ipcMain.handle("claude:run", async (_event, { projectPath, args, requestId, persistCommandRun = false, commandRunKind = "claude" } = {}) => {
   const cwd = projectPath && fs.existsSync(projectPath) ? projectPath : app.getPath("home");
   const argv = Array.isArray(args) ? args.map(String).filter(Boolean) : splitArgs(args);
   if (!argv.length) throw new Error("Claude 命令为空。");
   const claudeCommand = configuredClaudeCommand();
+  const runId = requestId || id("claude_command");
+  const startedAtIso = now();
   let lastResult = null;
   for (const candidate of commandCandidates(claudeCommand)) {
     const result = await runStreamingProcess(candidate, argv, {
       cwd,
-      requestId,
+      requestId: runId,
       timeoutMs: CLAUDE_TIMEOUT_MS,
       env: claudeProcessEnv({ CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1" }),
-      onChunk: (stream, text) => emitProcessChunk(_event.sender, "claude:run-stream-event", requestId, stream, text),
+      onChunk: (stream, text) => emitProcessChunk(_event.sender, "claude:run-stream-event", runId, stream, text),
     });
     lastResult = result;
     if (!(result.code === 1 && /ENOENT/i.test(result.stderr || ""))) break;
@@ -2790,11 +2794,31 @@ ipcMain.handle("claude:run", async (_event, { projectPath, args, requestId } = {
     stderr: "未找到 Claude 命令。",
     durationMs: 0,
   };
-  return {
+  const sanitizedResult = {
     ...result,
+    requestId: runId,
     args: argv,
     stdout: stripAnsi(result.stdout),
     stderr: stripAnsi(result.stderr),
+  };
+  if (!persistCommandRun) return sanitizedResult;
+  const store = readStore();
+  const persisted = upsertCommandRun(store, {
+    ...sanitizedResult,
+    id: runId,
+    requestId: runId,
+    kind: commandRunKind === "capability" ? "capability" : "claude",
+    command: `claude ${argv.join(" ")}`,
+    project: projectFromPath(cwd),
+    startedAt: startedAtIso,
+    endedAt: now(),
+  });
+  writeStore(store);
+  broadcastStoreUpdate(store);
+  return {
+    ...sanitizedResult,
+    commandRun: persisted,
+    commandRuns: sanitizeStore(store).commandRuns,
   };
 });
 
