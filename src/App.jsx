@@ -555,7 +555,7 @@ const copy = {
     browserOpened: "网址已打开",
     dataOpened: "数据文件已打开",
     scheduledTitle: "计划任务",
-    scheduledSubtitle: "先保存稍后要跑的提示词，准备好后点立即运行。",
+    scheduledSubtitle: "保存到主进程本地队列，按项目/聊天绑定，并由 Claude Code CLI 执行。",
     schedulePrompt: "提示词",
     schedulePromptPlaceholder: "稍后要让 Claude Code 做什么？",
     scheduleTime: "时间",
@@ -563,6 +563,29 @@ const copy = {
     scheduleQueue: "队列",
     scheduleCount: "已保存 {count} 个",
     scheduleAnytime: "任何时间",
+    scheduleProject: "项目",
+    scheduleThread: "聊天",
+    scheduleStatus: "状态",
+    scheduleNextRun: "下次运行",
+    scheduleLastRun: "上次运行",
+    scheduleHistory: "运行历史",
+    scheduleBackedByLocalStore: "主进程本地状态 · Claude Code CLI 承接运行",
+    automationStatusIdle: "手动",
+    automationStatusScheduled: "已计划",
+    automationStatusPaused: "已暂停",
+    automationStatusRunning: "运行中",
+    automationStatusSucceeded: "已完成",
+    automationStatusFailed: "失败",
+    automationCreated: "自动化已保存",
+    automationDeleted: "自动化已删除",
+    automationPaused: "自动化已暂停",
+    automationResumed: "自动化已恢复",
+    automationRunning: "自动化正在运行",
+    automationSucceeded: "自动化已完成",
+    automationFailed: "自动化失败",
+    pauseAutomation: "暂停",
+    resumeAutomation: "恢复",
+    noAutomationHistory: "还没有运行记录",
     runNow: "立即运行",
     delete: "删除",
     renameThread: "重命名",
@@ -912,6 +935,24 @@ function mcpStatusLabel(status, t) {
   return t.mcpStatusUnknown;
 }
 
+function automationStatusLabel(status, t) {
+  if (status === "scheduled") return t.automationStatusScheduled;
+  if (status === "paused") return t.automationStatusPaused;
+  if (status === "running") return t.automationStatusRunning;
+  if (status === "succeeded") return t.automationStatusSucceeded;
+  if (status === "failed") return t.automationStatusFailed;
+  return t.automationStatusIdle;
+}
+
+function automationProjectLabel(automation, t) {
+  return projectLabel(automation?.project, t);
+}
+
+function automationThreadLabel(automation, sessions = [], t) {
+  const session = sessions.find((item) => item.id === automation?.threadId);
+  return session ? sessionDisplayTitle(session, t) : automation?.threadId || t.newChat;
+}
+
 function authLabel(auth, settings) {
   if (settings?.env?.anthropicApiKey) return "第一方 / API 密钥";
   if (settings?.env?.anthropicAuthToken) return "第一方 / 授权令牌";
@@ -1165,6 +1206,7 @@ function fallbackState() {
         messages: [],
       },
     ],
+    automations: [],
   };
 }
 
@@ -4620,20 +4662,36 @@ function CommandPalette({ commands, t, onClose }) {
   );
 }
 
-function ScheduledModal({ t, lang, onClose, onUsePrompt }) {
-  const [items, setItems] = useState(() => {
-    try {
-      return JSON.parse(localStorage.getItem("claudex.schedules") || "[]");
-    } catch {
-      return [];
-    }
-  });
+function ScheduledModal({
+  t,
+  lang,
+  activeProject,
+  activeSession,
+  sessions = [],
+  automations = [],
+  onClose,
+  onCreate,
+  onRunNow,
+  onDelete,
+  onToggleEnabled,
+}) {
+  const items = Array.isArray(automations) ? automations : [];
   const [prompt, setPrompt] = useState("");
   const [time, setTime] = useState("");
-  function save(next) {
-    setItems(next);
-    localStorage.setItem("claudex.schedules", JSON.stringify(next));
+  const [workingId, setWorkingId] = useState("");
+  const [submitting, setSubmitting] = useState(false);
+
+  async function handleAction(id, action) {
+    setWorkingId(id);
+    try {
+      await action();
+    } catch {
+      // The parent action already surfaces the error through the desktop toast.
+    } finally {
+      setWorkingId("");
+    }
   }
+
   const scheduleCount = t.scheduleCount.replace("{count}", items.length);
   return (
     <ShellModal title={t.scheduledTitle} subtitle={t.scheduledSubtitle} onClose={onClose} closeLabel={t.close} className="scheduled-modal">
@@ -4641,9 +4699,16 @@ function ScheduledModal({ t, lang, onClose, onUsePrompt }) {
         <form className="schedule-form" onSubmit={(event) => {
           event.preventDefault();
           if (!prompt.trim()) return;
-          save([{ id: crypto.randomUUID(), prompt: prompt.trim(), time }, ...items]);
-          setPrompt("");
-          setTime("");
+          setSubmitting(true);
+          Promise.resolve(onCreate?.({
+            prompt: prompt.trim(),
+            runAt: time ? new Date(time).toISOString() : "",
+            projectPath: activeProject?.path || "",
+            threadId: activeSession?.id || "",
+          })).then(() => {
+            setPrompt("");
+            setTime("");
+          }).catch(() => {}).finally(() => setSubmitting(false));
         }}>
           <label>
             <span>{t.schedulePrompt}</span>
@@ -4657,7 +4722,17 @@ function ScheduledModal({ t, lang, onClose, onUsePrompt }) {
             <span>{t.scheduleTime}</span>
             <input type="datetime-local" value={time} onChange={(event) => setTime(event.target.value)} />
           </label>
-          <button type="submit" className="primary-action" disabled={!prompt.trim()} title={!prompt.trim() ? t.schedulePromptPlaceholder : undefined}>
+          <div className="schedule-form-context">
+            <span>{t.scheduleProject}</span>
+            <strong>{projectLabel(activeProject, t)}</strong>
+            <small title={activeProject?.path || t.noProjectPath}>{activeProject?.path ? compactPath(activeProject.path, 58) : t.noProjectPath}</small>
+          </div>
+          <div className="schedule-form-context">
+            <span>{t.scheduleThread}</span>
+            <strong>{activeSession ? sessionDisplayTitle(activeSession, t) : t.newChat}</strong>
+            <small>{t.scheduleBackedByLocalStore}</small>
+          </div>
+          <button type="submit" className="primary-action" disabled={!prompt.trim() || submitting} title={!prompt.trim() ? t.schedulePromptPlaceholder : undefined}>
             <Clock3 size={16} />
             {t.addSchedule}
           </button>
@@ -4672,17 +4747,69 @@ function ScheduledModal({ t, lang, onClose, onUsePrompt }) {
           <div className="schedule-list">
             {items.map((item) => (
               <article key={item.id} className="schedule-item">
-                <div>
-                  <strong>{item.prompt}</strong>
-                  <span>{item.time ? formatDate(item.time, lang) : t.scheduleAnytime}</span>
+                <div className="schedule-item-main">
+                  <div className="schedule-item-title">
+                    <strong>{item.prompt}</strong>
+                    <span className={cx("automation-status-badge", item.status || "idle")}>
+                      {automationStatusLabel(item.status, t)}
+                    </span>
+                  </div>
+                  <dl className="schedule-meta">
+                    <div>
+                      <dt>{t.scheduleProject}</dt>
+                      <dd title={item.project?.path || ""}>{automationProjectLabel(item, t)}</dd>
+                    </div>
+                    <div>
+                      <dt>{t.scheduleThread}</dt>
+                      <dd>{automationThreadLabel(item, sessions, t)}</dd>
+                    </div>
+                    <div>
+                      <dt>{t.scheduleNextRun}</dt>
+                      <dd>{item.nextRun ? formatDate(item.nextRun, lang) : t.scheduleAnytime}</dd>
+                    </div>
+                    <div>
+                      <dt>{t.scheduleLastRun}</dt>
+                      <dd>{item.lastRun?.endedAt ? formatDate(item.lastRun.endedAt, lang) : t.noAutomationHistory}</dd>
+                    </div>
+                  </dl>
+                  <details className="schedule-history">
+                    <summary>{t.scheduleHistory}</summary>
+                    {item.history?.length ? (
+                      <ul>
+                        {item.history.slice(0, 4).map((entry) => (
+                          <li key={entry.id} className={entry.status}>
+                            <span>{automationStatusLabel(entry.status, t)}</span>
+                            <time>{formatDate(entry.endedAt || entry.startedAt, lang)}</time>
+                            {(entry.detail || entry.error) && <p>{entry.detail || entry.error}</p>}
+                          </li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p>{t.noAutomationHistory}</p>
+                    )}
+                  </details>
                 </div>
                 <div className="schedule-item-actions">
-                  <button type="button" onClick={() => onUsePrompt(item.prompt)} title={t.runNow}>
+                  <button
+                    type="button"
+                    onClick={() => handleAction(item.id, () => onRunNow?.(item))}
+                    disabled={workingId === item.id || item.status === "running"}
+                    title={t.runNow}
+                  >
                     <Send size={14} />
-                    {t.runNow}
+                    {workingId === item.id ? t.automationRunning : t.runNow}
                   </button>
-                  <button type="button" className="danger-action" onClick={() => save(items.filter((current) => current.id !== item.id))} title={t.delete}>
-                    <X size={14} />
+                  <button
+                    type="button"
+                    onClick={() => handleAction(item.id, () => onToggleEnabled?.(item, !item.enabled))}
+                    disabled={!item.schedule?.runAt || workingId === item.id || item.status === "running"}
+                    title={item.enabled ? t.pauseAutomation : t.resumeAutomation}
+                  >
+                    <Clock3 size={14} />
+                    {item.enabled ? t.pauseAutomation : t.resumeAutomation}
+                  </button>
+                  <button type="button" className="danger-action" onClick={() => handleAction(item.id, () => onDelete?.(item))} disabled={workingId === item.id} title={t.delete}>
+                    <Trash2 size={14} />
                     {t.delete}
                   </button>
                 </div>
@@ -4909,6 +5036,66 @@ export function App() {
     } catch (error) {
       showToast(error.message || String(error));
     }
+  }
+
+  async function createAutomation(payload) {
+    if (!desktopApi?.createAutomation) return;
+    try {
+      const next = await desktopApi.createAutomation(payload);
+      setState(next);
+      showToast(t.automationCreated);
+    } catch (error) {
+      showToast(error.message || String(error));
+      throw error;
+    }
+  }
+
+  async function deleteAutomation(automation) {
+    if (!desktopApi?.deleteAutomation || !automation) return;
+    try {
+      const next = await desktopApi.deleteAutomation({ automationId: automation.id });
+      setState(next);
+      showToast(t.automationDeleted);
+    } catch (error) {
+      showToast(error.message || String(error));
+      throw error;
+    }
+  }
+
+  async function toggleAutomationEnabled(automation, enabled) {
+    if (!desktopApi?.setAutomationEnabled || !automation) return;
+    try {
+      const next = await desktopApi.setAutomationEnabled({ automationId: automation.id, enabled });
+      setState(next);
+      showToast(enabled ? t.automationResumed : t.automationPaused);
+    } catch (error) {
+      showToast(error.message || String(error));
+      throw error;
+    }
+  }
+
+  async function runAutomationNow(automation) {
+    if (!desktopApi?.runAutomationNow || !automation) return;
+    const requestId = `automation_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+    setBottomPanel("outputs");
+    recordRunEvent({
+      type: "automation",
+      status: "running",
+      title: `${t.scheduled}: ${messageExcerpt(automation.prompt, 60)}`,
+      detail: automationProjectLabel(automation, t),
+    });
+    showToast(t.automationRunning);
+    const next = await desktopApi.runAutomationNow({ automationId: automation.id, requestId });
+    setState(next);
+    const run = next.automationRun;
+    const succeeded = run?.status === "succeeded";
+    recordRunEvent({
+      type: "automation",
+      status: succeeded ? "ok" : "error",
+      title: `${t.scheduled}: ${messageExcerpt(automation.prompt, 60)}`,
+      detail: succeeded ? (run.detail || t.automationSucceeded) : (run?.error || t.automationFailed),
+    });
+    showToast(succeeded ? t.automationSucceeded : t.automationFailed);
   }
 
   async function sendMessage(content) {
@@ -5332,12 +5519,15 @@ export function App() {
         <ScheduledModal
           t={t}
           lang={lang}
+          activeProject={activeProject}
+          activeSession={activeSession}
+          sessions={state.sessions}
+          automations={state.automations}
           onClose={() => setScheduledOpen(false)}
-          onUsePrompt={(prompt) => {
-            setDraft(prompt);
-            setScheduledOpen(false);
-            showToast(t.copiedPrompt);
-          }}
+          onCreate={createAutomation}
+          onRunNow={runAutomationNow}
+          onDelete={deleteAutomation}
+          onToggleEnabled={toggleAutomationEnabled}
         />
       )}
       {shortcutsOpen && <KeyboardShortcutsModal t={t} onClose={() => setShortcutsOpen(false)} />}

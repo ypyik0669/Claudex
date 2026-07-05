@@ -72,6 +72,11 @@ const MAX_TEXT_FILE_BYTES = 2 * 1024 * 1024;
 const MAX_COMMAND_OUTPUT_CHARS = 30000;
 const MAX_GIT_DIFF_CHARS = 80000;
 const CLAUDE_TIMEOUT_MS = 10 * 60 * 1000;
+const AUTOMATION_HISTORY_LIMIT = 8;
+const AUTOMATION_LIMIT = 80;
+const AUTOMATION_POLL_MS = 15000;
+const automationRunLocks = new Set();
+let automationSchedulerTimer = null;
 
 const CLAUDE_CODE_SETTINGS = {
   executionMode: "claude-code",
@@ -216,6 +221,102 @@ function sessionDisplayTitleForStore(session) {
   return titleFromUserContent(firstUser?.content || rawTitle || "新聊天");
 }
 
+function isoOrEmpty(value) {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toISOString();
+}
+
+function automationHasScheduledRun(automation) {
+  return (automation.history || []).some((entry) => entry?.trigger === "scheduled" && entry?.endedAt);
+}
+
+function automationNextRun(automation) {
+  const runAt = isoOrEmpty(automation?.schedule?.runAt || automation?.runAt || automation?.time);
+  if (!automation?.enabled || !runAt) return "";
+  if ((automation.schedule?.type || "once") === "once" && automationHasScheduledRun(automation)) return "";
+  return runAt;
+}
+
+function normalizeAutomationProject(project, store) {
+  const fallback = store?.activeProject || localWorkspaceProject();
+  if (project?.path) return projectFromPath(project.path);
+  if (project?.name || project?.path) {
+    return {
+      name: project.name || path.basename(project.path || "") || fallback.name,
+      path: project.path || "",
+    };
+  }
+  return fallback;
+}
+
+function normalizeAutomation(item, store) {
+  const createdAt = isoOrEmpty(item?.createdAt) || now();
+  const schedule = {
+    type: item?.schedule?.type || "once",
+    runAt: isoOrEmpty(item?.schedule?.runAt || item?.runAt || item?.time),
+  };
+  const history = Array.isArray(item?.history)
+    ? item.history.slice(0, AUTOMATION_HISTORY_LIMIT).map((entry) => ({
+      id: entry.id || id("automation_run"),
+      trigger: entry.trigger || "manual",
+      status: entry.status || "succeeded",
+      startedAt: isoOrEmpty(entry.startedAt) || createdAt,
+      endedAt: isoOrEmpty(entry.endedAt),
+      durationMs: Number(entry.durationMs || 0),
+      sessionId: entry.sessionId || item?.threadId || "",
+      detail: String(entry.detail || ""),
+      error: String(entry.error || ""),
+    }))
+    : [];
+  const automation = {
+    id: item?.id || id("automation"),
+    prompt: String(item?.prompt || "").trim(),
+    schedule,
+    project: normalizeAutomationProject(item?.project, store),
+    threadId: item?.threadId || "",
+    enabled: typeof item?.enabled === "boolean" ? item.enabled : Boolean(schedule.runAt),
+    status: item?.status || (schedule.runAt ? "scheduled" : "idle"),
+    createdAt,
+    updatedAt: isoOrEmpty(item?.updatedAt) || createdAt,
+    lastRun: item?.lastRun || history[0] || null,
+    nextRun: "",
+    history,
+  };
+  automation.nextRun = automationNextRun(automation);
+  if (automation.status !== "running") {
+    if (automation.nextRun) automation.status = "scheduled";
+    else if (!automation.enabled && automation.schedule.runAt && !automation.lastRun) automation.status = "paused";
+    else if (automation.lastRun?.status === "failed") automation.status = "failed";
+    else if (automation.lastRun?.status === "succeeded") automation.status = "succeeded";
+    else if (automation.status === "paused") automation.status = "paused";
+    else automation.status = automation.schedule.runAt && !automation.enabled ? "paused" : "idle";
+  }
+  return automation;
+}
+
+function updateAutomationAfterMutation(automation) {
+  automation.updatedAt = now();
+  automation.nextRun = automationNextRun(automation);
+  if (automation.status !== "running") {
+    if (automation.nextRun) automation.status = "scheduled";
+    else if (!automation.enabled && automation.schedule?.runAt && !automation.lastRun) automation.status = "paused";
+    else if (automation.lastRun?.status === "failed") automation.status = "failed";
+    else if (automation.lastRun?.status === "succeeded") automation.status = "succeeded";
+    else automation.status = automation.schedule?.runAt && !automation.enabled ? "paused" : "idle";
+  }
+  return automation;
+}
+
+function prependAutomationHistory(automation, entry) {
+  automation.history = [
+    entry,
+    ...(automation.history || []).filter((item) => item.id !== entry.id),
+  ].slice(0, AUTOMATION_HISTORY_LIMIT);
+  automation.lastRun = entry;
+}
+
 function dataPath() {
   return path.join(app.getPath("userData"), "desktop-data.json");
 }
@@ -324,6 +425,7 @@ function defaultStore() {
         messages: [],
       },
     ],
+    automations: [],
   };
 }
 
@@ -390,6 +492,11 @@ function normalizeStore(store) {
         archived: Boolean(session.archived),
       };
     }),
+    automations: Array.isArray(store.automations)
+      ? store.automations.map((automation) => normalizeAutomation(automation, { ...store, activeProject }))
+          .filter((automation) => automation.prompt)
+          .slice(0, AUTOMATION_LIMIT)
+      : [],
   };
 }
 
@@ -1562,6 +1669,175 @@ async function requestClaudeCodeStream(store, session, requestId, sender) {
   };
 }
 
+function automationProjectFromPayload(store, payload = {}) {
+  const candidatePath = String(payload.projectPath || "").trim();
+  if (candidatePath && fs.existsSync(candidatePath)) return projectFromPath(candidatePath);
+  const active = store.activeProject || localWorkspaceProject();
+  return active?.path ? projectFromPath(active.path) : active;
+}
+
+function ensureAutomationSession(store, automation) {
+  const existing = (store.sessions || []).find((session) => session.id === automation.threadId);
+  if (existing) return existing;
+  const project = automation.project || store.activeProject || localWorkspaceProject();
+  const createdAt = now();
+  const session = {
+    id: id("session"),
+    title: `自动化：${titleFromUserContent(automation.prompt)}`,
+    project: project.name,
+    projectPath: project.path,
+    createdAt,
+    updatedAt: createdAt,
+    messages: [],
+    pinned: false,
+    archived: false,
+  };
+  store.sessions = [session, ...(store.sessions || [])];
+  automation.threadId = session.id;
+  return session;
+}
+
+function findAutomationOrThrow(store, automationId) {
+  const automation = (store.automations || []).find((item) => item.id === automationId);
+  if (!automation) throw new Error("没有找到这个自动化任务。");
+  return automation;
+}
+
+async function runAutomationById(automationId, { requestId = "", trigger = "manual" } = {}) {
+  if (automationRunLocks.has(automationId)) {
+    throw new Error("这个自动化任务正在运行。");
+  }
+  automationRunLocks.add(automationId);
+  const runId = id("automation_run");
+  const startedAt = now();
+  const startedMs = Date.now();
+  let store = readStore();
+  let automation = findAutomationOrThrow(store, automationId);
+  if (!automation.prompt) {
+    automationRunLocks.delete(automationId);
+    throw new Error("自动化提示词为空。");
+  }
+  const session = ensureAutomationSession(store, automation);
+  const runningEntry = {
+    id: runId,
+    trigger,
+    status: "running",
+    startedAt,
+    endedAt: "",
+    durationMs: 0,
+    sessionId: session.id,
+    detail: "",
+    error: "",
+  };
+  automation.status = "running";
+  prependAutomationHistory(automation, runningEntry);
+  writeStore(store);
+
+  try {
+    const userContent = automation.prompt.trim();
+    session.messages.push({
+      role: "user",
+      content: userContent,
+      createdAt: startedAt,
+      automationId: automation.id,
+      automationRunId: runId,
+    });
+    if (isGenericSessionTitle(session.title)) {
+      session.title = titleFromUserContent(userContent);
+    }
+    session.updatedAt = startedAt;
+    writeStore(store);
+
+    const runtimeStore = {
+      ...store,
+      activeProject: automation.project || store.activeProject || localWorkspaceProject(),
+    };
+    const assistantResult = await requestAssistant(runtimeStore, session, requestId || runId);
+    const assistantText = typeof assistantResult === "string" ? assistantResult : assistantResult.text;
+    session.messages.push({
+      role: "assistant",
+      content: assistantText || "自动化任务已完成。",
+      createdAt: now(),
+      automationId: automation.id,
+      automationRunId: runId,
+    });
+    session.updatedAt = now();
+
+    const finalEntry = {
+      ...runningEntry,
+      status: "succeeded",
+      endedAt: now(),
+      durationMs: Date.now() - startedMs,
+      detail: titleFromUserContent(assistantText || "自动化任务已完成。"),
+    };
+    prependAutomationHistory(automation, finalEntry);
+    if (trigger === "scheduled" && automation.schedule?.type === "once") automation.enabled = false;
+    automation.status = "succeeded";
+    updateAutomationAfterMutation(automation);
+    writeStore(store);
+    return {
+      ...sanitizeStore(store),
+      automationRun: finalEntry,
+    };
+  } catch (error) {
+    const message = error.message || String(error);
+    session.messages.push({
+      role: "error",
+      content: message,
+      createdAt: now(),
+      automationId: automation.id,
+      automationRunId: runId,
+    });
+    session.updatedAt = now();
+    const finalEntry = {
+      ...runningEntry,
+      status: "failed",
+      endedAt: now(),
+      durationMs: Date.now() - startedMs,
+      detail: "",
+      error: message,
+    };
+    prependAutomationHistory(automation, finalEntry);
+    if (trigger === "scheduled" && automation.schedule?.type === "once") automation.enabled = false;
+    automation.status = "failed";
+    updateAutomationAfterMutation(automation);
+    writeStore(store);
+    return {
+      ...sanitizeStore(store),
+      automationRun: finalEntry,
+    };
+  } finally {
+    automationRunLocks.delete(automationId);
+  }
+}
+
+function dueAutomations(store) {
+  const at = Date.now();
+  return (store.automations || []).filter((automation) => {
+    if (automationRunLocks.has(automation.id)) return false;
+    const nextRun = automationNextRun(automation);
+    if (!nextRun) return false;
+    return new Date(nextRun).getTime() <= at;
+  });
+}
+
+function startAutomationScheduler() {
+  if (automationSchedulerTimer) return;
+  const tick = () => {
+    let store;
+    try {
+      store = readStore();
+    } catch {
+      return;
+    }
+    for (const automation of dueAutomations(store).slice(0, 2)) {
+      runAutomationById(automation.id, { trigger: "scheduled", requestId: id("automation") }).catch(() => {});
+    }
+  };
+  automationSchedulerTimer = setInterval(tick, AUTOMATION_POLL_MS);
+  setTimeout(tick, 2500);
+}
+
 function createWindow() {
   const iconPath = path.join(__dirname, "..", "dist", "assets", "claudex-mark.png");
   const window = new BrowserWindow({
@@ -1591,6 +1867,7 @@ function createWindow() {
 
 app.whenReady().then(() => {
   createWindow();
+  startAutomationScheduler();
 
   app.on("activate", () => {
     if (BrowserWindow.getAllWindows().length === 0) createWindow();
@@ -1598,6 +1875,7 @@ app.whenReady().then(() => {
 });
 
 app.on("window-all-closed", () => {
+  if (automationSchedulerTimer) clearInterval(automationSchedulerTimer);
   if (process.platform !== "darwin") app.quit();
 });
 
@@ -1651,6 +1929,56 @@ ipcMain.handle("app:save-capabilities", (_event, capabilities) => {
   };
   writeStore(store);
   return sanitizeStore(store);
+});
+
+ipcMain.handle("automation:create", (_event, payload = {}) => {
+  const prompt = String(payload.prompt || "").trim();
+  if (!prompt) throw new Error("自动化提示词为空。");
+  const store = readStore();
+  const createdAt = now();
+  const project = automationProjectFromPayload(store, payload);
+  const runAt = isoOrEmpty(payload.runAt);
+  const automation = normalizeAutomation({
+    id: id("automation"),
+    prompt,
+    schedule: {
+      type: "once",
+      runAt,
+    },
+    project,
+    threadId: payload.threadId || "",
+    enabled: Boolean(runAt),
+    status: runAt ? "scheduled" : "idle",
+    createdAt,
+    updatedAt: createdAt,
+    history: [],
+  }, store);
+  store.automations = [automation, ...(store.automations || [])].slice(0, AUTOMATION_LIMIT);
+  writeStore(store);
+  return sanitizeStore(store);
+});
+
+ipcMain.handle("automation:set-enabled", (_event, { automationId, enabled } = {}) => {
+  const store = readStore();
+  const automation = findAutomationOrThrow(store, automationId);
+  automation.enabled = Boolean(enabled);
+  automation.status = automation.enabled ? "scheduled" : "paused";
+  updateAutomationAfterMutation(automation);
+  writeStore(store);
+  return sanitizeStore(store);
+});
+
+ipcMain.handle("automation:delete", (_event, { automationId } = {}) => {
+  const store = readStore();
+  const before = (store.automations || []).length;
+  store.automations = (store.automations || []).filter((automation) => automation.id !== automationId);
+  if (store.automations.length === before) throw new Error("没有找到这个自动化任务。");
+  writeStore(store);
+  return sanitizeStore(store);
+});
+
+ipcMain.handle("automation:run-now", async (_event, { automationId, requestId } = {}) => {
+  return runAutomationById(automationId, { requestId, trigger: "manual" });
 });
 
 ipcMain.handle("app:select-project", async () => {
