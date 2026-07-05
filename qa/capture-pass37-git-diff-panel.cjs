@@ -9,8 +9,11 @@ const QA_DIR = path.join(PROJECT_PATH, "qa");
 const USER_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "claudex-pass37-data-"));
 const GIT_PROJECT_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "claudex-pass37-git-"));
 const TARGET_FILE = "pass37-target.txt";
+const SECOND_FILE = "pass37-second.txt";
 const BASE_CONTENT = "pass37 baseline\n";
 const EDITED_CONTENT = "pass37 baseline\npass37-diff-evidence\n";
+const SECOND_BASE_CONTENT = "pass37 second baseline\n";
+const SECOND_EDITED_CONTENT = "pass37 second baseline\npass37-second-evidence\n";
 
 function runGit(args) {
   const result = spawnSync("git", args, {
@@ -26,10 +29,12 @@ function runGit(args) {
 
 function setupGitProject() {
   fs.writeFileSync(path.join(GIT_PROJECT_DIR, TARGET_FILE), BASE_CONTENT, "utf8");
+  fs.writeFileSync(path.join(GIT_PROJECT_DIR, SECOND_FILE), SECOND_BASE_CONTENT, "utf8");
   runGit(["init"]);
-  runGit(["add", TARGET_FILE]);
+  runGit(["add", TARGET_FILE, SECOND_FILE]);
   runGit(["-c", "user.name=Claudex QA", "-c", "user.email=qa@example.invalid", "commit", "-m", "baseline"]);
   fs.writeFileSync(path.join(GIT_PROJECT_DIR, TARGET_FILE), EDITED_CONTENT, "utf8");
+  fs.writeFileSync(path.join(GIT_PROJECT_DIR, SECOND_FILE), SECOND_EDITED_CONTENT, "utf8");
 }
 
 function cleanup() {
@@ -121,7 +126,8 @@ app.whenReady().then(async () => {
   assertStep("PASS37_READY", await waitFor(win, "Boolean(document.querySelector('.app-grid'))", 15000));
   assertStep("PASS37_CHANGES_CLICK", await win.webContents.executeJavaScript(`
     (function() {
-      const button = document.querySelectorAll('.workspace-context-button')[2];
+      const button = Array.from(document.querySelectorAll('.workspace-context-button, .bottom-panel-tabs button'))
+        .find((item) => /\\u53d8\\u66f4/.test(item.textContent || '') || (item.getAttribute('aria-label') || '').includes('\\u53d8\\u66f4'));
       if (!button) return false;
       button.click();
       return true;
@@ -135,9 +141,45 @@ app.whenReady().then(async () => {
       document.querySelector('.git-diff-row.add') &&
       /diff --git/.test(document.querySelector('.git-diff-preview')?.textContent || '') &&
       /pass37-diff-evidence/.test(document.querySelector('.git-diff-preview')?.textContent || '') &&
-      /${TARGET_FILE}/.test(document.querySelector('.git-change-list')?.textContent || '')
+      /pass37-second-evidence/.test(document.querySelector('.git-diff-preview')?.textContent || '') &&
+      /${TARGET_FILE}/.test(document.querySelector('.git-change-list')?.textContent || '') &&
+      /${SECOND_FILE}/.test(document.querySelector('.git-change-list')?.textContent || '')
     )
   `, 10000));
+  assertStep("PASS37_FILE_FOCUS_CLICK", await win.webContents.executeJavaScript(`
+    (function() {
+      const button = Array.from(document.querySelectorAll('.git-change-item'))
+        .find((item) => /${SECOND_FILE}/.test(item.textContent || ''));
+      if (!button) return false;
+      button.click();
+      return true;
+    })();
+  `));
+  assertStep("PASS37_FILE_FOCUS_DIFF", await waitFor(win, `
+    (function() {
+      const preview = document.querySelector('.git-diff-preview')?.textContent || '';
+      const selected = document.querySelector('.git-change-item.selected')?.textContent || '';
+      return /${SECOND_FILE}/.test(selected) &&
+        /${SECOND_FILE}/.test(preview) &&
+        /pass37-second-evidence/.test(preview) &&
+        !/pass37-diff-evidence/.test(preview);
+    })()
+  `, 5000));
+  assertStep("PASS37_ALL_CHANGES_CLICK", await win.webContents.executeJavaScript(`
+    (function() {
+      const button = Array.from(document.querySelectorAll('.git-change-item'))
+        .find((item) => /\\u5168\\u90e8\\u53d8\\u66f4/.test(item.textContent || ''));
+      if (!button) return false;
+      button.click();
+      return true;
+    })();
+  `));
+  assertStep("PASS37_ALL_CHANGES_DIFF", await waitFor(win, `
+    (function() {
+      const preview = document.querySelector('.git-diff-preview')?.textContent || '';
+      return /pass37-diff-evidence/.test(preview) && /pass37-second-evidence/.test(preview);
+    })()
+  `, 5000));
   await shot(win, "pass37-git-diff-panel.png");
 
   console.log("PASS37_DONE");

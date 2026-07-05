@@ -745,6 +745,9 @@ const copy = {
     gitDiffTruncated: "Diff 已截断，仅显示前面的部分。",
     gitRawStatus: "Raw Status",
     noGitDiff: "当前没有可显示的 diff 统计。",
+    allChanges: "全部变更",
+    focusFileDiff: "聚焦文件 diff",
+    focusedFileDiff: "已聚焦文件",
     runCommand: "运行命令",
     runCommandShort: "运行",
     commandPlaceholder: "输入 shell 命令",
@@ -1698,6 +1701,7 @@ function Conversation({
 
   const emptyTitle = session ? t.selectedEmptyTitle : t.noSessionTitle;
   const emptyHint = session ? t.selectedEmptyHint : t.noSessionHint;
+  const [selectedGitDiffPath, setSelectedGitDiffPath] = useState("");
   const git = environment?.git;
   const gitAvailable = Boolean(git?.available);
   const gitChangesLabel = gitAvailable ? String(git.changes || 0) : t.gitUnavailable;
@@ -1706,7 +1710,18 @@ function Conversation({
   const gitFiles = Array.isArray(git?.files) ? git.files : [];
   const gitStat = String(git?.stat || "").trim();
   const gitDiffText = String(git?.diff?.text || "").trim();
-  const gitDiffRows = useMemo(() => buildGitDiffRows(gitDiffText), [gitDiffText]);
+  const gitFileDiffs = Array.isArray(git?.diff?.fileDiffs) ? git.diff.fileDiffs : [];
+  const selectedGitFileDiff = selectedGitDiffPath
+    ? gitFileDiffs.find((item) => item.path === selectedGitDiffPath || item.previousPath === selectedGitDiffPath)
+    : null;
+  const displayedGitDiffText = selectedGitDiffPath ? selectedGitFileDiff?.text || "" : gitDiffText;
+  const gitDiffRows = useMemo(() => buildGitDiffRows(displayedGitDiffText), [displayedGitDiffText]);
+  useEffect(() => {
+    if (!selectedGitDiffPath) return;
+    const stillExists = gitFiles.some((item) => item.path === selectedGitDiffPath || item.previousPath === selectedGitDiffPath)
+      || gitFileDiffs.some((item) => item.path === selectedGitDiffPath || item.previousPath === selectedGitDiffPath);
+    if (!stillExists) setSelectedGitDiffPath("");
+  }, [selectedGitDiffPath, gitFiles, gitFileDiffs]);
   const activeNotices = useMemo(() => (notices || []).filter((notice) => !notice.dismissedAt), [notices]);
   const automationItemsForUi = Array.isArray(automations) ? automations : [];
   const workspaceCommandRuns = useMemo(() => commandRunsToHistory(commandRuns, "workspace"), [commandRuns]);
@@ -2008,18 +2023,33 @@ function Conversation({
                 </div>
                 {gitFiles.length > 0 && (
                   <div className="git-change-list" aria-label={t.changes}>
+                    <button
+                      type="button"
+                      className={cx("git-change-item", !selectedGitDiffPath && "selected")}
+                      onClick={() => setSelectedGitDiffPath("")}
+                      title={t.allChanges}
+                    >
+                      <span className="git-change-status">Σ</span>
+                      <strong>{t.allChanges}</strong>
+                    </button>
                     {gitFiles.slice(0, 12).map((item) => (
-                      <div className="git-change-item" key={`${item.status}-${item.path}`}>
+                      <button
+                        type="button"
+                        className={cx("git-change-item", selectedGitDiffPath === item.path && "selected")}
+                        key={`${item.status}-${item.path}`}
+                        onClick={() => setSelectedGitDiffPath(item.path)}
+                        title={item.previousPath ? `${item.previousPath} -> ${item.path}` : `${t.focusFileDiff}: ${item.path}`}
+                      >
                         <span className="git-change-status">{item.status}</span>
                         <strong title={item.previousPath ? `${item.previousPath} -> ${item.path}` : item.path}>{item.path}</strong>
-                      </div>
+                      </button>
                     ))}
                   </div>
                 )}
                 <pre className="git-status-preview git-stat-preview" aria-label={t.gitDiffStat}>{gitStat || t.noGitDiff}</pre>
                 <section className="git-diff-preview" aria-label={t.gitDiffPreview}>
                   <div className="git-diff-head">
-                    <span>{t.gitDiffPreview}</span>
+                    <span>{selectedGitFileDiff ? `${t.focusedFileDiff}: ${selectedGitFileDiff.path}` : t.gitDiffPreview}</span>
                     {git?.diff?.truncated && <em>{t.gitDiffTruncated}</em>}
                   </div>
                   {gitDiffRows.length ? (

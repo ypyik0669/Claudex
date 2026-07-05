@@ -1338,6 +1338,68 @@ function gitText(result) {
   return stripAnsi(result.stdout || result.stderr).trim();
 }
 
+function parseDiffGitPath(value) {
+  const raw = String(value || "").trim().replace(/^"|"$/g, "");
+  return raw.replace(/^[ab]\//, "");
+}
+
+function parseGitDiffFileHeader(line) {
+  const match = /^diff --git\s+(.+?)\s+(.+)$/.exec(String(line || ""));
+  if (!match) return null;
+  const previousPath = parseDiffGitPath(match[1]);
+  const nextPath = parseDiffGitPath(match[2]);
+  return {
+    path: nextPath || previousPath,
+    previousPath: previousPath !== nextPath ? previousPath : "",
+  };
+}
+
+function parseGitDiffFiles(diffText) {
+  const lines = String(diffText || "").split(/\r?\n/);
+  const files = [];
+  let section = "";
+  let current = null;
+  const finish = () => {
+    if (!current) return;
+    const text = current.lines.join("\n").trim();
+    if (!text) {
+      current = null;
+      return;
+    }
+    const diffLines = current.lines.filter((line) => !line.startsWith("+++ ") && !line.startsWith("--- "));
+    files.push({
+      id: `${current.section || "diff"}:${current.path}:${files.length}`,
+      section: current.section,
+      path: current.path,
+      previousPath: current.previousPath,
+      additions: diffLines.filter((line) => line.startsWith("+")).length,
+      deletions: diffLines.filter((line) => line.startsWith("-")).length,
+      text,
+    });
+    current = null;
+  };
+
+  for (const line of lines) {
+    if (line.startsWith("# ")) {
+      section = line.slice(2).trim();
+      continue;
+    }
+    const header = parseGitDiffFileHeader(line);
+    if (header) {
+      finish();
+      current = {
+        ...header,
+        section,
+        lines: section ? [`# ${section}`, line] : [line],
+      };
+      continue;
+    }
+    if (current) current.lines.push(line);
+  }
+  finish();
+  return files.slice(0, 80);
+}
+
 async function loadGitEnvironment(cwd) {
   const status = parseGitEnvironment(await runProcess("git", ["status", "--short", "--branch"], { cwd, timeoutMs: 8000 }));
   if (!status.available) return status;
@@ -1364,6 +1426,7 @@ async function loadGitEnvironment(cwd) {
     { label: "Working tree changes", text: gitText(worktreeDiff) },
   ].filter((section) => section.text);
   const diffText = diffSections.map((section) => `# ${section.label}\n${section.text}`).join("\n\n");
+  const fileDiffs = parseGitDiffFiles(diffText);
   return {
     ...status,
     stat: statParts.join("\n"),
@@ -1371,6 +1434,7 @@ async function loadGitEnvironment(cwd) {
       text: trimOutput(diffText, MAX_GIT_DIFF_CHARS),
       truncated: diffText.length > MAX_GIT_DIFF_CHARS || /\[输出已截断\]/.test(diffText),
       files: status.files.length,
+      fileDiffs,
     },
   };
 }
