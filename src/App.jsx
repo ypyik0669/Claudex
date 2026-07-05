@@ -312,6 +312,10 @@ const copy = {
     customMarketplaceLocalOnly: "本地记录",
     customMarketplaceNotInjected: "未注入 Claude CLI",
     customMarketplaceLocalHint: "这些 URL 只保存到 Claudex 本地设置；当前不会修改 Claude Code 的 marketplace 配置。",
+    customMarketplaceCliHelpHint: "先查看当前 Claude Code 支持的 marketplace 命令，再到 Claude 面板执行真实 CLI 操作。",
+    copyMarketplaceUrl: "复制 URL",
+    copiedMarketplaceUrl: "已复制 URL",
+    checkMarketplaceCliSupport: "查看 CLI 支持",
     localCapability: "本地能力",
     installedCliState: "已安装 CLI 状态",
     settingsStatusHint: "这个页面显示 Claudex 本地状态和 Claude Code CLI 输出。",
@@ -949,7 +953,7 @@ function findRecentPluginActionRun(runs, identifiers, actions) {
 }
 
 function findRecentMarketplaceActionRun(runs) {
-  return runs.find((run) => /(?:^|\s)plugin\s+marketplace\s+(?:list|update)(?=\s|$)/i.test(capabilityCommandLine(run))) || null;
+  return runs.find((run) => /(?:^|\s)plugin\s+marketplace\s+(?:list|update|--help)(?=\s|$)/i.test(capabilityCommandLine(run))) || null;
 }
 
 function findRecentMcpActionRun(runs) {
@@ -5124,6 +5128,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
   const [cliActionEvidence, setCliActionEvidence] = useState(null);
   const [confirmingCliCommand, setConfirmingCliCommand] = useState(null);
   const [copiedMcpServerKey, setCopiedMcpServerKey] = useState("");
+  const [copiedCustomMarketplace, setCopiedCustomMarketplace] = useState("");
   const [marketplaceOutput, setMarketplaceOutput] = useState("");
   const [marketplaceBusy, setMarketplaceBusy] = useState(false);
   const [customMarketplaceUrl, setCustomMarketplaceUrl] = useState("");
@@ -5379,6 +5384,18 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
     }
     setCopiedMcpServerKey(key);
     window.setTimeout(() => setCopiedMcpServerKey((current) => (current === key ? "" : current)), 1200);
+  }
+
+  async function copyCustomMarketplaceUrl(url) {
+    const value = String(url || "").trim();
+    if (!value) return;
+    try {
+      await navigator.clipboard?.writeText(value);
+    } catch (_error) {
+      // Clipboard permissions vary by shell; keep visible feedback for the user's copy intent.
+    }
+    setCopiedCustomMarketplace(value);
+    window.setTimeout(() => setCopiedCustomMarketplace((current) => (current === value ? "" : current)), 1200);
   }
 
   async function saveCustomMarketplaces(items) {
@@ -5674,6 +5691,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                 <em className="settings-badge">{customMarketplaces.length}</em>
               </div>
               <p className="marketplace-local-note">{t.customMarketplaceLocalOnly} · {t.customMarketplaceNotInjected} · {t.customMarketplaceLocalHint}</p>
+              <p className="marketplace-local-note subtle">{t.customMarketplaceCliHelpHint}</p>
               <form className="marketplace-form" onSubmit={addCustomMarketplace}>
                 <label>
                   <span>{t.marketplaceUrl}</span>
@@ -5692,14 +5710,39 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                       <strong title={item}>{compactPath(item, 76)}</strong>
                       <span>{t.customMarketplaceLocalOnly} · {t.customMarketplaceNotInjected} · {t.settings}</span>
                     </div>
-                    <button
-                      type="button"
-                      className="plain-action subtle-action"
-                      onClick={() => saveCustomMarketplaces(customMarketplaces.filter((source) => source !== item))}
-                    >
-                      <X size={13} />
-                      {t.remove}
-                    </button>
+                    <div className="marketplace-source-actions">
+                      <button
+                        type="button"
+                        className="plain-action subtle-action"
+                        onClick={() => copyCustomMarketplaceUrl(item)}
+                        title={item}
+                      >
+                        <Copy size={13} />
+                        {copiedCustomMarketplace === item ? t.copiedMarketplaceUrl : t.copyMarketplaceUrl}
+                      </button>
+                      <button
+                        type="button"
+                        className="plain-action subtle-action"
+                        onClick={() => runCapabilityClaude("plugin marketplace --help")}
+                        disabled={cliWorking}
+                        title={cliWorking ? t.workingHint : "claude plugin marketplace --help"}
+                      >
+                        <Bot size={13} />
+                        {t.checkMarketplaceCliSupport}
+                      </button>
+                      <button type="button" className="plain-action subtle-action" onClick={onOpenClaudePanel}>
+                        <PanelRight size={13} />
+                        {t.openClaudePanel}
+                      </button>
+                      <button
+                        type="button"
+                        className="plain-action subtle-action"
+                        onClick={() => saveCustomMarketplaces(customMarketplaces.filter((source) => source !== item))}
+                      >
+                        <X size={13} />
+                        {t.remove}
+                      </button>
+                    </div>
                   </div>
                 ))}
               </div>

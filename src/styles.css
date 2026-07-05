@@ -4593,6 +4593,11 @@ kbd {
   line-height: 1.45;
 }
 
+.marketplace-local-note.subtle {
+  color: #8f9692;
+  font-size: 12px;
+}
+
 .marketplace-form {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -4662,6 +4667,13 @@ kbd {
   font-size: 12px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.marketplace-source-row .marketplace-source-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
 }
 
 .structured-source-row strong {
