@@ -312,6 +312,16 @@ const copy = {
     localCapability: "本地能力",
     installedCliState: "已安装 CLI 状态",
     settingsStatusHint: "这个页面显示 Claudex 本地状态和 Claude Code CLI 输出。",
+    settingsQuickLinks: "关联入口",
+    openMcpWorkbench: "打开插件 / MCP 工作台",
+    openClaudeTool: "打开 Claude Code 工具",
+    openBrowserTool: "打开浏览器工具",
+    openBrowserEvidence: "打开浏览器证据",
+    openChangesPanel: "打开变更面板",
+    openEnvironmentPanel: "打开环境面板",
+    openWorkspaceTool: "打开工作区工具",
+    openTerminalTool: "打开终端工具",
+    openProjectSurface: "打开项目管理",
     settingsRouteThroughCli: "这个流程会通过 Claude Code CLI，遇到原生权限弹窗时会转到交互式 Claude 终端。",
     noCliOutputYet: "还没有 CLI 输出。",
     noGitProject: "选择一个 Git 项目后会显示分支和改动。",
@@ -3650,7 +3660,18 @@ function FileTreeItem({ item, activePath, onOpenFile, depth = 0, expandedDirs, l
   );
 }
 
-function SettingsModal({ state, lang, t, onClose, onSaved, surface = false }) {
+function SettingsModal({
+  state,
+  lang,
+  t,
+  onClose,
+  onSaved,
+  onOpenTool,
+  onOpenBottomPanel,
+  onOpenCapabilities,
+  onOpenProjects,
+  surface = false,
+}) {
   const initialForm = {
     provider: state.settings.provider,
     model: state.settings.model,
@@ -3804,6 +3825,14 @@ function SettingsModal({ state, lang, t, onClose, onSaved, surface = false }) {
       return;
     }
     onClose();
+  }
+
+  function requestDeepLink(action) {
+    if (isDirty && saveStatus !== "saved") {
+      setConfirmingClose(true);
+      return;
+    }
+    action?.();
   }
 
   const settingsBody = (
@@ -4207,6 +4236,10 @@ function SettingsModal({ state, lang, t, onClose, onSaved, surface = false }) {
                   busy={settingsStatusBusy}
                   error={settingsStatusError}
                   onRefresh={refreshSettingsStatus}
+                  onOpenTool={(tool) => requestDeepLink(() => onOpenTool?.(tool))}
+                  onOpenBottomPanel={(panel) => requestDeepLink(() => onOpenBottomPanel?.(panel))}
+                  onOpenCapabilities={() => requestDeepLink(onOpenCapabilities)}
+                  onOpenProjects={() => requestDeepLink(onOpenProjects)}
                   t={t}
                 />
               ) : (
@@ -4736,6 +4769,10 @@ function SettingsBackedStatus({
   busy,
   error,
   onRefresh,
+  onOpenTool,
+  onOpenBottomPanel,
+  onOpenCapabilities,
+  onOpenProjects,
   t,
 }) {
   const label = settingsSections.find(([id]) => id === activeSection)?.[1] || t.settings;
@@ -4821,6 +4858,50 @@ function SettingsBackedStatus({
     : activeSection === "git"
       ? git?.raw || ""
       : "";
+  const actionsBySection = {
+    profile: [
+      { label: t.openProjectSurface, icon: Folder, onClick: onOpenProjects },
+      { label: t.openEnvironmentPanel, icon: HardDrive, onClick: () => onOpenBottomPanel?.("environment") },
+    ],
+    personalization: [
+      { label: t.openClaudeTool, icon: Bot, onClick: () => onOpenTool?.("claude") },
+    ],
+    mcp: [
+      { label: t.openMcpWorkbench, icon: Blocks, onClick: onOpenCapabilities },
+      { label: t.openClaudeTool, icon: Bot, onClick: () => onOpenTool?.("claude") },
+    ],
+    browser: [
+      { label: t.openBrowserTool, icon: Globe2, onClick: () => onOpenTool?.("browser") },
+      { label: t.openBrowserEvidence, icon: PanelBottom, onClick: () => onOpenBottomPanel?.("browser") },
+    ],
+    computer: [
+      { label: t.openClaudeTool, icon: Bot, onClick: () => onOpenTool?.("claude") },
+      { label: t.openTerminalTool, icon: SquareTerminal, onClick: () => onOpenTool?.("terminal") },
+    ],
+    hooks: [
+      { label: t.openClaudeTool, icon: Bot, onClick: () => onOpenTool?.("claude") },
+    ],
+    connections: [
+      { label: t.openMcpWorkbench, icon: Blocks, onClick: onOpenCapabilities },
+      { label: t.openClaudeTool, icon: Bot, onClick: () => onOpenTool?.("claude") },
+    ],
+    git: [
+      { label: t.openChangesPanel, icon: GitBranch, onClick: () => onOpenBottomPanel?.("changes") },
+      { label: t.openEnvironmentPanel, icon: HardDrive, onClick: () => onOpenBottomPanel?.("environment") },
+    ],
+    environments: [
+      { label: t.openEnvironmentPanel, icon: HardDrive, onClick: () => onOpenBottomPanel?.("environment") },
+      { label: t.openTerminalTool, icon: SquareTerminal, onClick: () => onOpenTool?.("terminal") },
+    ],
+    worktrees: [
+      { label: t.openChangesPanel, icon: GitBranch, onClick: () => onOpenBottomPanel?.("changes") },
+      { label: t.openClaudeTool, icon: Bot, onClick: () => onOpenTool?.("claude") },
+    ],
+    archived: [
+      { label: t.openWorkspaceTool, icon: FileText, onClick: () => onOpenTool?.("workspace") },
+    ],
+  };
+  const quickActions = (actionsBySection[activeSection] || []).filter((action) => action.onClick);
 
   return (
     <div className="settings-layout">
@@ -4845,6 +4926,19 @@ function SettingsBackedStatus({
             </div>
           ))}
         </dl>
+        {quickActions.length > 0 && (
+          <div className="settings-quick-actions" aria-label={t.settingsQuickLinks}>
+            <span>{t.settingsQuickLinks}</span>
+            <div>
+              {quickActions.map(({ label: actionLabel, icon: Icon, onClick }) => (
+                <button type="button" className="plain-action subtle-action" key={actionLabel} onClick={onClick}>
+                  <Icon size={14} />
+                  {actionLabel}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
       </section>
       {activeSection === "mcp" && (
         <section className="settings-section">
@@ -5728,7 +5822,18 @@ export function App() {
           t={t}
         />
         {settingsOpen ? (
-          <SettingsModal state={state} lang={lang} t={t} onClose={() => setSettingsOpen(false)} onSaved={(next) => setState(next)} surface />
+          <SettingsModal
+            state={state}
+            lang={lang}
+            t={t}
+            onClose={() => setSettingsOpen(false)}
+            onSaved={(next) => setState(next)}
+            onOpenTool={activateTool}
+            onOpenBottomPanel={openBottomPanel}
+            onOpenCapabilities={openCapabilitiesSurface}
+            onOpenProjects={openProjectsSurface}
+            surface
+          />
         ) : capabilitiesOpen ? (
           <CapabilityModal
             state={state}
