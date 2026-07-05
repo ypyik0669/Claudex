@@ -146,6 +146,18 @@ async function openNoticesPanel(win) {
   `);
 }
 
+async function openOutputsPanel(win) {
+  return win.webContents.executeJavaScript(`
+    (function() {
+      if (document.querySelector('.bottom-work-panel .run-timeline') || document.querySelector('.bottom-work-panel .capability-command-evidence-stack')) return true;
+      const button = Array.from(document.querySelectorAll('.workspace-context-tabs .workspace-context-button'))[1];
+      if (!button) return false;
+      button.click();
+      return true;
+    })();
+  `);
+}
+
 async function runTest() {
   await wait(1600);
   const win = BrowserWindow.getAllWindows()[0];
@@ -210,6 +222,17 @@ async function runTest() {
     })();
   `));
   assertStep("PASS47_APP_RETURNED", await waitFor(win, "Boolean(document.querySelector('.workspace-context-tabs'))", 5000));
+  assertStep("PASS47_OPEN_OUTPUTS_PANEL", await openOutputsPanel(win));
+  assertStep("PASS47_TIMELINE_HAS_FAILURE", await waitFor(win, `
+    Boolean(document.querySelector('.run-timeline') &&
+      /plugin disable qa-failing-plugin@qa-market/.test(document.querySelector('.run-timeline')?.textContent || '') &&
+      /退出码: 17/.test(document.querySelector('.run-timeline')?.textContent || ''))
+  `, 8000));
+  assertStep("PASS47_BOTTOM_EVIDENCE_HAS_FAILURE_OUTPUT", await waitFor(win, `
+    Boolean(document.querySelector('.capability-command-evidence-stack') &&
+      /plugin disable qa-failing-plugin@qa-market/.test(document.querySelector('.capability-command-evidence-stack')?.textContent || '') &&
+      /pass47 disable failed/.test(document.querySelector('.capability-command-evidence-stack')?.textContent || ''))
+  `, 8000));
   assertStep("PASS47_OPEN_NOTICE_PANEL", await openNoticesPanel(win));
   assertStep("PASS47_NOTICE_VISIBLE", await waitFor(win, "Boolean(document.querySelector('.bottom-work-panel .notice-card.error') && /pass47 disable failed/.test(document.body.textContent || ''))", 8000));
 

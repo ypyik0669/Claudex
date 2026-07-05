@@ -703,6 +703,8 @@ const copy = {
     commandHistory: "最近运行",
     workspaceCommandEvidence: "Workspace 命令证据",
     workspaceCommandBackedByStore: "来自主进程本地 commandRuns",
+    capabilityCommandEvidence: "Plugin/MCP CLI 证据",
+    capabilityCommandBackedByTimeline: "来自 Capability workbench 的真实 Claude Code CLI 操作",
     clearHistory: "清空",
     runningNow: "正在运行",
     completedRuns: "{count} 条记录",
@@ -877,6 +879,14 @@ function cliActionEvidenceFromResult(args, result, fallback = {}) {
     status: resolvedCode === 0 ? "ok" : "error",
     endedAt: new Date().toISOString(),
   };
+}
+
+function cliActionEvidenceDetail(evidence, t) {
+  if (!evidence) return "";
+  const parts = [`${t.commandExit}: ${evidence.code}`];
+  if (typeof evidence.durationMs === "number") parts.push(`${t.commandDuration}: ${evidence.durationMs}ms`);
+  if (evidence.stderr) parts.push(messageExcerpt(evidence.stderr, 120));
+  return parts.join(" · ");
 }
 
 function isGenericSessionTitle(title, t) {
@@ -1199,6 +1209,23 @@ function commandRunsToHistory(runs = [], kind = "workspace") {
     .filter((run) => (run.kind || "workspace") === kind)
     .map(commandRunToHistoryEntry)
     .filter(Boolean)
+    .slice(0, COMMAND_HISTORY_LIMIT);
+}
+
+function runEventsToCapabilityCommandHistory(events = []) {
+  return (events || [])
+    .filter((event) => event?.type === "capability-cli" && typeof event.code === "number")
+    .map((event) => ({
+      id: event.id,
+      commandLine: event.commandLine || event.title || "",
+      cwd: event.cwd || "",
+      code: event.code,
+      durationMs: event.durationMs,
+      stdout: event.stdout || "",
+      stderr: event.stderr || "",
+      cancelled: event.status === "cancelled",
+    }))
+    .filter((event) => event.commandLine)
     .slice(0, COMMAND_HISTORY_LIMIT);
 }
 
@@ -1760,6 +1787,7 @@ function Conversation({
   const activeNotices = useMemo(() => (notices || []).filter((notice) => !notice.dismissedAt), [notices]);
   const automationItemsForUi = Array.isArray(automations) ? automations : [];
   const workspaceCommandRuns = useMemo(() => commandRunsToHistory(commandRuns, "workspace"), [commandRuns]);
+  const capabilityCommandRuns = useMemo(() => runEventsToCapabilityCommandHistory(runEvents), [runEvents]);
   const activeTaskCount = automationItemsForUi.filter((item) => ["running", "scheduled"].includes(item.status)).length
     + (subagentRuns || []).filter((run) => run.status === "running").length;
   const contextTabs = [
@@ -1991,6 +2019,18 @@ function Conversation({
                     <CommandHistory
                       title={t.workspaceCommandEvidence}
                       entries={workspaceCommandRuns}
+                      liveEntry={null}
+                      onClear={null}
+                      t={t}
+                    />
+                  </div>
+                )}
+                {capabilityCommandRuns.length > 0 && (
+                  <div className="bottom-panel-stack command-evidence-stack capability-command-evidence-stack">
+                    <div className="command-evidence-note">{t.capabilityCommandBackedByTimeline}</div>
+                    <CommandHistory
+                      title={t.capabilityCommandEvidence}
+                      entries={capabilityCommandRuns}
                       liveEntry={null}
                       onClear={null}
                       t={t}
@@ -4771,7 +4811,7 @@ function ShellModal({ title, subtitle, onClose, children, className = "", closeL
   );
 }
 
-function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenClaudePanel, onNotice, surface = false, initialTab = "plugins" }) {
+function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenClaudePanel, onNotice, onRunEvent, onOpenBottomPanel, surface = false, initialTab = "plugins" }) {
   const tabs = [
     ["plugins", t.plugins],
     ["mcp", t.mcps],
@@ -4878,6 +4918,12 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
     if (!desktopApi?.runClaudeCommand || !nextArgs) return;
     setCliAction(nextArgs);
     setCliError("");
+    onRunEvent?.({
+      type: "capability-cli",
+      status: "running",
+      title: `${t.pluginActions}: claude ${nextArgs}`,
+      detail: projectLabel(activeProject, t),
+    });
     let result = null;
     try {
       result = await desktopApi.runClaudeCommand({
@@ -4885,14 +4931,43 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
         args: nextArgs,
         requestId: `capability_${Date.now()}_${Math.random().toString(16).slice(2)}`,
       });
-      setCliActionEvidence(cliActionEvidenceFromResult(nextArgs, result));
+      const evidence = cliActionEvidenceFromResult(nextArgs, result);
+      setCliActionEvidence(evidence);
+      onRunEvent?.({
+        type: "capability-cli",
+        status: evidence.status,
+        title: `${t.pluginActions}: claude ${nextArgs}`,
+        detail: cliActionEvidenceDetail(evidence, t),
+        commandLine: `claude ${nextArgs}`,
+        cwd: result.cwd || activeProject?.path || "",
+        stdout: evidence.stdout,
+        stderr: evidence.stderr,
+        code: evidence.code,
+        durationMs: evidence.durationMs,
+        suppressNotice: true,
+      });
+      onOpenBottomPanel?.("outputs");
       if (result.code !== 0) throw new Error(result.stderr || result.stdout || t.pluginsLoadError);
       if (/plugin marketplace/i.test(nextArgs)) setMarketplaceOutput(result.stdout || result.stderr || "");
       await refreshCliStatus();
     } catch (error) {
       const message = error.message || String(error);
       if (!result) {
-        setCliActionEvidence(cliActionEvidenceFromResult(nextArgs, null, { code: 1, stderr: message }));
+        const evidence = cliActionEvidenceFromResult(nextArgs, null, { code: 1, stderr: message });
+        setCliActionEvidence(evidence);
+        onRunEvent?.({
+          type: "capability-cli",
+          status: "error",
+          title: `${t.pluginActions}: claude ${nextArgs}`,
+          detail: cliActionEvidenceDetail(evidence, t),
+          commandLine: `claude ${nextArgs}`,
+          cwd: activeProject?.path || "",
+          stderr: evidence.stderr,
+          code: evidence.code,
+          durationMs: evidence.durationMs,
+          suppressNotice: true,
+        });
+        onOpenBottomPanel?.("outputs");
       }
       setCliError(message);
       recordCapabilityNotice(`${t.pluginActions}: ${nextArgs}`, message, `capability:action:${nextArgs}`);
@@ -5922,7 +5997,7 @@ export function App() {
 
   function recordRunEvent(entry) {
     setRunEvents((current) => prependRunEvent(current, entry));
-    if (entry?.status === "error") {
+    if (entry?.status === "error" && !entry.suppressNotice) {
       void recordNotice({
         level: "error",
         source: entry.type || "run",
@@ -6456,6 +6531,8 @@ export function App() {
             onSaved={(next) => setState(next)}
             onOpenClaudePanel={() => activateTool("claude")}
             onNotice={recordNotice}
+            onRunEvent={recordRunEvent}
+            onOpenBottomPanel={(panel) => setBottomPanel(panel)}
             surface
             initialTab={capabilityInitialTab}
           />

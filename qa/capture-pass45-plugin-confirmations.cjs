@@ -43,6 +43,19 @@ async function waitForLog(pattern, timeoutMs = 10000) {
   return false;
 }
 
+async function openOutputsPanel(win) {
+  return win.webContents.executeJavaScript(`
+    (function() {
+      if (document.querySelector('.bottom-work-panel .run-timeline') || document.querySelector('.bottom-work-panel .capability-command-evidence-stack')) return true;
+      const button = [...document.querySelectorAll('.workspace-context-tabs .workspace-context-button')]
+        .find((candidate) => /输出/.test(candidate.textContent || ''));
+      if (!button) return false;
+      button.click();
+      return true;
+    })();
+  `);
+}
+
 fs.mkdirSync(MARKETPLACE_MANIFEST_DIR, { recursive: true });
 writeJson(path.join(MARKETPLACE_MANIFEST_DIR, "marketplace.json"), {
   name: "qa-market",
@@ -242,6 +255,26 @@ async function runTest() {
       return Boolean(card && /plugin install qa-structured-plugin/.test(text) && /\\b0\\b/.test(text));
     })();
   `, 10000));
+  assertStep("PASS45_BACK_TO_APP", await win.webContents.executeJavaScript(`
+    (function() {
+      const button = document.querySelector('.surface-back');
+      if (!button) return false;
+      button.click();
+      return true;
+    })();
+  `));
+  assertStep("PASS45_OPEN_OUTPUTS_PANEL", await waitFor(win, "Boolean(document.querySelector('.workspace-context-tabs'))", 5000) && await openOutputsPanel(win));
+  assertStep("PASS45_TIMELINE_HAS_CLI_EVENT", await waitFor(win, `
+    Boolean(document.querySelector('.run-timeline') &&
+      /plugin install qa-structured-plugin/.test(document.querySelector('.run-timeline')?.textContent || '') &&
+      /退出码: 0/.test(document.querySelector('.run-timeline')?.textContent || ''))
+  `, 8000));
+  assertStep("PASS45_BOTTOM_EVIDENCE_HAS_CLI_OUTPUT", await waitFor(win, `
+    Boolean(document.querySelector('.capability-command-evidence-stack') &&
+      /Plugin\\/MCP CLI/.test(document.querySelector('.capability-command-evidence-stack')?.textContent || '') &&
+      /plugin install qa-structured-plugin/.test(document.querySelector('.capability-command-evidence-stack')?.textContent || '') &&
+      /退出码/.test(document.querySelector('.capability-command-evidence-stack')?.textContent || ''))
+  `, 8000));
 
   console.log("PASS45_PLUGIN_CONFIRMATIONS_DONE");
   cleanup();
