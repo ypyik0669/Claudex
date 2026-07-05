@@ -6,11 +6,12 @@ const { app, BrowserWindow } = require("electron");
 const REPO_DIR = path.join(__dirname, "..");
 const USER_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "claudex-pass51-data-"));
 const PROJECT_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "claudex-pass51-project-"));
+const PROJECT_B_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "claudex-pass51-project-b-"));
 const FAKE_CLAUDE = path.join(USER_DATA_DIR, "fake-claude.cmd");
 const DATA_FILE = path.join(USER_DATA_DIR, "desktop-data.json");
 
 function cleanup() {
-  for (const dir of [USER_DATA_DIR, PROJECT_DIR]) {
+  for (const dir of [USER_DATA_DIR, PROJECT_DIR, PROJECT_B_DIR]) {
     try {
       fs.rmSync(dir, { recursive: true, force: true });
     } catch (_error) {
@@ -41,7 +42,9 @@ function assertStep(name, ok) {
 function writeInitialStore() {
   fs.mkdirSync(USER_DATA_DIR, { recursive: true });
   fs.mkdirSync(PROJECT_DIR, { recursive: true });
+  fs.mkdirSync(PROJECT_B_DIR, { recursive: true });
   fs.writeFileSync(path.join(PROJECT_DIR, "package.json"), JSON.stringify({ name: "pass51-project" }), "utf8");
+  fs.writeFileSync(path.join(PROJECT_B_DIR, "package.json"), JSON.stringify({ name: "pass51-project-b" }), "utf8");
   fs.writeFileSync(
     FAKE_CLAUDE,
     [
@@ -66,7 +69,7 @@ function writeInitialStore() {
         version: 1,
         settings: {
           provider: "anthropic",
-          model: "claude-sonnet-4-5-20250929",
+          model: "claude-haiku-4-5-20251001",
           baseUrl: "https://api.example.invalid",
           temperature: 0.2,
           timeoutMs: 600000,
@@ -85,16 +88,38 @@ function writeInitialStore() {
           apiKeys: {},
         },
         activeProject: { name: "pass51-project", path: PROJECT_DIR },
-        projects: [{ name: "pass51-project", path: PROJECT_DIR }],
+        projects: [
+          { name: "pass51-project", path: PROJECT_DIR },
+          { name: "pass51-project-b", path: PROJECT_B_DIR },
+        ],
         sessions: [
           {
-            id: "default",
-            title: "新聊天",
+            id: "pass51-other-project",
+            title: "pass51 other project thread",
+            project: "pass51-project-b",
+            projectPath: PROJECT_B_DIR,
+            createdAt: "2026-07-05T00:00:00.000Z",
+            updatedAt: "2026-07-05T00:04:00.000Z",
+            messages: [{ role: "user", content: "other project history", createdAt: "2026-07-05T00:00:00.000Z" }],
+          },
+          {
+            id: "pass51-archived",
+            title: "pass51 archived thread",
             project: "pass51-project",
             projectPath: PROJECT_DIR,
             createdAt: "2026-07-05T00:00:00.000Z",
-            updatedAt: "2026-07-05T00:00:00.000Z",
-            messages: [],
+            updatedAt: "2026-07-05T00:03:00.000Z",
+            archived: true,
+            messages: [{ role: "user", content: "archived history", createdAt: "2026-07-05T00:00:00.000Z" }],
+          },
+          {
+            id: "pass51-current",
+            title: "pass51 current project thread",
+            project: "pass51-project",
+            projectPath: PROJECT_DIR,
+            createdAt: "2026-07-05T00:00:00.000Z",
+            updatedAt: "2026-07-05T00:02:00.000Z",
+            messages: [{ role: "user", content: "current project history", createdAt: "2026-07-05T00:00:00.000Z" }],
           },
         ],
         automations: [
@@ -145,6 +170,34 @@ async function runTest() {
   await wait(600);
 
   assertStep("PASS51_READY", await waitFor(win, "Boolean(document.querySelector('.app-grid') && window.claudexDesktop)", 15000));
+
+  assertStep("PASS51_OPEN_ARCHIVED_THREADS_FROM_PALETTE", await runPaletteCommand(win, "archived chats"));
+  assertStep("PASS51_ARCHIVED_THREADS_VISIBLE", await waitFor(win, `
+    Boolean(
+      /\\u67e5\\u770b\\u5f52\\u6863/.test(document.querySelector('.chat-scope-toggle button.active')?.textContent || '') &&
+      /pass51 archived thread/.test(document.querySelector('.thread-list')?.textContent || '') &&
+      !/pass51 current project thread|pass51 other project thread/.test(document.querySelector('.thread-list')?.textContent || '')
+    )
+  `, 8000));
+
+  assertStep("PASS51_OPEN_ALL_THREADS_FROM_PALETTE", await runPaletteCommand(win, "all project chats"));
+  assertStep("PASS51_ALL_THREADS_VISIBLE", await waitFor(win, `
+    Boolean(
+      /\\u5168\\u90e8\\u9879\\u76ee/.test(document.querySelector('.chat-scope-toggle button.active')?.textContent || '') &&
+      /pass51 current project thread/.test(document.querySelector('.thread-list')?.textContent || '') &&
+      /pass51 other project thread/.test(document.querySelector('.thread-list')?.textContent || '') &&
+      !/pass51 archived thread/.test(document.querySelector('.thread-list')?.textContent || '')
+    )
+  `, 8000));
+
+  assertStep("PASS51_OPEN_CURRENT_THREADS_FROM_PALETTE", await runPaletteCommand(win, "current project chats"));
+  assertStep("PASS51_CURRENT_THREADS_VISIBLE", await waitFor(win, `
+    Boolean(
+      /\\u5f53\\u524d\\u9879\\u76ee/.test(document.querySelector('.chat-scope-toggle button.active')?.textContent || '') &&
+      /pass51 current project thread/.test(document.querySelector('.thread-list')?.textContent || '') &&
+      !/pass51 other project thread|pass51 archived thread/.test(document.querySelector('.thread-list')?.textContent || '')
+    )
+  `, 8000));
 
   assertStep("PASS51_OPEN_MCP_FROM_PALETTE", await runPaletteCommand(win, "mcp servers"));
   assertStep("PASS51_MCP_TAB_VISIBLE", await waitFor(win, `

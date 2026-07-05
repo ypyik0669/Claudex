@@ -6460,6 +6460,20 @@ export function App() {
     setScheduledOpen(true);
   }
 
+  function openThreadScope(scope) {
+    const nextScope = ["current", "all", "archived"].includes(scope) ? scope : "current";
+    setSettingsOpen(false);
+    setCapabilitiesOpen(false);
+    setProjectsOpen(false);
+    setScheduledOpen(false);
+    setCommandsOpen(false);
+    setBottomPanel("");
+    setSidebarVisible(true);
+    setProjectScope(nextScope);
+    const nextSessionId = selectSessionIdForProject(state, t, activeProject, activeSessionId, nextScope);
+    setActiveSessionId(nextSessionId);
+  }
+
   function openBottomPanel(id) {
     setSettingsOpen(false);
     setCapabilitiesOpen(false);
@@ -6552,6 +6566,9 @@ export function App() {
 
   const commands = [
     { id: "new", title: t.newChat, subtitle: "Ctrl+N", keywords: "聊天 对话 会话", action: createSession },
+    { id: "threads-current", title: t.projectFilteredChats, subtitle: t.chats, keywords: "current project chats threads 当前项目 聊天 线程 历史", action: () => openThreadScope("current") },
+    { id: "threads-all", title: t.allProjectChats, subtitle: t.chats, keywords: "all project chats threads history 全部项目 聊天 线程 历史", action: () => openThreadScope("all") },
+    { id: "threads-archived", title: t.showArchivedChats, subtitle: t.chats, keywords: "archived chats threads restore 归档聊天 查看归档 恢复 聊天 历史", action: () => openThreadScope("archived") },
     { id: "project", title: t.selectProject, subtitle: t.activeProject, keywords: "文件夹 工作区 项目", action: openProjectsSurface },
     { id: "terminal", title: t.openTerminal, subtitle: projectLabel(activeProject, t), keywords: "终端 shell powershell", action: openTerminal },
     { id: "settings", title: t.settings, subtitle: t.setupProvider, keywords: "服务商 api key 模型 设置", action: openSettingsSurface },
