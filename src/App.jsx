@@ -452,6 +452,15 @@ const copy = {
     commitOrPush: "提交或推送",
     sources: "来源",
     subagents: "子代理",
+    taskCenter: "任务中心",
+    taskCenterHint: "自动化和子代理来自主进程本地状态与 Claude Code CLI，运行、失败和产物都会写入 evidence。",
+    taskCenterSummary: "自动化 {automations} 个 · 子代理 {subagents} 条",
+    taskCenterTotal: "总计",
+    taskCenterActive: "活动",
+    taskCenterFailed: "失败",
+    automationTasks: "自动化任务",
+    noAutomationTasks: "还没有自动化任务",
+    automationLastRun: "最近运行",
     notices: "通知",
     noticeCenter: "通知/错误中心",
     noticeCount: "{count} 条未处理",
@@ -1573,6 +1582,7 @@ function WelcomeComposer({
 
 function Conversation({
   session,
+  sessions = [],
   settings,
   activeProject,
   hasKey,
@@ -1597,6 +1607,7 @@ function Conversation({
   streamingAssistant,
   optimisticUser,
   runEvents,
+  automations,
   subagentRuns,
   sourceRefs,
   browserVisits,
@@ -1660,13 +1671,16 @@ function Conversation({
   const gitDiffText = String(git?.diff?.text || "").trim();
   const gitDiffRows = useMemo(() => buildGitDiffRows(gitDiffText), [gitDiffText]);
   const activeNotices = useMemo(() => (notices || []).filter((notice) => !notice.dismissedAt), [notices]);
+  const automationItemsForUi = Array.isArray(automations) ? automations : [];
+  const activeTaskCount = automationItemsForUi.filter((item) => ["running", "scheduled"].includes(item.status)).length
+    + (subagentRuns || []).filter((run) => run.status === "running").length;
   const contextTabs = [
     { id: "environment", label: t.environment, icon: HardDrive, meta: branchLabel },
     { id: "outputs", label: t.outputs, icon: FileText, meta: busy ? t.commandRunning : "" },
     { id: "notices", label: t.notices, icon: AlertTriangle, meta: activeNotices.length ? String(activeNotices.length) : "" },
     { id: "changes", label: t.changes, icon: GitBranch, meta: gitChangesLabel },
     { id: "sources", label: t.sources, icon: Folder, meta: activeProject?.path ? t.files : "" },
-    { id: "subagents", label: t.subagents, icon: Bot, meta: "" },
+    { id: "subagents", label: t.subagents, icon: Bot, meta: activeTaskCount ? String(activeTaskCount) : "" },
   ];
   const utilityTabs = [
     { id: "terminal", label: t.terminal, icon: SquareTerminal },
@@ -2021,6 +2035,8 @@ function Conversation({
             {bottomPanel === "subagents" && (
               <SubagentWorkbench
                 runs={subagentRuns}
+                automations={automationItemsForUi}
+                sessions={sessions}
                 activeProject={activeProject}
                 onRunSubagent={onRunSubagent}
                 onCancelSubagent={onCancelSubagent}
@@ -2176,6 +2192,8 @@ function CommandHistory({ title, liveEntry, entries, onClear, t }) {
 
 function SubagentWorkbench({
   runs = [],
+  automations = [],
+  sessions = [],
   activeProject,
   onRunSubagent,
   onCancelSubagent,
@@ -2187,6 +2205,19 @@ function SubagentWorkbench({
   const [nickname, setNickname] = useState("");
   const [running, setRunning] = useState(false);
   const runCount = t.subagentCount.replace("{count}", runs.length);
+  const automationItems = Array.isArray(automations) ? automations : [];
+  const activeAutomationCount = automationItems.filter((item) => ["running", "scheduled"].includes(item.status)).length;
+  const failedAutomationCount = automationItems.filter((item) => item.status === "failed" || item.lastRun?.status === "failed").length;
+  const runningSubagentCount = runs.filter((run) => run.status === "running").length;
+  const failedSubagentCount = runs.filter((run) => run.status === "error").length;
+  const taskSummary = t.taskCenterSummary
+    .replace("{automations}", automationItems.length)
+    .replace("{subagents}", runs.length);
+  const taskStats = [
+    { label: t.taskCenterTotal, value: automationItems.length + runs.length },
+    { label: t.taskCenterActive, value: activeAutomationCount + runningSubagentCount },
+    { label: t.taskCenterFailed, value: failedAutomationCount + failedSubagentCount },
+  ];
 
   async function submit(event) {
     event.preventDefault();
@@ -2206,9 +2237,9 @@ function SubagentWorkbench({
     <div className="subagent-workbench">
       <div className="bottom-panel-grid subagent-workbench-head">
         <div>
-          <span>{t.subagents}</span>
-          <strong>{runs.length ? runCount : t.noSubagentsYet}</strong>
-          <p title={activeProject?.path || t.noProjectPath}>{t.subagentWorkbenchHint}</p>
+          <span>{t.taskCenter}</span>
+          <strong>{taskSummary}</strong>
+          <p title={activeProject?.path || t.noProjectPath}>{t.taskCenterHint}</p>
         </div>
         <div className="bottom-panel-actions">
           <button type="button" className="plain-action subtle-action" onClick={onOpenInteractiveClaude}>
@@ -2221,6 +2252,58 @@ function SubagentWorkbench({
           </button>
         </div>
       </div>
+      <section className="task-center-summary" aria-label={t.taskCenter}>
+        {taskStats.map((item) => (
+          <div className="task-center-stat" key={item.label}>
+            <span>{item.label}</span>
+            <strong>{item.value}</strong>
+          </div>
+        ))}
+      </section>
+      <section className="automation-task-section" aria-label={t.automationTasks}>
+        <div className="task-section-head">
+          <div>
+            <span>{t.automationTasks}</span>
+            <strong>{automationItems.length ? t.scheduleCount.replace("{count}", automationItems.length) : t.noAutomationTasks}</strong>
+          </div>
+        </div>
+        {automationItems.length ? (
+          <div className="automation-task-list">
+            {automationItems.slice(0, 4).map((item) => {
+              const lastRunDetail = item.lastRun?.error || item.lastRun?.detail || "";
+              const timing = item.lastRun?.endedAt
+                ? `${t.automationLastRun}: ${formatDate(item.lastRun.endedAt)}`
+                : item.nextRun
+                  ? `${t.scheduleNextRun}: ${formatDate(item.nextRun)}`
+                  : t.noAutomationHistory;
+              return (
+                <article className={cx("automation-task-card", item.status || "idle")} key={item.id}>
+                  <div className="automation-task-main">
+                    <div className="schedule-item-title">
+                      <strong>{messageExcerpt(item.prompt, 110)}</strong>
+                      <span className={cx("automation-status-badge", item.status || "idle")}>
+                        {automationStatusLabel(item.status, t)}
+                      </span>
+                    </div>
+                    <div className="automation-task-meta">
+                      <span title={item.project?.path || ""}>{automationProjectLabel(item, t)}</span>
+                      <span>{automationThreadLabel(item, sessions, t)}</span>
+                      <span>{timing}</span>
+                    </div>
+                    {lastRunDetail && <p className="automation-task-detail">{lastRunDetail}</p>}
+                  </div>
+                </article>
+              );
+            })}
+          </div>
+        ) : (
+          <div className="empty-panel compact-empty-panel">
+            <Clock3 size={20} />
+            <strong>{t.noAutomationTasks}</strong>
+            <p>{t.emptyScheduleHint}</p>
+          </div>
+        )}
+      </section>
       <form className="subagent-form" onSubmit={submit}>
         <label>
           <span>{t.subagentTask}</span>
@@ -2235,6 +2318,12 @@ function SubagentWorkbench({
           {running ? t.commandRunning : t.runSubagent}
         </button>
       </form>
+      <div className="task-section-head">
+        <div>
+          <span>{t.subagents}</span>
+          <strong>{runs.length ? runCount : t.noSubagentsYet}</strong>
+        </div>
+      </div>
       <div className="subagent-run-list">
         {runs.map((run) => (
           <article className={cx("subagent-run-card", run.status)} key={run.id}>
@@ -6069,6 +6158,7 @@ export function App() {
         ) : (
         <Conversation
           session={activeSession}
+          sessions={state.sessions}
           settings={state.settings}
           activeProject={activeProject}
           hasKey={hasKey}
@@ -6093,6 +6183,7 @@ export function App() {
           streamingAssistant={streamingAssistant}
           optimisticUser={optimisticUser?.sessionId === activeSession?.id ? optimisticUser : null}
           runEvents={runEvents}
+          automations={state.automations}
           subagentRuns={state.subagentRuns}
           sourceRefs={state.sourceRefs}
           browserVisits={state.browserVisits}
