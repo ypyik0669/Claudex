@@ -382,6 +382,23 @@ select:focus-visible,
   border-color: rgba(255, 255, 255, 0.08);
 }
 
+.project-list button.project-missing,
+.prompt-left .project-pill.project-missing {
+  border-color: rgba(242, 163, 96, 0.34);
+  background: rgba(242, 163, 96, 0.08);
+  color: #f4c095;
+}
+
+.project-missing-badge {
+  flex: 0 0 auto;
+  border-radius: 999px;
+  background: rgba(242, 163, 96, 0.16);
+  color: #f1bb8b;
+  padding: 2px 6px;
+  font-size: 10px;
+  font-style: normal;
+}
+
 .chat-section {
   min-height: 0;
   overflow: hidden;
@@ -1536,6 +1553,11 @@ select:focus-visible,
   box-shadow: 0 0 0 4px rgba(125, 211, 168, 0.12);
 }
 
+.tool-rail-project-dot.missing {
+  background: #f2a360;
+  box-shadow: 0 0 0 4px rgba(242, 163, 96, 0.13);
+}
+
 .panel-toggle {
   display: flex;
   align-items: center;
@@ -1659,6 +1681,32 @@ select:focus-visible,
   font-weight: 500;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.environment-warning {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 16px auto minmax(0, 1fr);
+  align-items: center;
+  gap: 7px;
+  border: 1px solid rgba(242, 163, 96, 0.24);
+  border-radius: var(--radius-sm);
+  background: rgba(242, 163, 96, 0.075);
+  color: #f1bb8b;
+  padding: 7px 8px;
+  font-size: 12px;
+}
+
+.environment-warning span {
+  min-width: 0;
+  overflow: hidden;
+  color: #c8aa8e;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-path-warning-inline {
+  color: #f1bb8b !important;
 }
 
 .environment-rows {

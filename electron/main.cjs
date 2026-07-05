@@ -3104,10 +3104,25 @@ ipcMain.handle("app:open-ide", async (_event, { projectPath, ideId } = {}) => {
 });
 
 ipcMain.handle("app:get-environment", async (_event, { projectPath } = {}) => {
-  const cwd = projectPath && fs.existsSync(projectPath) ? projectPath : app.getPath("home");
+  const requestedProjectPath = String(projectPath || "").trim();
+  const hasRequestedProject = Boolean(requestedProjectPath);
+  let projectExists = false;
+  if (hasRequestedProject) {
+    try {
+      projectExists = fs.statSync(requestedProjectPath).isDirectory();
+    } catch {
+      projectExists = false;
+    }
+  }
+  const projectMissing = hasRequestedProject && !projectExists;
+  const cwd = projectExists ? requestedProjectPath : app.getPath("home");
   const git = await loadGitEnvironment(cwd);
   return {
     cwd,
+    requestedProjectPath,
+    projectExists,
+    projectMissing,
+    fallbackCwd: projectMissing ? cwd : "",
     git,
     ideOptions: ideOptions(),
   };

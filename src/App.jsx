@@ -633,6 +633,8 @@ const copy = {
     disabled: "已关闭",
     activeProject: "当前项目",
     noProjectPath: "还没有选择文件夹。",
+    projectPathMissing: "路径失效",
+    projectPathMissingHint: "所选项目文件夹不存在；本地命令暂时回退到用户目录。重新选择项目或恢复路径。",
     urlPlaceholder: "输入网址",
     openSettings: "打开设置",
     setupProvider: "配置服务商",
@@ -1896,6 +1898,7 @@ function fallbackState() {
 function Sidebar({
   state,
   activeProject,
+  projectPathMissing = false,
   projectScope,
   onProjectScopeChange,
   activeSessionId,
@@ -1981,19 +1984,24 @@ function Sidebar({
             </button>
           </div>
           <div className="project-list">
-            {projects.map((project) => (
-              <button
-                type="button"
-                key={project.path || project.name}
-                className={cx((state.activeProject?.path || state.activeProject?.name) === (project.path || project.name) && "active")}
-                onClick={() => onSetProject(project)}
-                title={project.path || project.name}
-                aria-label={`${t.projects}: ${projectLabel(project, t)}`}
-              >
-                <Folder size={15} />
-                <span>{projectLabel(project, t)}</span>
-              </button>
-            ))}
+            {projects.map((project) => {
+              const active = (state.activeProject?.path || state.activeProject?.name) === (project.path || project.name);
+              const missing = active && projectPathMissing;
+              return (
+                <button
+                  type="button"
+                  key={project.path || project.name}
+                  className={cx(active && "active", missing && "project-missing")}
+                  onClick={() => onSetProject(project)}
+                  title={missing ? `${t.projectPathMissing}: ${project.path || project.name}` : project.path || project.name}
+                  aria-label={`${t.projects}: ${projectLabel(project, t)}${missing ? ` · ${t.projectPathMissing}` : ""}`}
+                >
+                  <Folder size={15} />
+                  <span>{projectLabel(project, t)}</span>
+                  {missing && <em className="project-missing-badge">{t.projectPathMissing}</em>}
+                </button>
+              );
+            })}
           </div>
         </section>
 
@@ -2126,6 +2134,7 @@ function WelcomeComposer({
   busy,
   settings,
   activeProject,
+  projectPathMissing = false,
   hasKey,
   onSelectProject,
   onSettings,
@@ -2149,7 +2158,9 @@ function WelcomeComposer({
   const usesClaudeCode = settings.claudeCode?.executionMode !== "api";
   const needsProviderSetup = !usesClaudeCode && settings.provider !== "ollama" && !hasKey;
   const projectName = projectLabel(activeProject, t);
-  const projectTitle = activeProject?.path || t.chooseProject;
+  const projectTitle = projectPathMissing
+    ? `${t.projectPathMissing}: ${activeProject?.path || t.chooseProject}`
+    : activeProject?.path || t.chooseProject;
   const modelTitle = needsProviderSetup ? t.setupProviderHint : settings.model;
   const modelLabel = usesClaudeCode ? displayModelLabel(settings.model) : displayModelLabel(settings.model) || settings.model;
 
@@ -2181,9 +2192,10 @@ function WelcomeComposer({
       />
       <div className="prompt-actions">
         <div className="prompt-left">
-          <button type="button" className="composer-icon-button project-pill" title={projectTitle} aria-label={`${t.projectContext}: ${projectName}`} onClick={onSelectProject}>
+          <button type="button" className={cx("composer-icon-button project-pill", projectPathMissing && "project-missing")} title={projectTitle} aria-label={`${t.projectContext}: ${projectName}${projectPathMissing ? ` · ${t.projectPathMissing}` : ""}`} onClick={onSelectProject}>
             <Folder size={15} />
             <span>{compactPath(projectName, 22)}</span>
+            {projectPathMissing && <AlertTriangle size={13} />}
           </button>
           <button type="button" className="permissions-pill" onClick={onCapabilities} title={t.capabilities} aria-label={t.capabilities}>
             <Settings size={16} />
@@ -2258,6 +2270,7 @@ function Conversation({
   draft,
   setDraft,
   environment,
+  projectPathMissing = false,
   onRefreshEnvironment,
   ideOptions,
   selectedIdeId,
@@ -2505,7 +2518,7 @@ function Conversation({
   const activeTaskCount = automationItemsForUi.filter((item) => ["running", "scheduled"].includes(item.status)).length
     + (subagentRuns || []).filter((run) => run.status === "running").length;
   const contextTabs = [
-    { id: "environment", label: t.environment, icon: HardDrive, meta: branchLabel },
+    { id: "environment", label: t.environment, icon: HardDrive, meta: projectPathMissing ? t.projectPathMissing : branchLabel },
     { id: "outputs", label: t.outputs, icon: FileText, meta: busy ? t.commandRunning : "" },
     { id: "notices", label: t.notices, icon: AlertTriangle, meta: activeNotices.length ? String(activeNotices.length) : "" },
     { id: "changes", label: t.changes, icon: GitBranch, meta: gitChangesLabel },
@@ -2587,6 +2600,7 @@ function Conversation({
               busy={busy}
               settings={settings}
               activeProject={activeProject}
+              projectPathMissing={projectPathMissing}
               hasKey={hasKey}
               onSelectProject={onSelectProject}
               onSettings={onSettings}
@@ -2668,6 +2682,7 @@ function Conversation({
                 busy={busy}
                 settings={settings}
                 activeProject={activeProject}
+                projectPathMissing={projectPathMissing}
                 hasKey={hasKey}
                 onSelectProject={onSelectProject}
                 onSettings={onSettings}
@@ -2798,8 +2813,8 @@ function Conversation({
                 <div>
                   <span>{t.environment}</span>
                   <strong>{projectLabel(activeProject, t)}</strong>
-                  <p title={environment?.cwd || activeProject?.path || t.noProjectPath}>
-                    {activeProject?.path ? compactPath(activeProject.path, 78) : t.noProjectPath}
+                  <p className={cx(projectPathMissing && "project-path-warning-inline")} title={projectPathMissing ? `${t.projectPathMissing}: ${activeProject?.path || ""}` : environment?.cwd || activeProject?.path || t.noProjectPath}>
+                    {projectPathMissing ? t.projectPathMissingHint : activeProject?.path ? compactPath(activeProject.path, 78) : t.noProjectPath}
                   </p>
                 </div>
                 <div className="bottom-panel-actions">
@@ -3812,6 +3827,7 @@ function EnvironmentOverview({
   const selectedIde = ideOptions?.find((option) => option.id === selectedIdeId) || ideOptions?.[0];
   const upstreamLabel = git?.upstream || t.noGitUpstream;
   const syncLabel = gitAheadBehindLabel(git, t);
+  const projectMissing = Boolean(activeProject?.path && environment?.projectMissing);
   return (
     <section className="environment-card" aria-label={t.environment}>
       <div className="environment-card-head">
@@ -3823,6 +3839,13 @@ function EnvironmentOverview({
           <RefreshCw size={14} />
         </button>
       </div>
+      {projectMissing && (
+        <div className="environment-warning project-path-warning" role="status">
+          <AlertTriangle size={14} />
+          <strong>{t.projectPathMissing}</strong>
+          <span title={activeProject.path}>{t.projectPathMissingHint}</span>
+        </div>
+      )}
       <div className="environment-rows">
         <button type="button" className="environment-row" title={git?.raw || t.changes}>
           <FileText size={15} />
@@ -3832,7 +3855,7 @@ function EnvironmentOverview({
         <button type="button" className="environment-row" title={environment?.cwd || activeProject?.path || t.noProjectPath}>
           <HardDrive size={15} />
           <span>{t.local}</span>
-          <em>{activeProject?.path ? compactPath(activeProject.path, 28) : t.noProjectPath}</em>
+          <em>{projectMissing ? t.projectPathMissing : activeProject?.path ? compactPath(activeProject.path, 28) : t.noProjectPath}</em>
         </button>
         <button type="button" className="environment-row" title={git?.branch || t.gitUnavailable}>
           <GitBranch size={15} />
@@ -3884,6 +3907,7 @@ function ToolRail({
   t,
 }) {
   const gitChanges = environment?.git?.available ? Number(environment.git.changes || 0) : 0;
+  const projectMissing = Boolean(activeProject?.path && environment?.projectMissing);
   const items = [
     { id: "workspace", label: t.workspaceTool, icon: Folder, badge: gitChanges > 0 ? String(gitChanges) : "" },
     { id: "claude", label: t.claudeCodeTool, icon: Bot, badge: busy ? "●" : "" },
@@ -3925,7 +3949,10 @@ function ToolRail({
           <Settings size={16} />
         </button>
       </div>
-      <span className={cx("tool-rail-project-dot", activeProject?.path && "ready")} title={activeProject?.path || t.noProjectPath} />
+      <span
+        className={cx("tool-rail-project-dot", projectMissing ? "missing" : activeProject?.path && "ready")}
+        title={projectMissing ? `${t.projectPathMissing}: ${activeProject.path}` : activeProject?.path || t.noProjectPath}
+      />
     </aside>
   );
 }
@@ -7361,6 +7388,7 @@ export function App() {
   const lang = resolveLanguage(state.settings.language, state.settings.appLocale);
   const t = copy.zh;
   const activeProject = state.activeProject || { name: t.localWorkspace, path: "" };
+  const projectPathMissing = Boolean(activeProject?.path && environment?.projectMissing);
   const visibleThreadItems = useMemo(() => sidebarThreadItems(state.sessions, t, activeProject, projectScope), [state.sessions, t, activeProject, projectScope]);
   const activeSession =
     state.sessions.find((session) => (
@@ -7984,6 +8012,7 @@ export function App() {
         <Sidebar
           state={state}
           activeProject={activeProject}
+          projectPathMissing={projectPathMissing}
           projectScope={projectScope}
           onProjectScopeChange={setProjectScope}
           activeSessionId={activeSession?.id}
@@ -8044,6 +8073,7 @@ export function App() {
           sessions={state.sessions}
           settings={state.settings}
           activeProject={activeProject}
+          projectPathMissing={projectPathMissing}
           hasKey={hasKey}
           onSend={sendMessage}
           onCancel={cancelMessage}
