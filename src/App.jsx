@@ -699,6 +699,8 @@ const copy = {
     commandSucceeded: "已完成",
     commandFailed: "失败",
     commandHistory: "最近运行",
+    workspaceCommandEvidence: "Workspace 命令证据",
+    workspaceCommandBackedByStore: "来自主进程本地 commandRuns",
     clearHistory: "清空",
     runningNow: "正在运行",
     completedRuns: "{count} 条记录",
@@ -1159,6 +1161,28 @@ function prependCommandHistory(current, entry) {
   return [entry, ...current.filter((item) => item.id !== entry.id)].slice(0, COMMAND_HISTORY_LIMIT);
 }
 
+function commandRunToHistoryEntry(run) {
+  if (!run) return null;
+  return {
+    id: run.id || run.requestId || `${run.kind || "command"}_${run.endedAt || run.startedAt || Date.now()}`,
+    commandLine: run.command || run.commandLine || "",
+    cwd: run.cwd || run.project?.path || "",
+    code: run.code,
+    durationMs: run.durationMs,
+    stdout: run.stdout || "",
+    stderr: run.stderr || "",
+    cancelled: Boolean(run.cancelled),
+  };
+}
+
+function commandRunsToHistory(runs = [], kind = "workspace") {
+  return (runs || [])
+    .filter((run) => (run.kind || "workspace") === kind)
+    .map(commandRunToHistoryEntry)
+    .filter(Boolean)
+    .slice(0, COMMAND_HISTORY_LIMIT);
+}
+
 function prependRunEvent(current, entry) {
   return [{
     id: `${Date.now()}_${Math.random().toString(16).slice(2)}`,
@@ -1307,6 +1331,7 @@ function fallbackState() {
     ],
     automations: [],
     subagentRuns: [],
+    commandRuns: [],
     sourceRefs: [],
     browserVisits: [],
     notices: [],
@@ -1617,6 +1642,7 @@ function Conversation({
   runEvents,
   automations,
   subagentRuns,
+  commandRuns,
   sourceRefs,
   browserVisits,
   notices,
@@ -1683,6 +1709,7 @@ function Conversation({
   const gitDiffRows = useMemo(() => buildGitDiffRows(gitDiffText), [gitDiffText]);
   const activeNotices = useMemo(() => (notices || []).filter((notice) => !notice.dismissedAt), [notices]);
   const automationItemsForUi = Array.isArray(automations) ? automations : [];
+  const workspaceCommandRuns = useMemo(() => commandRunsToHistory(commandRuns, "workspace"), [commandRuns]);
   const activeTaskCount = automationItemsForUi.filter((item) => ["running", "scheduled"].includes(item.status)).length
     + (subagentRuns || []).filter((run) => run.status === "running").length;
   const contextTabs = [
@@ -1908,6 +1935,18 @@ function Conversation({
                   </dl>
                 </div>
                 <RunTimeline events={runEvents} t={t} />
+                {workspaceCommandRuns.length > 0 && (
+                  <div className="bottom-panel-stack command-evidence-stack">
+                    <div className="command-evidence-note">{t.workspaceCommandBackedByStore}</div>
+                    <CommandHistory
+                      title={t.workspaceCommandEvidence}
+                      entries={workspaceCommandRuns}
+                      liveEntry={null}
+                      onClear={null}
+                      t={t}
+                    />
+                  </div>
+                )}
               </div>
             )}
             {bottomPanel === "notices" && (
@@ -2175,7 +2214,7 @@ function CommandHistory({ title, liveEntry, entries, onClear, t }) {
           <span>{title}</span>
           <strong>{summary}</strong>
         </div>
-        {entries.length > 0 && (
+        {entries.length > 0 && onClear && (
           <button type="button" className="plain-action subtle-action command-history-clear" onClick={onClear}>
             <X size={12} />
             {t.clearHistory}
@@ -2749,6 +2788,8 @@ function ToolsPanel({
   onCapabilities,
   onRunEvent,
   onSourceRefs,
+  commandRuns = [],
+  onCommandRuns,
   browserVisits = [],
   onBrowserVisits,
   onClose,
@@ -2775,7 +2816,7 @@ function ToolsPanel({
   const [saveStatus, setSaveStatus] = useState("idle");
   const [command, setCommand] = useState("");
   const [commandResult, setCommandResult] = useState(null);
-  const [commandHistory, setCommandHistory] = useState([]);
+  const [commandHistory, setCommandHistory] = useState(() => commandRunsToHistory(commandRuns, "workspace"));
   const [commandStream, setCommandStream] = useState({ stdout: "", stderr: "" });
   const [commandRequestId, setCommandRequestId] = useState("");
   const commandRequestRef = useRef("");
@@ -2800,6 +2841,10 @@ function ToolsPanel({
   const [pathCopied, setPathCopied] = useState(false);
   const selectedToolDetailRef = useRef(null);
   const toolAutoScrollReadyRef = useRef(false);
+
+  useEffect(() => {
+    setCommandHistory(commandRunsToHistory(commandRuns, "workspace"));
+  }, [commandRuns]);
 
   const hasUnsavedFile = Boolean(file && fileDraft !== file.content);
   const [debouncedFileDraft, setDebouncedFileDraft] = useState("");
@@ -3163,16 +3208,21 @@ function ToolsPanel({
     try {
       const result = await desktopApi.runWorkspaceCommand({ projectPath: activeProject.path, command: nextCommand, requestId });
       setCommandResult(result);
-      setCommandHistory((current) => prependCommandHistory(current, {
-        id: requestId,
-        commandLine: result.command || nextCommand,
-        cwd: result.cwd || activeProject.path,
-        code: result.code,
-        durationMs: result.durationMs,
-        stdout: result.stdout || "",
-        stderr: result.stderr || "",
-        cancelled: Boolean(result.cancelled),
-      }));
+      if (Array.isArray(result.commandRuns)) {
+        onCommandRuns?.(result.commandRuns);
+      } else {
+        const entry = commandRunToHistoryEntry(result.commandRun) || {
+          id: requestId,
+          commandLine: result.command || nextCommand,
+          cwd: result.cwd || activeProject.path,
+          code: result.code,
+          durationMs: result.durationMs,
+          stdout: result.stdout || "",
+          stderr: result.stderr || "",
+          cancelled: Boolean(result.cancelled),
+        };
+        setCommandHistory((current) => prependCommandHistory(current, entry));
+      }
       onRefreshEnvironment?.();
       onRunEvent?.({
         type: "workspace-command",
@@ -6314,6 +6364,7 @@ export function App() {
           runEvents={runEvents}
           automations={state.automations}
           subagentRuns={state.subagentRuns}
+          commandRuns={state.commandRuns}
           sourceRefs={state.sourceRefs}
           browserVisits={state.browserVisits}
           notices={state.notices}
@@ -6367,6 +6418,8 @@ export function App() {
           onCapabilities={openCapabilitiesSurface}
           onRunEvent={recordRunEvent}
           onSourceRefs={(sourceRefs) => setState((current) => ({ ...current, sourceRefs }))}
+          commandRuns={state.commandRuns}
+          onCommandRuns={(commandRuns) => setState((current) => ({ ...current, commandRuns }))}
           browserVisits={state.browserVisits}
           onBrowserVisits={(browserVisits) => setState((current) => ({ ...current, browserVisits }))}
           onClose={() => setRightPanelVisible(false)}

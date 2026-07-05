@@ -76,6 +76,7 @@ const AUTOMATION_HISTORY_LIMIT = 8;
 const AUTOMATION_LIMIT = 80;
 const AUTOMATION_POLL_MS = 15000;
 const SUBAGENT_RUN_LIMIT = 40;
+const COMMAND_RUN_LIMIT = 80;
 const SOURCE_REF_LIMIT = 80;
 const BROWSER_VISIT_LIMIT = 60;
 const NOTICE_LIMIT = 80;
@@ -356,6 +357,38 @@ function upsertSubagentRun(store, run) {
   return run;
 }
 
+function normalizeCommandRun(item, store) {
+  const project = normalizeAutomationProject(item?.project, store);
+  const startedAt = isoOrEmpty(item?.startedAt) || now();
+  const endedAt = isoOrEmpty(item?.endedAt) || startedAt;
+  const command = String(item?.command || item?.commandLine || "").trim();
+  return {
+    id: item?.id || id("command"),
+    requestId: item?.requestId || "",
+    kind: item?.kind === "claude" ? "claude" : "workspace",
+    command,
+    commandLine: command,
+    cwd: item?.cwd || project?.path || "",
+    project,
+    code: typeof item?.code === "number" ? item.code : null,
+    durationMs: Number(item?.durationMs || 0),
+    stdout: trimOutput(item?.stdout || "", MAX_COMMAND_OUTPUT_CHARS),
+    stderr: trimOutput(item?.stderr || "", MAX_COMMAND_OUTPUT_CHARS),
+    cancelled: Boolean(item?.cancelled),
+    startedAt,
+    endedAt,
+  };
+}
+
+function upsertCommandRun(store, run) {
+  const normalized = normalizeCommandRun(run, store);
+  store.commandRuns = [
+    normalized,
+    ...(store.commandRuns || []).filter((item) => item.id !== normalized.id),
+  ].slice(0, COMMAND_RUN_LIMIT);
+  return normalized;
+}
+
 function normalizeSourceRef(item, store) {
   const project = normalizeAutomationProject(item?.project, store);
   const sourcePath = slashPath(item?.path || item?.relativePath || "");
@@ -577,6 +610,7 @@ function defaultStore() {
     ],
     automations: [],
     subagentRuns: [],
+    commandRuns: [],
     sourceRefs: [],
     browserVisits: [],
     notices: [],
@@ -655,6 +689,11 @@ function normalizeStore(store) {
       ? store.subagentRuns.map((run) => normalizeSubagentRun(run, { ...store, activeProject }))
           .filter((run) => run.task)
           .slice(0, SUBAGENT_RUN_LIMIT)
+      : [],
+    commandRuns: Array.isArray(store.commandRuns)
+      ? store.commandRuns.map((run) => normalizeCommandRun(run, { ...store, activeProject }))
+          .filter((run) => run.command)
+          .slice(0, COMMAND_RUN_LIMIT)
       : [],
     sourceRefs: Array.isArray(store.sourceRefs)
       ? store.sourceRefs.map((source) => normalizeSourceRef(source, { ...store, activeProject }))
@@ -2803,14 +2842,16 @@ ipcMain.handle("workspace:run-command", async (_event, { projectPath, command, r
   const cwd = resolveProjectRoot(projectPath);
   const cmd = String(command || "").trim();
   if (!cmd) throw new Error("命令为空。");
+  const runId = requestId || id("workspace_command");
+  const startedAtIso = now();
 
-  return await new Promise((resolve) => {
+  const result = await new Promise((resolve) => {
     const startedAt = Date.now();
-    const shellCommand = shellCommandForPlatform(cmd);
-    const child = spawn(shellCommand.command, shellCommand.args, {
+    const child = spawn(cmd, [], {
       cwd,
       windowsHide: process.platform === "win32",
       env: process.env,
+      shell: process.platform === "win32" ? process.env.ComSpec || true : true,
     });
     let stdout = "";
     let stderr = "";
@@ -2842,6 +2883,8 @@ ipcMain.handle("workspace:run-command", async (_event, { projectPath, command, r
       clearTimeout(timeout);
       if (requestId) activeRequests.delete(requestId);
       resolve({
+        id: runId,
+        requestId: runId,
         command: cmd,
         cwd,
         code: cancelled ? 130 : 1,
@@ -2849,12 +2892,16 @@ ipcMain.handle("workspace:run-command", async (_event, { projectPath, command, r
         stderr: trimOutput(cancelled ? `${stderr}\n命令已取消。` : `${stderr}\n${error.message}`),
         durationMs: Date.now() - startedAt,
         cancelled,
+        startedAt: startedAtIso,
+        endedAt: now(),
       });
     });
     child.on("close", (code) => {
       clearTimeout(timeout);
       if (requestId) activeRequests.delete(requestId);
       resolve({
+        id: runId,
+        requestId: runId,
         command: cmd,
         cwd,
         code: cancelled ? 130 : code,
@@ -2862,7 +2909,24 @@ ipcMain.handle("workspace:run-command", async (_event, { projectPath, command, r
         stderr: trimOutput(cancelled ? `${stderr}\n命令已取消。` : stderr),
         durationMs: Date.now() - startedAt,
         cancelled,
+        startedAt: startedAtIso,
+        endedAt: now(),
       });
     });
   });
+  const store = readStore();
+  const persisted = upsertCommandRun(store, {
+    ...result,
+    id: runId,
+    requestId: runId,
+    kind: "workspace",
+    project: projectFromPath(cwd),
+  });
+  writeStore(store);
+  broadcastStoreUpdate(store);
+  return {
+    ...result,
+    commandRun: persisted,
+    commandRuns: sanitizeStore(store).commandRuns,
+  };
 });
