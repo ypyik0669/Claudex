@@ -258,6 +258,24 @@ function normalizeAutomationProject(project, store) {
   return fallback;
 }
 
+function normalizeAutomationHistoryEntry(entry, item, createdAt) {
+  return {
+    id: entry?.id || id("automation_run"),
+    trigger: entry?.trigger || "manual",
+    status: entry?.status || "succeeded",
+    startedAt: isoOrEmpty(entry?.startedAt) || createdAt,
+    endedAt: isoOrEmpty(entry?.endedAt),
+    durationMs: Number(entry?.durationMs || 0),
+    sessionId: entry?.sessionId || item?.threadId || "",
+    detail: String(entry?.detail || ""),
+    error: String(entry?.error || ""),
+    summary: String(entry?.summary || entry?.detail || ""),
+    stdout: trimOutput(entry?.stdout || "", MAX_COMMAND_OUTPUT_CHARS),
+    stderr: trimOutput(entry?.stderr || "", MAX_COMMAND_OUTPUT_CHARS),
+    code: typeof entry?.code === "number" ? entry.code : null,
+  };
+}
+
 function normalizeAutomation(item, store) {
   const createdAt = isoOrEmpty(item?.createdAt) || now();
   const schedule = {
@@ -265,18 +283,11 @@ function normalizeAutomation(item, store) {
     runAt: isoOrEmpty(item?.schedule?.runAt || item?.runAt || item?.time),
   };
   const history = Array.isArray(item?.history)
-    ? item.history.slice(0, AUTOMATION_HISTORY_LIMIT).map((entry) => ({
-      id: entry.id || id("automation_run"),
-      trigger: entry.trigger || "manual",
-      status: entry.status || "succeeded",
-      startedAt: isoOrEmpty(entry.startedAt) || createdAt,
-      endedAt: isoOrEmpty(entry.endedAt),
-      durationMs: Number(entry.durationMs || 0),
-      sessionId: entry.sessionId || item?.threadId || "",
-      detail: String(entry.detail || ""),
-      error: String(entry.error || ""),
-    }))
+    ? item.history.slice(0, AUTOMATION_HISTORY_LIMIT).map((entry) => normalizeAutomationHistoryEntry(entry, item, createdAt))
     : [];
+  const lastRun = item?.lastRun
+    ? normalizeAutomationHistoryEntry(item.lastRun, item, createdAt)
+    : history[0] || null;
   const automation = {
     id: item?.id || id("automation"),
     prompt: String(item?.prompt || "").trim(),
@@ -287,7 +298,7 @@ function normalizeAutomation(item, store) {
     status: item?.status || (schedule.runAt ? "scheduled" : "idle"),
     createdAt,
     updatedAt: isoOrEmpty(item?.updatedAt) || createdAt,
-    lastRun: item?.lastRun || history[0] || null,
+    lastRun,
     nextRun: "",
     history,
   };
@@ -344,6 +355,7 @@ function upsertAutomationRunEvent(store, automation, entry, status) {
     detail: automationRunEventDetail(automation, entry),
     project: automation.project,
     sessionId: entry.sessionId || automation.threadId || "",
+    code: typeof entry.code === "number" ? entry.code : null,
     durationMs: typeof entry.durationMs === "number" ? entry.durationMs : null,
     createdAt: entry.startedAt || now(),
   });
@@ -2093,15 +2105,29 @@ async function requestClaudeCode(store, session, requestId) {
   const payload = parseJsonOutput(result.stdout);
   if (result.code !== 0 || payload?.is_error) {
     const message = payload?.result || payload?.error || result.stderr || result.stdout || `Claude Code 已退出，代码 ${result.code}`;
-    throw new Error(stripAnsi(message));
+    const error = new Error(stripAnsi(message));
+    error.stdout = stripAnsi(result.stdout || "");
+    error.stderr = stripAnsi(result.stderr || "");
+    error.code = typeof result.code === "number" ? result.code : 1;
+    throw error;
   }
   if (!payload?.result) {
-    throw new Error(stripAnsi(result.stdout || "Claude Code 没有返回结果。"));
+    const error = new Error(stripAnsi(result.stdout || "Claude Code 没有返回结果。"));
+    error.stdout = stripAnsi(result.stdout || "");
+    error.stderr = stripAnsi(result.stderr || "");
+    error.code = typeof result.code === "number" ? result.code : 1;
+    throw error;
   }
   if (payload.session_id) {
     session.claudeSessionId = payload.session_id;
   }
-  return payload.result;
+  return {
+    text: payload.result,
+    stdout: stripAnsi(result.stdout || ""),
+    stderr: stripAnsi(result.stderr || ""),
+    code: typeof result.code === "number" ? result.code : 0,
+    claudeSessionId: payload.session_id || "",
+  };
 }
 
 function emitClaudeStreamLine(sender, requestId, session, line) {
@@ -2276,6 +2302,10 @@ async function runAutomationById(automationId, { requestId = "", trigger = "manu
     sessionId: session.id,
     detail: "",
     error: "",
+    summary: "",
+    stdout: "",
+    stderr: "",
+    code: null,
   };
   automation.status = "running";
   prependAutomationHistory(automation, runningEntry);
@@ -2304,6 +2334,9 @@ async function runAutomationById(automationId, { requestId = "", trigger = "manu
     };
     const assistantResult = await requestAssistant(runtimeStore, session, requestId || runId);
     const assistantText = typeof assistantResult === "string" ? assistantResult : assistantResult.text;
+    const stdout = typeof assistantResult === "object" ? assistantResult.stdout || "" : "";
+    const stderr = typeof assistantResult === "object" ? assistantResult.stderr || "" : "";
+    const code = typeof assistantResult === "object" && typeof assistantResult.code === "number" ? assistantResult.code : 0;
     session.messages.push({
       role: "assistant",
       content: assistantText || "自动化任务已完成。",
@@ -2319,6 +2352,10 @@ async function runAutomationById(automationId, { requestId = "", trigger = "manu
       endedAt: now(),
       durationMs: Date.now() - startedMs,
       detail: titleFromUserContent(assistantText || "自动化任务已完成。"),
+      summary: titleFromUserContent(assistantText || "自动化任务已完成。"),
+      stdout,
+      stderr,
+      code,
     };
     prependAutomationHistory(automation, finalEntry);
     if (trigger === "scheduled" && automation.schedule?.type === "once") automation.enabled = false;
@@ -2348,6 +2385,10 @@ async function runAutomationById(automationId, { requestId = "", trigger = "manu
       durationMs: Date.now() - startedMs,
       detail: "",
       error: message,
+      summary: "",
+      stdout: error.stdout || "",
+      stderr: error.stderr || "",
+      code: typeof error.code === "number" ? error.code : 1,
     };
     prependAutomationHistory(automation, finalEntry);
     if (trigger === "scheduled" && automation.schedule?.type === "once") automation.enabled = false;

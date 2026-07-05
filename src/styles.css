@@ -5178,8 +5178,9 @@ kbd {
 
 .schedule-history li {
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr);
+  grid-template-columns: auto auto auto auto minmax(0, 1fr);
   gap: 5px 8px;
+  align-items: baseline;
   color: #cfcfcb;
   font-size: 11.5px;
 }
@@ -5353,7 +5354,7 @@ kbd {
 
 .automation-task-evidence {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(112px, 1fr));
   gap: 6px;
   margin: 0;
 }
@@ -5434,11 +5435,63 @@ kbd {
 
 .automation-task-history li p {
   min-width: 0;
+  grid-column: 1 / -1;
   margin: 0;
   overflow: hidden;
   color: #c8c6bd;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.automation-run-evidence-details {
+  grid-column: 1 / -1;
+  border: 1px solid #252525;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.025);
+  padding: 6px 7px;
+}
+
+.automation-run-evidence-details summary {
+  cursor: pointer;
+  color: #aaa8a0;
+  font-size: 11px;
+}
+
+.automation-run-evidence-meta {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
+  gap: 6px;
+  margin: 7px 0;
+}
+
+.automation-run-evidence-meta div {
+  min-width: 0;
+  border: 1px solid #242424;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.025);
+  padding: 5px 6px;
+}
+
+.automation-run-evidence-meta dt,
+.automation-run-evidence-details section > span {
+  color: #888a87;
+  font-size: 10.5px;
+}
+
+.automation-run-evidence-meta dd {
+  margin: 2px 0 0;
+  overflow: hidden;
+  color: #e2dfd6;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.automation-run-evidence-details section {
+  display: grid;
+  gap: 4px;
+  margin-top: 7px;
 }
 
 .automation-task-actions {

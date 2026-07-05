@@ -663,6 +663,11 @@ const copy = {
     automationTriggerManual: "手动触发",
     automationTriggerScheduled: "计划触发",
     automationEvidence: "运行证据",
+    copyAutomationEvidence: "复制证据",
+    automationRawEvidence: "原始证据",
+    automationStdout: "标准输出",
+    automationStderr: "标准错误",
+    automationSession: "会话",
     automationRunHistoryShort: "最近 3 次",
     automationCreated: "自动化已保存",
     automationDeleted: "自动化已删除",
@@ -1340,6 +1345,31 @@ function formatDurationMs(value) {
 
 function automationTriggerLabel(trigger, t) {
   return trigger === "scheduled" ? t.automationTriggerScheduled : t.automationTriggerManual;
+}
+
+function automationRunOutput(entry = {}) {
+  return [
+    entry.stdout ? `${entry.stdout}` : "",
+    entry.stderr ? `[stderr]\n${entry.stderr}` : "",
+  ].filter(Boolean).join("\n\n");
+}
+
+function automationEvidenceText(automation, entry, t, sessions = []) {
+  const run = entry || automation?.lastRun || {};
+  const lines = [
+    `${t.automationTasks}: ${automation?.prompt || ""}`,
+    `${t.scheduleStatus}: ${automationStatusLabel(run.status || automation?.status, t)}`,
+    `${t.scheduleHistory}: ${automationTriggerLabel(run.trigger, t)}`,
+    `${t.activeProject}: ${automationProjectLabel(automation, t)}`,
+    `${t.scheduleThread}: ${automationThreadLabel(automation, sessions, t)}`,
+    `${t.automationSession}: ${run.sessionId || automation?.threadId || "-"}`,
+    `${t.commandExit}: ${typeof run.code === "number" ? run.code : "-"}`,
+    `${t.commandDuration}: ${formatDurationMs(run.durationMs)}`,
+    "",
+    run.error || run.detail || run.summary || "",
+    automationRunOutput(run),
+  ];
+  return lines.filter((line, index) => index < 8 || String(line || "").trim()).join("\n");
 }
 
 function formatFileTimestamp(value) {
@@ -2661,6 +2691,11 @@ function SubagentWorkbench({
     ].filter((line, index) => index < 4 || line).join("\n"));
   }
 
+  async function copyAutomationEvidence(item, entry = item?.lastRun) {
+    if (!entry) return;
+    await onCopy?.(automationEvidenceText(item, entry, t, sessions));
+  }
+
   return (
     <div className="subagent-workbench">
       <div className="bottom-panel-grid subagent-workbench-head">
@@ -2735,6 +2770,14 @@ function SubagentWorkbench({
                             <dt>{t.commandDuration}</dt>
                             <dd>{formatDurationMs(item.lastRun.durationMs)}</dd>
                           </div>
+                          <div>
+                            <dt>{t.commandExit}</dt>
+                            <dd>{typeof item.lastRun.code === "number" ? item.lastRun.code : "-"}</dd>
+                          </div>
+                          <div>
+                            <dt>{t.automationSession}</dt>
+                            <dd title={item.lastRun.sessionId || item.threadId || ""}>{messageExcerpt(item.lastRun.sessionId || item.threadId || "-", 38)}</dd>
+                          </div>
                         </dl>
                       </div>
                     )}
@@ -2748,7 +2791,30 @@ function SubagentWorkbench({
                               <span>{automationStatusLabel(entry.status, t)}</span>
                               <time>{formatDate(entry.endedAt || entry.startedAt)}</time>
                               <em>{automationTriggerLabel(entry.trigger, t)}</em>
-                              {(entry.detail || entry.error) && <p>{messageExcerpt(entry.detail || entry.error, 110)}</p>}
+                              <em>{typeof entry.code === "number" ? `${t.commandExit}: ${entry.code}` : t.commandExit}</em>
+                              {(entry.detail || entry.error || entry.summary) && <p>{messageExcerpt(entry.detail || entry.error || entry.summary, 110)}</p>}
+                              {(entry.stdout || entry.stderr || entry.sessionId || typeof entry.code === "number") && (
+                                <details className="automation-run-evidence-details">
+                                  <summary>{t.automationRawEvidence}</summary>
+                                  <dl className="automation-run-evidence-meta">
+                                    <div><dt>{t.automationSession}</dt><dd>{entry.sessionId || "-"}</dd></div>
+                                    <div><dt>{t.commandExit}</dt><dd>{typeof entry.code === "number" ? entry.code : "-"}</dd></div>
+                                    <div><dt>{t.commandDuration}</dt><dd>{formatDurationMs(entry.durationMs)}</dd></div>
+                                  </dl>
+                                  {entry.stdout && (
+                                    <section>
+                                      <span>{t.automationStdout}</span>
+                                      <pre className="subagent-output secondary-output">{entry.stdout}</pre>
+                                    </section>
+                                  )}
+                                  {entry.stderr && (
+                                    <section>
+                                      <span>{t.automationStderr}</span>
+                                      <pre className="subagent-output secondary-output error-output">{entry.stderr}</pre>
+                                    </section>
+                                  )}
+                                </details>
+                              )}
                             </li>
                           ))}
                         </ul>
@@ -2765,6 +2831,17 @@ function SubagentWorkbench({
                         <Send size={13} />
                         {automationWorkingId === item.id ? t.automationRunning : t.runNow}
                       </button>
+                      {item.lastRun && (
+                        <button
+                          type="button"
+                          className="plain-action subtle-action"
+                          onClick={() => copyAutomationEvidence(item)}
+                          title={t.copyAutomationEvidence}
+                        >
+                          <Copy size={13} />
+                          {t.copyAutomationEvidence}
+                        </button>
+                      )}
                       <button
                         type="button"
                         className="plain-action subtle-action"
@@ -6270,6 +6347,7 @@ function ScheduledModal({
   onRunNow,
   onDelete,
   onToggleEnabled,
+  onCopy,
 }) {
   const items = Array.isArray(automations) ? automations : [];
   const [prompt, setPrompt] = useState("");
@@ -6286,6 +6364,11 @@ function ScheduledModal({
     } finally {
       setWorkingId("");
     }
+  }
+
+  async function copyAutomationEvidence(item, entry = item?.lastRun) {
+    if (!entry) return;
+    await onCopy?.(automationEvidenceText(item, entry, t, sessions));
   }
 
   const scheduleCount = t.scheduleCount.replace("{count}", items.length);
@@ -6377,8 +6460,31 @@ function ScheduledModal({
                             <span>{automationStatusLabel(entry.status, t)}</span>
                             <time>{formatDate(entry.endedAt || entry.startedAt, lang)}</time>
                             <em>{automationTriggerLabel(entry.trigger, t)}</em>
+                            <em>{typeof entry.code === "number" ? `${t.commandExit}: ${entry.code}` : t.commandExit}</em>
                             {typeof entry.durationMs === "number" && entry.durationMs > 0 && <em>{formatDurationMs(entry.durationMs)}</em>}
-                            {(entry.detail || entry.error) && <p>{entry.detail || entry.error}</p>}
+                            {(entry.detail || entry.error || entry.summary) && <p>{entry.detail || entry.error || entry.summary}</p>}
+                            {(entry.stdout || entry.stderr || entry.sessionId || typeof entry.code === "number") && (
+                              <details className="automation-run-evidence-details">
+                                <summary>{t.automationRawEvidence}</summary>
+                                <dl className="automation-run-evidence-meta">
+                                  <div><dt>{t.automationSession}</dt><dd>{entry.sessionId || "-"}</dd></div>
+                                  <div><dt>{t.commandExit}</dt><dd>{typeof entry.code === "number" ? entry.code : "-"}</dd></div>
+                                  <div><dt>{t.commandDuration}</dt><dd>{formatDurationMs(entry.durationMs)}</dd></div>
+                                </dl>
+                                {entry.stdout && (
+                                  <section>
+                                    <span>{t.automationStdout}</span>
+                                    <pre className="subagent-output secondary-output">{entry.stdout}</pre>
+                                  </section>
+                                )}
+                                {entry.stderr && (
+                                  <section>
+                                    <span>{t.automationStderr}</span>
+                                    <pre className="subagent-output secondary-output error-output">{entry.stderr}</pre>
+                                  </section>
+                                )}
+                              </details>
+                            )}
                           </li>
                         ))}
                       </ul>
@@ -6406,6 +6512,12 @@ function ScheduledModal({
                     <Clock3 size={14} />
                     {item.enabled ? t.pauseAutomation : t.resumeAutomation}
                   </button>
+                  {item.lastRun && (
+                    <button type="button" onClick={() => copyAutomationEvidence(item)} title={t.copyAutomationEvidence}>
+                      <Copy size={14} />
+                      {t.copyAutomationEvidence}
+                    </button>
+                  )}
                   <button type="button" className="danger-action" onClick={() => handleAction(item.id, () => onDelete?.(item))} disabled={workingId === item.id} title={t.delete}>
                     <Trash2 size={14} />
                     {t.delete}
@@ -7331,6 +7443,7 @@ export function App() {
           onRunNow={runAutomationNow}
           onDelete={deleteAutomation}
           onToggleEnabled={toggleAutomationEnabled}
+          onCopy={copyMessage}
         />
       )}
       {shortcutsOpen && <KeyboardShortcutsModal t={t} onClose={() => setShortcutsOpen(false)} />}
