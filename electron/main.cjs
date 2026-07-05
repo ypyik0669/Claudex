@@ -76,6 +76,7 @@ const AUTOMATION_HISTORY_LIMIT = 8;
 const AUTOMATION_LIMIT = 80;
 const AUTOMATION_POLL_MS = 15000;
 const SUBAGENT_RUN_LIMIT = 40;
+const SOURCE_REF_LIMIT = 80;
 const automationRunLocks = new Set();
 const cancelledSubagentRuns = new Set();
 let automationSchedulerTimer = null;
@@ -353,6 +354,32 @@ function upsertSubagentRun(store, run) {
   return run;
 }
 
+function normalizeSourceRef(item, store) {
+  const project = normalizeAutomationProject(item?.project, store);
+  const sourcePath = slashPath(item?.path || item?.relativePath || "");
+  const type = item?.type || "file";
+  return {
+    id: item?.id || `${type}:${project?.path || project?.name || "workspace"}:${sourcePath}`,
+    type,
+    path: sourcePath,
+    title: item?.title || path.basename(sourcePath) || sourcePath,
+    project,
+    size: Number(item?.size || 0),
+    sha256: item?.sha256 || "",
+    updatedAt: isoOrEmpty(item?.updatedAt),
+    lastOpenedAt: isoOrEmpty(item?.lastOpenedAt) || now(),
+  };
+}
+
+function upsertSourceRef(store, source) {
+  const normalized = normalizeSourceRef(source, store);
+  store.sourceRefs = [
+    normalized,
+    ...(store.sourceRefs || []).filter((item) => item.id !== normalized.id),
+  ].slice(0, SOURCE_REF_LIMIT);
+  return normalized;
+}
+
 function dataPath() {
   return path.join(app.getPath("userData"), "desktop-data.json");
 }
@@ -463,6 +490,7 @@ function defaultStore() {
     ],
     automations: [],
     subagentRuns: [],
+    sourceRefs: [],
   };
 }
 
@@ -538,6 +566,11 @@ function normalizeStore(store) {
       ? store.subagentRuns.map((run) => normalizeSubagentRun(run, { ...store, activeProject }))
           .filter((run) => run.task)
           .slice(0, SUBAGENT_RUN_LIMIT)
+      : [],
+    sourceRefs: Array.isArray(store.sourceRefs)
+      ? store.sourceRefs.map((source) => normalizeSourceRef(source, { ...store, activeProject }))
+          .filter((source) => source.path)
+          .slice(0, SOURCE_REF_LIMIT)
       : [],
   };
 }
@@ -2475,15 +2508,31 @@ ipcMain.handle("workspace:list-files", (_event, { projectPath, relativePath = ""
 });
 
 ipcMain.handle("workspace:read-file", (_event, { projectPath, relativePath } = {}) => {
-  const { target, relative } = resolveInsideProject(projectPath, relativePath);
+  const { root, target, relative } = resolveInsideProject(projectPath, relativePath);
   const stat = fs.statSync(target);
   if (!stat.isFile()) throw new Error("所选路径不是文件。");
   if (stat.size > MAX_TEXT_FILE_BYTES) throw new Error("文件太大，无法预览。");
   const buffer = fs.readFileSync(target);
   if (buffer.includes(0)) throw new Error("这里不能编辑二进制文件。");
-  return {
-    ...fileSnapshot(target, buffer),
+  const snapshot = fileSnapshot(target, buffer);
+  const store = readStore();
+  const project = root ? projectFromPath(root) : store.activeProject || localWorkspaceProject();
+  const sourceRef = upsertSourceRef(store, {
+    type: "file",
     path: relative,
+    title: path.basename(relative),
+    project,
+    size: stat.size,
+    sha256: snapshot.sha256,
+    updatedAt: snapshot.updatedAt,
+    lastOpenedAt: now(),
+  });
+  writeStore(store);
+  return {
+    ...snapshot,
+    path: relative,
+    sourceRef,
+    sourceRefs: sanitizeStore(store).sourceRefs,
   };
 });
 

@@ -443,6 +443,9 @@ const copy = {
     sources: "来源",
     subagents: "子代理",
     noSourcesYet: "暂无来源",
+    sourceCount: "{count} 个来源",
+    sourceLastOpened: "最近读取",
+    sourceBackedByWorkspace: "来自真实 Workspace 文件读取记录",
     noSubagentsYet: "还没有子代理运行记录",
     subagentTask: "子任务",
     subagentTaskPlaceholder: "让一个子代理独立检查什么？",
@@ -1237,6 +1240,7 @@ function fallbackState() {
     ],
     automations: [],
     subagentRuns: [],
+    sourceRefs: [],
   };
 }
 
@@ -1543,6 +1547,7 @@ function Conversation({
   optimisticUser,
   runEvents,
   subagentRuns,
+  sourceRefs,
   onRunSubagent,
   onCancelSubagent,
   draft,
@@ -1907,24 +1912,45 @@ function Conversation({
               </div>
             )}
             {bottomPanel === "sources" && (
-              <div className="bottom-panel-grid">
-                <div>
-                  <span>{t.sources}</span>
-                  <strong>{activeProject?.path ? projectLabel(activeProject, t) : t.noSourcesYet}</strong>
-                  <p title={activeProject?.path || t.noProjectPath}>
-                    {activeProject?.path ? compactPath(activeProject.path, 78) : t.noProjectPath}
-                  </p>
+              <div className="bottom-panel-stack">
+                <div className="bottom-panel-grid">
+                  <div>
+                    <span>{t.sources}</span>
+                    <strong>{sourceRefs?.length ? t.sourceCount.replace("{count}", sourceRefs.length) : t.noSourcesYet}</strong>
+                    <p title={activeProject?.path || t.noProjectPath}>
+                      {sourceRefs?.length ? t.sourceBackedByWorkspace : activeProject?.path ? compactPath(activeProject.path, 78) : t.noProjectPath}
+                    </p>
+                  </div>
+                  <div className="bottom-panel-actions">
+                    <button type="button" className="plain-action subtle-action" onClick={() => onActivateTool("workspace")}>
+                      <Folder size={14} />
+                      {t.files}
+                    </button>
+                    <button type="button" className="plain-action subtle-action" onClick={onOpenProject} disabled={!activeProject?.path}>
+                      <ExternalLink size={14} />
+                      {t.openFolderShort}
+                    </button>
+                  </div>
                 </div>
-                <div className="bottom-panel-actions">
-                  <button type="button" className="plain-action subtle-action" onClick={() => onActivateTool("workspace")}>
-                    <Folder size={14} />
-                    {t.files}
-                  </button>
-                  <button type="button" className="plain-action subtle-action" onClick={onOpenProject} disabled={!activeProject?.path}>
-                    <ExternalLink size={14} />
-                    {t.openFolderShort}
-                  </button>
-                </div>
+                {sourceRefs?.length ? (
+                  <div className="source-ref-list">
+                    {sourceRefs.slice(0, 12).map((source) => (
+                      <article className="source-ref-card" key={source.id}>
+                        <FileText size={14} />
+                        <div>
+                          <strong title={source.path}>{source.path}</strong>
+                          <span title={source.project?.path || ""}>{projectLabel(source.project, t)} · {formatBytes(source.size)} · {t.sourceLastOpened} {formatDate(source.lastOpenedAt)}</span>
+                        </div>
+                      </article>
+                    ))}
+                  </div>
+                ) : (
+                  <div className="empty-panel compact-empty-panel">
+                    <FileText size={20} />
+                    <strong>{t.noSourcesYet}</strong>
+                    <p>{t.sourceBackedByWorkspace}</p>
+                  </div>
+                )}
               </div>
             )}
             {bottomPanel === "subagents" && (
@@ -2351,6 +2377,7 @@ function ToolsPanel({
   onOpenBrowserUrl,
   onCapabilities,
   onRunEvent,
+  onSourceRefs,
   onClose,
   t,
 }) {
@@ -2593,6 +2620,7 @@ function ToolsPanel({
       cacheFileRead(fileCacheRef, cacheKey, result);
       setFile(result);
       setFileDraft(result.content || "");
+      if (Array.isArray(result.sourceRefs)) onSourceRefs?.(result.sourceRefs);
     } catch (error) {
       setWorkspaceError(error.message || String(error));
       setWorkspaceErrorRetry(() => () => openFile(item));
@@ -5630,6 +5658,7 @@ export function App() {
           optimisticUser={optimisticUser?.sessionId === activeSession?.id ? optimisticUser : null}
           runEvents={runEvents}
           subagentRuns={state.subagentRuns}
+          sourceRefs={state.sourceRefs}
           onRunSubagent={runSubagent}
           onCancelSubagent={cancelSubagent}
           draft={draft}
@@ -5674,6 +5703,7 @@ export function App() {
           onOpenBrowserUrl={openBrowserUrl}
           onCapabilities={openCapabilitiesSurface}
           onRunEvent={recordRunEvent}
+          onSourceRefs={(sourceRefs) => setState((current) => ({ ...current, sourceRefs }))}
           onClose={() => setRightPanelVisible(false)}
           t={t}
         />

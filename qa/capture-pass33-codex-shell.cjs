@@ -145,7 +145,7 @@ app.whenReady().then(async () => {
   await shot(win, "pass33-bottom-sources.png");
 
   assertStep("PASS33_SUBAGENTS_PANEL", await clickContextTab(win, "子代理"));
-  assertStep("PASS33_SUBAGENTS_VISIBLE", await waitFor(win, "Boolean(document.querySelector('.bottom-work-panel') && /没有运行中的子代理/.test(document.body.textContent || ''))", 5000));
+  assertStep("PASS33_SUBAGENTS_VISIBLE", await waitFor(win, "Boolean(document.querySelector('.subagent-workbench') && /运行子代理|还没有子代理运行记录/.test(document.body.textContent || ''))", 5000));
   await shot(win, "pass33-bottom-subagents.png");
 
   console.log("PASS33_DONE");
