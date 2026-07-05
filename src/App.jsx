@@ -604,6 +604,9 @@ const copy = {
     marketplaceHint: "市场命令由 Claude Code CLI 支撑。安装前请在 Claude Code 面板获取实时市场输出。",
     marketplaceSourceClaude: "Claude Code 市场",
     marketplaceSourceCustom: "自定义市场",
+    marketplaceInstallReview: "安装前核对",
+    marketplaceInstallRisk: "安装会通过 Claude Code CLI 写入本机插件，并运行来自该市场来源的本地插件代码。",
+    marketplaceRisk: "风险",
     managePlugins: "管理",
     openClaudePanel: "打开 Claude 面板",
     capabilityStatusIssues: "CLI 状态告警",
@@ -1166,6 +1169,9 @@ function structuredQueryMatch(item, query) {
     item?.category,
     item?.author,
     item?.source,
+    item?.version,
+    item?.permissions,
+    item?.risk,
     item?.repo,
     item?.scope,
     item?.status,
@@ -5332,10 +5338,22 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
     }
   }
 
-  function requestCapabilityClaude(args, label = "") {
+  function marketplaceInstallReviewRows(item) {
+    return [
+      [t.marketplace, item.marketplace || t.marketplaceSourceClaude],
+      item.version && item.version !== "unknown" ? [t.version, item.version] : null,
+      item.author ? [t.author, item.author] : null,
+      item.category ? [t.category, item.category] : null,
+      item.source ? [t.source, item.source] : null,
+      item.permissions ? [t.allowedTools, item.permissions] : null,
+      [t.marketplaceRisk, item.risk || t.marketplaceInstallRisk],
+    ].filter(Boolean);
+  }
+
+  function requestCapabilityClaude(args, label = "", reviewRows = []) {
     const nextArgs = String(args || "").trim();
     if (!nextArgs || cliWorking) return;
-    setConfirmingCliCommand({ args: nextArgs, label: label || nextArgs });
+    setConfirmingCliCommand({ args: nextArgs, label: label || nextArgs, reviewRows });
   }
 
   async function confirmCapabilityClaude() {
@@ -5491,8 +5509,20 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
       )}
       {confirmingCliCommand && (
         <div className="dirty-confirm-banner plugin-cli-confirm" role="alertdialog" aria-label={t.confirmCliActionTitle}>
-          <span>{t.confirmCliActionWarning.replace("{command}", confirmingCliCommand.label || confirmingCliCommand.args)}</span>
-          <code>{confirmingCliCommand.args}</code>
+          <div className="plugin-cli-confirm-body">
+            <span>{t.confirmCliActionWarning.replace("{command}", confirmingCliCommand.label || confirmingCliCommand.args)}</span>
+            <code>{confirmingCliCommand.args}</code>
+            {Array.isArray(confirmingCliCommand.reviewRows) && confirmingCliCommand.reviewRows.length > 0 && (
+              <dl className="plugin-cli-confirm-meta" aria-label={t.marketplaceInstallReview}>
+                {confirmingCliCommand.reviewRows.map(([label, value]) => (
+                  <div key={`${label}:${value}`}>
+                    <dt>{label}</dt>
+                    <dd title={value}>{value}</dd>
+                  </div>
+                ))}
+              </dl>
+            )}
+          </div>
           <div className="dirty-confirm-actions">
             <button type="button" className="plain-action" onClick={() => setConfirmingCliCommand(null)}>{t.dismissAction}</button>
             <button type="button" className="danger-action" onClick={confirmCapabilityClaude} disabled={cliWorking} title={cliWorking ? t.workingHint : undefined}>
@@ -5609,11 +5639,13 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                     </div>
                     <p>{messageExcerpt(item.description, 150) || item.source || item.id}</p>
                     <dl className="marketplace-plugin-meta">
+                      {item.version && item.version !== "unknown" && <div><dt>{t.version}</dt><dd>{item.version}</dd></div>}
                       {item.author && <div><dt>{t.author}</dt><dd>{item.author}</dd></div>}
-                      {item.source && <div><dt>{t.source}</dt><dd title={item.source}>{compactPath(item.source, 54)}</dd></div>}
+                      {item.source && <div><dt>{t.source}</dt><dd title={item.source}>{messageExcerpt(item.source, 76)}</dd></div>}
+                      {item.permissions && <div><dt>{t.allowedTools}</dt><dd title={item.permissions}>{messageExcerpt(item.permissions, 54)}</dd></div>}
                     </dl>
                     <div className="marketplace-card-actions">
-                      <button type="button" className="plain-action" onClick={() => requestCapabilityClaude(`plugin install ${item.id}`, `${t.installFromMarketplace}: ${item.name || item.id}`)} disabled={cliWorking || item.installed} title={item.installed ? t.installedLocal : cliWorking ? t.workingHint : t.installFromMarketplace}>
+                      <button type="button" className="plain-action" onClick={() => requestCapabilityClaude(`plugin install ${item.id}`, `${t.installFromMarketplace}: ${item.name || item.id}`, marketplaceInstallReviewRows(item))} disabled={cliWorking || item.installed} title={item.installed ? t.installedLocal : cliWorking ? t.workingHint : t.installFromMarketplace}>
                         <Download size={14} />
                         {item.installed ? t.installedLocal : t.installFromMarketplace}
                       </button>

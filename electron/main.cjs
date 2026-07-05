@@ -1194,6 +1194,25 @@ function marketplacePluginSourceSummary(source) {
   return [source.source, source.url, source.path, source.ref].filter(Boolean).join(" · ");
 }
 
+function marketplacePluginPermissionsSummary(plugin) {
+  const permissions = plugin?.permissions || plugin?.allowedTools || plugin?.tools || plugin?.capabilities;
+  if (Array.isArray(permissions)) return permissions.map((item) => String(item || "").trim()).filter(Boolean).join(", ");
+  if (permissions && typeof permissions === "object") return Object.entries(permissions)
+    .filter(([, value]) => value !== false && value !== null && value !== undefined)
+    .map(([key, value]) => value === true ? key : `${key}:${value}`)
+    .join(", ");
+  return String(permissions || "").trim();
+}
+
+function marketplacePluginRiskSummary(plugin) {
+  const explicit = plugin?.risk || plugin?.risks || plugin?.security || plugin?.warning;
+  if (Array.isArray(explicit)) return explicit.map((item) => String(item || "").trim()).filter(Boolean).join(" · ");
+  if (explicit && typeof explicit === "object") return Object.entries(explicit)
+    .map(([key, value]) => `${key}:${value}`)
+    .join(" · ");
+  return String(explicit || "").trim();
+}
+
 function loadMarketplacePluginCatalog(marketplaces, installedPlugins) {
   const installedIds = new Set();
   for (const plugin of installedPlugins || []) {
@@ -1215,11 +1234,14 @@ function loadMarketplacePluginCatalog(marketplaces, installedPlugins) {
         id: idText,
         name,
         marketplace: marketplace.name,
+        version: String(plugin.version || manifest?.version || "unknown"),
         description: String(plugin.description || manifest?.description || manifest?.metadata?.description || ""),
         category: String(plugin.category || ""),
         author: String(author || ""),
         homepage: String(plugin.homepage || ""),
         source: marketplacePluginSourceSummary(plugin.source),
+        permissions: marketplacePluginPermissionsSummary(plugin),
+        risk: marketplacePluginRiskSummary(plugin),
         installed,
       });
       if (catalog.length >= 240) return catalog;

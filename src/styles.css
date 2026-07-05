@@ -6499,6 +6499,16 @@ kbd {
   flex-shrink: 0;
 }
 
+.plugin-cli-confirm {
+  align-items: flex-start;
+}
+
+.plugin-cli-confirm-body {
+  min-width: 0;
+  display: grid;
+  gap: 7px;
+}
+
 .plugin-cli-confirm code {
   overflow: hidden;
   border: 1px solid #34302a;
@@ -6510,6 +6520,39 @@ kbd {
   font-size: 11.5px;
   text-overflow: ellipsis;
   white-space: nowrap;
+}
+
+.plugin-cli-confirm-meta {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 5px 10px;
+  margin: 0;
+}
+
+.plugin-cli-confirm-meta div {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr);
+  gap: 7px;
+}
+
+.plugin-cli-confirm-meta dt,
+.plugin-cli-confirm-meta dd {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  font-size: 11.5px;
+  line-height: 1.35;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.plugin-cli-confirm-meta dt {
+  color: #d7aa95;
+}
+
+.plugin-cli-confirm-meta dd {
+  color: #e9ded2;
 }
 
 .danger-action {
