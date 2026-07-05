@@ -1237,16 +1237,16 @@ function parseMcpServers(rawOutput) {
     .filter(Boolean)
     .filter((line) => !/^checking|^name\s+/i.test(line))
     .map((line) => {
-      const clean = line.replace(/^[✓✔✗×!⏸\-\*]\s*/, "").trim();
+      const clean = line.replace(/^[✓✔✗✘×!⏸\-\*]\s*/, "").trim();
       const pair = clean.match(/^([^:\s]+)\s*[:\s]\s*(.*)$/);
       const name = pair?.[1] || clean.split(/\s+/)[0] || clean;
       const detail = pair?.[2] || clean.replace(name, "").trim();
       const lower = line.toLowerCase();
-      const status = /pending|paused|⏸/.test(lower)
+      const status = /\b(pending|paused|waiting)\b|⏸/.test(lower)
         ? "pending"
-        : /failed|error|✗|×/.test(lower)
+        : /\b(disconnected|not connected|failed|failure|error|unavailable|denied|timeout|timed out)\b|[✗✘×!]/.test(lower)
           ? "error"
-          : /connected|ok|✓|✔/.test(lower)
+          : /\b(connected|ok|running|enabled)\b|[✓✔]/.test(lower)
             ? "ok"
             : "unknown";
       return { name, detail, status, raw: line };
