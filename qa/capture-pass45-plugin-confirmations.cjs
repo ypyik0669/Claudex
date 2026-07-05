@@ -191,6 +191,13 @@ async function runTest() {
     })();
   `));
   assertStep("PASS45_DISABLE_RAN_AFTER_CONFIRM", await waitForLog(/plugin disable qa-installed-plugin@qa-market/));
+  assertStep("PASS45_DISABLE_EVIDENCE_VISIBLE", await waitFor(win, `
+    (function() {
+      const card = document.querySelector('.plugin-cli-action-evidence.ok');
+      const text = card?.textContent || '';
+      return Boolean(card && /plugin disable qa-installed-plugin@qa-market/.test(text) && /\\b0\\b/.test(text));
+    })();
+  `, 10000));
 
   assertStep("PASS45_OPEN_MARKETPLACE", await win.webContents.executeJavaScript(`
     (function() {
@@ -228,6 +235,13 @@ async function runTest() {
     })();
   `));
   assertStep("PASS45_INSTALL_RAN_AFTER_CONFIRM", await waitForLog(/plugin install qa-structured-plugin/));
+  assertStep("PASS45_INSTALL_EVIDENCE_VISIBLE", await waitFor(win, `
+    (function() {
+      const card = document.querySelector('.plugin-cli-action-evidence.ok');
+      const text = card?.textContent || '';
+      return Boolean(card && /plugin install qa-structured-plugin/.test(text) && /\\b0\\b/.test(text));
+    })();
+  `, 10000));
 
   console.log("PASS45_PLUGIN_CONFIRMATIONS_DONE");
   cleanup();

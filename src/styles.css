@@ -3715,6 +3715,122 @@ kbd {
   font-size: 12px;
 }
 
+.plugin-cli-action-evidence {
+  min-width: 0;
+  overflow: hidden;
+  border: 1px solid rgba(155, 179, 108, 0.22);
+  border-radius: var(--radius);
+  background: #0c0c0c;
+  margin: -4px 0 12px;
+}
+
+.plugin-cli-action-evidence.error {
+  border-color: rgba(211, 106, 92, 0.34);
+}
+
+.plugin-cli-action-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
+  border-bottom: 1px solid #202020;
+  padding: 8px 10px;
+}
+
+.plugin-cli-action-head > div {
+  min-width: 0;
+}
+
+.plugin-cli-action-head span,
+.plugin-cli-action-output span {
+  display: block;
+  color: #8f918f;
+  font-size: 10.5px;
+  text-transform: uppercase;
+}
+
+.plugin-cli-action-head strong {
+  display: block;
+  margin-top: 2px;
+  color: #f0f0ed;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.plugin-cli-action-head time {
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  white-space: nowrap;
+}
+
+.plugin-cli-action-meta {
+  display: grid !important;
+  grid-template-columns: minmax(0, 1fr) minmax(72px, 0.25fr) minmax(86px, 0.3fr);
+  gap: 0 !important;
+  margin: 0 !important;
+}
+
+.plugin-cli-action-meta div {
+  min-width: 0;
+  display: grid !important;
+  gap: 3px !important;
+  border-right: 1px solid #202020;
+  padding: 7px 10px;
+}
+
+.plugin-cli-action-meta div:last-child {
+  border-right: 0;
+}
+
+.plugin-cli-action-meta dt {
+  color: #7f7f7d !important;
+  font-size: 10px !important;
+  text-transform: uppercase;
+}
+
+.plugin-cli-action-meta dd {
+  min-width: 0;
+  overflow: hidden;
+  color: #dcdcd8 !important;
+  font-family: var(--font-mono);
+  font-size: 11px !important;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.plugin-cli-action-output {
+  border-top: 1px solid #202020;
+  padding: 8px 10px 10px;
+}
+
+.plugin-cli-action-output summary {
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 11.5px;
+}
+
+.plugin-cli-action-output section {
+  display: grid;
+  gap: 5px;
+  margin-top: 8px;
+}
+
+.plugin-cli-action-output pre {
+  max-height: 140px;
+  overflow: auto;
+  margin: 0;
+  border: 1px solid #242424;
+  border-radius: var(--radius-sm);
+  background: #080808;
+  color: #dcdcd8;
+  padding: 8px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+}
+
 .scheduled-modal {
   width: min(860px, 100%);
 }

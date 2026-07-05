@@ -184,6 +184,13 @@ async function runTest() {
   `));
   assertStep("PASS47_DISABLE_COMMAND_RAN", await waitForLog(/plugin disable qa-failing-plugin@qa-market/));
   assertStep("PASS47_PLUGIN_ERROR_VISIBLE", await waitFor(win, "Boolean(document.querySelector('.plugin-cli-error') && /pass47 disable failed/.test(document.body.textContent || ''))", 10000));
+  assertStep("PASS47_FAILURE_EVIDENCE_VISIBLE", await waitFor(win, `
+    (function() {
+      const card = document.querySelector('.plugin-cli-action-evidence.error');
+      const text = card?.textContent || '';
+      return Boolean(card && /plugin disable qa-failing-plugin@qa-market/.test(text) && /17/.test(text) && /pass47 disable failed/.test(text));
+    })();
+  `, 10000));
   assertStep("PASS47_NOTICE_RECORDED", await waitFor(win, `
     (async function() {
       const state = await window.claudexDesktop.getState();

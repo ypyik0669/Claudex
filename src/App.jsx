@@ -528,6 +528,7 @@ const copy = {
     pluginName: "插件名",
     pluginNamePlaceholder: "github@openai 或 plugin@marketplace",
     pluginActions: "插件操作",
+    pluginActionEvidence: "最近 CLI 操作证据",
     confirmDisableTitle: "要禁用这个插件吗？",
     confirmDisableWarning: "这会禁用「{name}」。之后可以通过重新安装或更新来重新启用它。",
     confirmDisableButton: "确认禁用",
@@ -862,6 +863,20 @@ function messageExcerpt(value, max = 78) {
   const text = String(value || "").replace(/\s+/g, " ").trim();
   if (!text) return "";
   return text.length > max ? `${text.slice(0, Math.max(0, max - 3))}...` : text;
+}
+
+function cliActionEvidenceFromResult(args, result, fallback = {}) {
+  const resolvedCode = typeof result?.code === "number" ? result.code : Number.isFinite(fallback.code) ? fallback.code : 1;
+  return {
+    id: `${Date.now()}_${Math.random().toString(16).slice(2)}`,
+    args: String(args || "").trim(),
+    code: resolvedCode,
+    durationMs: typeof result?.durationMs === "number" ? result.durationMs : typeof fallback.durationMs === "number" ? fallback.durationMs : 0,
+    stdout: String(result?.stdout || fallback.stdout || ""),
+    stderr: String(result?.stderr || fallback.stderr || ""),
+    status: resolvedCode === 0 ? "ok" : "error",
+    endedAt: new Date().toISOString(),
+  };
 }
 
 function isGenericSessionTitle(title, t) {
@@ -4770,6 +4785,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
   const [cliBusy, setCliBusy] = useState(false);
   const [cliError, setCliError] = useState("");
   const [cliAction, setCliAction] = useState("");
+  const [cliActionEvidence, setCliActionEvidence] = useState(null);
   const [confirmingCliCommand, setConfirmingCliCommand] = useState(null);
   const [marketplaceOutput, setMarketplaceOutput] = useState("");
   const [marketplaceBusy, setMarketplaceBusy] = useState(false);
@@ -4862,17 +4878,22 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
     if (!desktopApi?.runClaudeCommand || !nextArgs) return;
     setCliAction(nextArgs);
     setCliError("");
+    let result = null;
     try {
-      const result = await desktopApi.runClaudeCommand({
+      result = await desktopApi.runClaudeCommand({
         projectPath: activeProject?.path,
         args: nextArgs,
         requestId: `capability_${Date.now()}_${Math.random().toString(16).slice(2)}`,
       });
+      setCliActionEvidence(cliActionEvidenceFromResult(nextArgs, result));
       if (result.code !== 0) throw new Error(result.stderr || result.stdout || t.pluginsLoadError);
       if (/plugin marketplace/i.test(nextArgs)) setMarketplaceOutput(result.stdout || result.stderr || "");
       await refreshCliStatus();
     } catch (error) {
       const message = error.message || String(error);
+      if (!result) {
+        setCliActionEvidence(cliActionEvidenceFromResult(nextArgs, null, { code: 1, stderr: message }));
+      }
       setCliError(message);
       recordCapabilityNotice(`${t.pluginActions}: ${nextArgs}`, message, `capability:action:${nextArgs}`);
     } finally {
@@ -4954,6 +4975,39 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
         </button>
       </section>
       {cliError && <p className="plugin-cli-error">{cliError}</p>}
+      {cliActionEvidence && (
+        <section className={cx("plugin-cli-action-evidence", cliActionEvidence.status)} aria-label={t.pluginActionEvidence}>
+          <div className="plugin-cli-action-head">
+            <div>
+              <span>{t.pluginActionEvidence}</span>
+              <strong>{cliActionEvidence.status === "ok" ? t.commandSucceeded : t.commandFailed}</strong>
+            </div>
+            <time>{formatDate(cliActionEvidence.endedAt, lang)}</time>
+          </div>
+          <dl className="plugin-cli-action-meta">
+            <div><dt>{t.commandLine}</dt><dd title={cliActionEvidence.args}>claude {messageExcerpt(cliActionEvidence.args, 96)}</dd></div>
+            <div><dt>{t.commandExit}</dt><dd>{cliActionEvidence.code}</dd></div>
+            <div><dt>{t.commandDuration}</dt><dd>{typeof cliActionEvidence.durationMs === "number" ? `${cliActionEvidence.durationMs}ms` : "-"}</dd></div>
+          </dl>
+          {(cliActionEvidence.stdout || cliActionEvidence.stderr) && (
+            <details className="plugin-cli-action-output">
+              <summary>{t.rawOutput}</summary>
+              {cliActionEvidence.stdout && (
+                <section>
+                  <span>{t.commandStdout}</span>
+                  <pre>{messageExcerpt(cliActionEvidence.stdout, 1400)}</pre>
+                </section>
+              )}
+              {cliActionEvidence.stderr && (
+                <section>
+                  <span>{t.commandStderr}</span>
+                  <pre>{messageExcerpt(cliActionEvidence.stderr, 1400)}</pre>
+                </section>
+              )}
+            </details>
+          )}
+        </section>
+      )}
       {confirmingCliCommand && (
         <div className="dirty-confirm-banner plugin-cli-confirm" role="alertdialog" aria-label={t.confirmCliActionTitle}>
           <span>{t.confirmCliActionWarning.replace("{command}", confirmingCliCommand.label || confirmingCliCommand.args)}</span>
