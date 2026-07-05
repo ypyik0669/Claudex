@@ -175,14 +175,15 @@ async function runTest(server, goodUrl) {
           document.querySelector('.workspace-context-button')?.click();
           await new Promise((resolve) => setTimeout(resolve, 200));
         }
-        const button = Array.from(document.querySelectorAll('.bottom-panel-tabs button'))[6];
+        const tabs = Array.from(document.querySelectorAll('.bottom-panel-tabs button[role="tab"]'));
+        const button = tabs[tabs.length - 1];
         if (!button) return false;
         button.click();
         await new Promise((resolve) => setTimeout(resolve, 300));
         return Boolean(
           document.querySelector('.bottom-work-panel .browser-evidence-card.error') &&
           /127\\.0\\.0\\.1:9\\/pass43-error/.test(document.body.textContent || '') &&
-          /来自真实 Electron webview/.test(document.body.textContent || '')
+          /Electron webview/.test(document.body.textContent || '')
         );
       })();
     `, 10000));
@@ -203,7 +204,8 @@ async function runTest(server, goodUrl) {
           document.querySelector('.workspace-context-button')?.click();
           await new Promise((resolve) => setTimeout(resolve, 200));
         }
-        const button = Array.from(document.querySelectorAll('.bottom-panel-tabs button'))[6];
+        const tabs = Array.from(document.querySelectorAll('.bottom-panel-tabs button[role="tab"]'));
+        const button = tabs[tabs.length - 1];
         if (!button) return false;
         button.click();
         await new Promise((resolve) => setTimeout(resolve, 300));

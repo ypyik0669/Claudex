@@ -452,6 +452,18 @@ const copy = {
     commitOrPush: "提交或推送",
     sources: "来源",
     subagents: "子代理",
+    notices: "通知",
+    noticeCenter: "通知/错误中心",
+    noticeCount: "{count} 条未处理",
+    noticeNoActive: "没有未处理通知",
+    noticeNoHistory: "还没有通知或错误记录。",
+    noticeBackedByLocalState: "来自本地状态、CLI 和 webview 事件。",
+    noticeDismiss: "标记已处理",
+    noticeClearAll: "全部标记已处理",
+    noticeSource: "来源",
+    noticeLevelError: "错误",
+    noticeLevelWarning: "警告",
+    noticeLevelInfo: "信息",
     noSourcesYet: "暂无来源",
     sourceCount: "{count} 个来源",
     sourceLastOpened: "最近读取",
@@ -1015,6 +1027,12 @@ function browserStatusLabel(status, t) {
   return t.browserIdle;
 }
 
+function noticeLevelLabel(level, t) {
+  if (level === "error") return t.noticeLevelError;
+  if (level === "warning") return t.noticeLevelWarning;
+  return t.noticeLevelInfo;
+}
+
 function authLabel(auth, settings) {
   if (settings?.env?.anthropicApiKey) return "第一方 / API 密钥";
   if (settings?.env?.anthropicAuthToken) return "第一方 / 授权令牌";
@@ -1272,9 +1290,9 @@ function fallbackState() {
     subagentRuns: [],
     sourceRefs: [],
     browserVisits: [],
+    notices: [],
   };
 }
-
 function Sidebar({
   state,
   activeProject,
@@ -1580,6 +1598,9 @@ function Conversation({
   subagentRuns,
   sourceRefs,
   browserVisits,
+  notices,
+  onDismissNotice,
+  onClearNotices,
   onRunSubagent,
   onCancelSubagent,
   draft,
@@ -1636,9 +1657,11 @@ function Conversation({
   const gitStat = String(git?.stat || "").trim();
   const gitDiffText = String(git?.diff?.text || "").trim();
   const gitDiffRows = useMemo(() => buildGitDiffRows(gitDiffText), [gitDiffText]);
+  const activeNotices = useMemo(() => (notices || []).filter((notice) => !notice.dismissedAt), [notices]);
   const contextTabs = [
     { id: "environment", label: t.environment, icon: HardDrive, meta: branchLabel },
     { id: "outputs", label: t.outputs, icon: FileText, meta: busy ? t.commandRunning : "" },
+    { id: "notices", label: t.notices, icon: AlertTriangle, meta: activeNotices.length ? String(activeNotices.length) : "" },
     { id: "changes", label: t.changes, icon: GitBranch, meta: gitChangesLabel },
     { id: "sources", label: t.sources, icon: Folder, meta: activeProject?.path ? t.files : "" },
     { id: "subagents", label: t.subagents, icon: Bot, meta: "" },
@@ -1859,6 +1882,14 @@ function Conversation({
                 </div>
                 <RunTimeline events={runEvents} t={t} />
               </div>
+            )}
+            {bottomPanel === "notices" && (
+              <NoticeCenter
+                notices={notices}
+                onDismiss={onDismissNotice}
+                onClear={onClearNotices}
+                t={t}
+              />
             )}
             {bottomPanel === "environment" && (
               <div className="bottom-panel-grid">
@@ -2266,6 +2297,58 @@ function BrowserEvidenceList({ visits = [], t }) {
           </div>
         </article>
       ))}
+    </div>
+  );
+}
+
+function NoticeCenter({ notices = [], onDismiss, onClear, t }) {
+  const active = notices.filter((notice) => !notice.dismissedAt);
+  const visible = notices.slice(0, 18);
+  return (
+    <div className="bottom-panel-stack notice-center">
+      <div className="bottom-panel-grid">
+        <div>
+          <span>{t.noticeCenter}</span>
+          <strong>{active.length ? t.noticeCount.replace("{count}", active.length) : t.noticeNoActive}</strong>
+          <p>{t.noticeBackedByLocalState}</p>
+        </div>
+        <div className="bottom-panel-actions">
+          <button type="button" className="plain-action subtle-action" onClick={onClear} disabled={!active.length}>
+            <Check size={14} />
+            {t.noticeClearAll}
+          </button>
+        </div>
+      </div>
+      {visible.length ? (
+        <div className="notice-list" aria-label={t.noticeCenter}>
+          {visible.map((notice) => (
+            <article className={cx("notice-card", notice.level, notice.dismissedAt && "dismissed")} key={notice.id}>
+              <AlertTriangle size={15} />
+              <div>
+                <div className="notice-card-head">
+                  <strong>{notice.title}</strong>
+                  <span>{noticeLevelLabel(notice.level, t)}{notice.count > 1 ? ` ×${notice.count}` : ""}</span>
+                </div>
+                {notice.detail && <p>{notice.detail}</p>}
+                <small title={notice.project?.path || ""}>
+                  {[notice.source || t.noticeSource, projectLabel(notice.project, t), formatDate(notice.lastSeenAt || notice.createdAt)].filter(Boolean).join(" · ")}
+                </small>
+              </div>
+              {!notice.dismissedAt && (
+                <button type="button" className="plain-action subtle-action" onClick={() => onDismiss?.(notice)}>
+                  {t.noticeDismiss}
+                </button>
+              )}
+            </article>
+          ))}
+        </div>
+      ) : (
+        <div className="empty-panel compact-empty-panel">
+          <AlertTriangle size={20} />
+          <strong>{t.noticeNoHistory}</strong>
+          <p>{t.noticeBackedByLocalState}</p>
+        </div>
+      )}
     </div>
   );
 }
@@ -5356,8 +5439,46 @@ export function App() {
     showToast.timer = window.setTimeout(() => setToast(""), 2200);
   }
 
+  async function recordNotice(payload = {}) {
+    if (!desktopApi?.recordNotice) return null;
+    try {
+      const next = await desktopApi.recordNotice({
+        projectPath: activeProject?.path || "",
+        sessionId: activeSession?.id || "",
+        ...payload,
+      });
+      if (Array.isArray(next?.notices)) {
+        setState((current) => ({ ...current, notices: next.notices }));
+      }
+      return next?.notice || null;
+    } catch {
+      return null;
+    }
+  }
+
+  async function dismissNotice(notice) {
+    if (!desktopApi?.dismissNotice || !notice?.id) return;
+    const next = await desktopApi.dismissNotice({ noticeId: notice.id });
+    if (Array.isArray(next?.notices)) setState((current) => ({ ...current, notices: next.notices }));
+  }
+
+  async function clearNotices() {
+    if (!desktopApi?.clearNotices) return;
+    const next = await desktopApi.clearNotices();
+    if (Array.isArray(next?.notices)) setState((current) => ({ ...current, notices: next.notices }));
+  }
+
   function recordRunEvent(entry) {
     setRunEvents((current) => prependRunEvent(current, entry));
+    if (entry?.status === "error") {
+      void recordNotice({
+        level: "error",
+        source: entry.type || "run",
+        title: entry.title || t.requestError,
+        detail: entry.detail || "",
+        key: `run:${entry.type || "unknown"}:${entry.title || ""}`,
+      });
+    }
   }
 
   function applySessionState(next, preferredId = "") {
@@ -5783,6 +5904,7 @@ export function App() {
     { id: "tool-browser", title: t.browser, subtitle: t.openSidePanel, keywords: "browser preview web 网页 浏览器", action: () => activateTool("browser") },
     { id: "tool-terminal", title: t.terminal, subtitle: t.openSidePanel, keywords: "terminal shell command powershell 终端 命令", action: () => activateTool("terminal") },
     { id: "panel-outputs", title: t.outputs, subtitle: t.bottomPanel, keywords: "outputs run timeline evidence 输出 证据 时间线", action: () => openBottomPanel("outputs") },
+    { id: "panel-notices", title: t.noticeCenter, subtitle: t.bottomPanel, keywords: "notices errors warnings failures 错误 通知 告警", action: () => openBottomPanel("notices") },
     { id: "panel-environment", title: t.environment, subtitle: t.bottomPanel, keywords: "environment cwd git ide 环境 项目", action: () => openBottomPanel("environment") },
     { id: "panel-changes", title: t.changes, subtitle: t.gitDiffPreview, keywords: "changes git diff status 变更 差异", action: () => openBottomPanel("changes") },
     { id: "panel-sources", title: t.sources, subtitle: t.bottomPanel, keywords: "sources files project 来源 文件", action: () => openBottomPanel("sources") },
@@ -5903,6 +6025,9 @@ export function App() {
           subagentRuns={state.subagentRuns}
           sourceRefs={state.sourceRefs}
           browserVisits={state.browserVisits}
+          notices={state.notices}
+          onDismissNotice={dismissNotice}
+          onClearNotices={clearNotices}
           onRunSubagent={runSubagent}
           onCancelSubagent={cancelSubagent}
           draft={draft}

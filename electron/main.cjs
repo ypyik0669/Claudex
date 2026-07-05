@@ -78,6 +78,7 @@ const AUTOMATION_POLL_MS = 15000;
 const SUBAGENT_RUN_LIMIT = 40;
 const SOURCE_REF_LIMIT = 80;
 const BROWSER_VISIT_LIMIT = 60;
+const NOTICE_LIMIT = 80;
 const automationRunLocks = new Set();
 const cancelledSubagentRuns = new Set();
 let automationSchedulerTimer = null;
@@ -417,6 +418,50 @@ function upsertBrowserVisit(store, visit) {
   return normalized;
 }
 
+function normalizeNotice(item, store) {
+  const level = ["error", "warning", "info", "success"].includes(item?.level) ? item.level : "info";
+  const createdAt = isoOrEmpty(item?.createdAt) || now();
+  const project = normalizeAutomationProject(item?.project, store);
+  return {
+    id: item?.id || id("notice"),
+    key: String(item?.key || ""),
+    level,
+    source: String(item?.source || "Claudex"),
+    title: String(item?.title || item?.message || "Notice").trim(),
+    detail: trimOutput(String(item?.detail || item?.error || ""), 6000),
+    action: String(item?.action || ""),
+    sessionId: String(item?.sessionId || ""),
+    project,
+    count: Math.max(1, Number(item?.count || 1)),
+    createdAt,
+    lastSeenAt: isoOrEmpty(item?.lastSeenAt) || createdAt,
+    dismissedAt: isoOrEmpty(item?.dismissedAt),
+  };
+}
+
+function upsertNotice(store, notice) {
+  const normalized = normalizeNotice(notice, store);
+  const existing = normalized.key
+    ? (store.notices || []).find((item) => item.key === normalized.key && !item.dismissedAt)
+    : null;
+  const nextNotice = existing
+    ? {
+      ...existing,
+      ...normalized,
+      id: existing.id,
+      count: Math.max(1, Number(existing.count || 1)) + 1,
+      createdAt: existing.createdAt || normalized.createdAt,
+      lastSeenAt: now(),
+      dismissedAt: "",
+    }
+    : normalized;
+  store.notices = [
+    nextNotice,
+    ...(store.notices || []).filter((item) => item.id !== nextNotice.id),
+  ].slice(0, NOTICE_LIMIT);
+  return nextNotice;
+}
+
 function dataPath() {
   return path.join(app.getPath("userData"), "desktop-data.json");
 }
@@ -529,6 +574,7 @@ function defaultStore() {
     subagentRuns: [],
     sourceRefs: [],
     browserVisits: [],
+    notices: [],
   };
 }
 
@@ -614,6 +660,11 @@ function normalizeStore(store) {
       ? store.browserVisits.map((visit) => normalizeBrowserVisit(visit, { ...store, activeProject }))
           .filter((visit) => visit.url)
           .slice(0, BROWSER_VISIT_LIMIT)
+      : [],
+    notices: Array.isArray(store.notices)
+      ? store.notices.map((notice) => normalizeNotice(notice, { ...store, activeProject }))
+          .filter((notice) => notice.title)
+          .slice(0, NOTICE_LIMIT)
       : [],
   };
 }
@@ -2144,6 +2195,43 @@ ipcMain.handle("app:save-capabilities", (_event, capabilities) => {
     ...(store.settings.capabilities || {}),
     ...(capabilities || {}),
   };
+  writeStore(store);
+  return sanitizeStore(store);
+});
+
+ipcMain.handle("notice:record", (_event, payload = {}) => {
+  const store = readStore();
+  const project = payload.projectPath && fs.existsSync(payload.projectPath)
+    ? projectFromPath(payload.projectPath)
+    : payload.project || store.activeProject || localWorkspaceProject();
+  const notice = upsertNotice(store, {
+    ...payload,
+    project,
+    lastSeenAt: now(),
+  });
+  writeStore(store);
+  return {
+    ...sanitizeStore(store),
+    notice,
+  };
+});
+
+ipcMain.handle("notice:dismiss", (_event, { noticeId } = {}) => {
+  const store = readStore();
+  const dismissedAt = now();
+  store.notices = (store.notices || []).map((notice) => (
+    notice.id === noticeId ? { ...notice, dismissedAt } : notice
+  ));
+  writeStore(store);
+  return sanitizeStore(store);
+});
+
+ipcMain.handle("notice:clear", () => {
+  const store = readStore();
+  const dismissedAt = now();
+  store.notices = (store.notices || []).map((notice) => (
+    notice.dismissedAt ? notice : { ...notice, dismissedAt }
+  ));
   writeStore(store);
   return sanitizeStore(store);
 });

@@ -125,7 +125,7 @@ app.whenReady().then(async () => {
   `, 5000));
   assertStep("PASS34_COMPACT_FONT_ACTIVE", await waitFor(win, "Boolean(document.querySelector('.app-shell.font-compact'))", 5000));
   assertStep("PASS34_CONTEXT_ICONS_COMPACT", await waitFor(win, `
-    [...document.querySelectorAll('.workspace-context-button')].length === 5 &&
+    [...document.querySelectorAll('.workspace-context-button')].length === 6 &&
     [...document.querySelectorAll('.workspace-context-button')].every((button) => button.getBoundingClientRect().width <= 40)
   `, 5000));
   await shot(win, "pass34-home-calm.png");
