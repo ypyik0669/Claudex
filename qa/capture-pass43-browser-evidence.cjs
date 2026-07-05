@@ -140,7 +140,11 @@ async function runTest(server, goodUrl) {
           visit.url === ${JSON.stringify(goodUrl)} &&
           visit.status === 'ready' &&
           visit.project?.path === ${JSON.stringify(PROJECT_DIR)} &&
+          /pass43 snapshot title/.test(visit.title || '') &&
+          /pass43 snapshot body evidence/.test(visit.excerpt || '') &&
+          visit.snapshotCapturedAt &&
           document.querySelector('.browser-evidence-card.ready') &&
+          /pass43 snapshot body evidence/.test(document.body.textContent || '') &&
           /pass43-ready/.test(document.querySelector('webview')?.getURL?.() || document.body.textContent || '')
         );
       })();
@@ -191,7 +195,7 @@ async function runTest(server, goodUrl) {
     assertStep("PASS43_STORE_PERSISTED", (() => {
       const parsed = JSON.parse(fs.readFileSync(DATA_FILE, "utf8"));
       return parsed.browserVisits?.length >= 2 &&
-        parsed.browserVisits.some((item) => item.status === "ready" && item.url === goodUrl) &&
+        parsed.browserVisits.some((item) => item.status === "ready" && item.url === goodUrl && /pass43 snapshot body evidence/.test(item.excerpt || "")) &&
         parsed.browserVisits.some((item) => item.status === "error" && item.url === "http://127.0.0.1:9/pass43-error");
     })());
 
@@ -209,7 +213,11 @@ async function runTest(server, goodUrl) {
         if (!button) return false;
         button.click();
         await new Promise((resolve) => setTimeout(resolve, 300));
-        return Boolean(document.querySelector('.browser-evidence-card.error') && /127\\.0\\.0\\.1:9\\/pass43-error/.test(document.body.textContent || ''));
+        return Boolean(
+          document.querySelector('.browser-evidence-card.error') &&
+          /127\\.0\\.0\\.1:9\\/pass43-error/.test(document.body.textContent || '') &&
+          /pass43 snapshot body evidence/.test(document.body.textContent || '')
+        );
       })();
     `, 10000));
 
@@ -228,7 +236,7 @@ writeInitialStore();
 
 const server = http.createServer((_req, res) => {
   res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-  res.end("<!doctype html><title>pass43-ready</title><main>pass43-ready</main>");
+  res.end("<!doctype html><title>pass43 snapshot title</title><main><h1>pass43-ready</h1><p>pass43 snapshot body evidence from real webview DOM</p></main>");
 });
 
 server.listen(0, "127.0.0.1", () => {

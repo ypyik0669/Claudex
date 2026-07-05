@@ -2289,11 +2289,13 @@ function BrowserEvidenceList({ visits = [], t }) {
           <Globe2 size={14} />
           <div>
             <strong title={visit.url}>{visit.url}</strong>
+            {visit.title && <small title={visit.title}>{visit.title}</small>}
             <span>
               {browserStatusLabel(visit.status, t)}
               {visit.error ? ` · ${visit.error}` : ""}
               {visit.lastEventAt ? ` · ${formatDate(visit.lastEventAt)}` : ""}
             </span>
+            {visit.excerpt && <p title={visit.excerpt}>{visit.excerpt}</p>}
           </div>
         </article>
       ))}
@@ -2650,6 +2652,27 @@ function ToolsPanel({
     }
   }
 
+  async function captureBrowserSnapshot(webview) {
+    if (!webview?.executeJavaScript) return {};
+    try {
+      return await webview.executeJavaScript(`
+        (function() {
+          const text = String(document.body?.innerText || document.body?.textContent || "")
+            .replace(/\\s+/g, " ")
+            .trim()
+            .slice(0, 600);
+          return {
+            title: String(document.title || "").trim().slice(0, 180),
+            excerpt: text,
+            snapshotCapturedAt: new Date().toISOString()
+          };
+        })();
+      `);
+    } catch {
+      return {};
+    }
+  }
+
   useEffect(() => {
     const webview = browserWebviewRef.current;
     if (!webview) return undefined;
@@ -2659,12 +2682,14 @@ function ToolsPanel({
       setBrowserError("");
       recordBrowserVisit({ url: browserPreviewUrl, status: "loading" });
     };
-    const handleStop = () => {
+    const handleStop = async () => {
       if (browserFailedRef.current) return;
       setBrowserStatus("ready");
       setBrowserError("");
-      const finalUrl = browserWebviewRef.current?.getURL?.() || browserPreviewUrl;
-      recordBrowserVisit({ url: finalUrl, status: "ready" });
+      const currentWebview = browserWebviewRef.current;
+      const finalUrl = currentWebview?.getURL?.() || browserPreviewUrl;
+      const snapshot = await captureBrowserSnapshot(currentWebview);
+      recordBrowserVisit({ url: finalUrl, status: "ready", ...snapshot });
       onRunEvent?.({
         type: "browser",
         status: "ok",

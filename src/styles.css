@@ -4915,10 +4915,17 @@ kbd {
 }
 
 .browser-evidence-card strong,
-.browser-evidence-card span {
+.browser-evidence-card span,
+.browser-evidence-card small,
+.browser-evidence-card p {
   min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.browser-evidence-card strong,
+.browser-evidence-card span,
+.browser-evidence-card small {
   white-space: nowrap;
 }
 
@@ -4931,6 +4938,21 @@ kbd {
 .browser-evidence-card span {
   color: var(--muted);
   font-size: 11.5px;
+}
+
+.browser-evidence-card small {
+  color: #c9ccc7;
+  font-size: 11.5px;
+}
+
+.browser-evidence-card p {
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  margin: 0;
+  color: var(--muted);
+  font-size: 11px;
+  line-height: 1.35;
 }
 
 .notice-center {

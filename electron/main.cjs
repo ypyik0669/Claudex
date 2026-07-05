@@ -397,7 +397,8 @@ function normalizeBrowserVisit(item, store) {
   return {
     id: item?.id || id("browser"),
     url,
-    title: String(item?.title || ""),
+    title: trimOutput(String(item?.title || ""), 400),
+    excerpt: trimOutput(String(item?.excerpt || item?.snapshot?.text || ""), 1200),
     status,
     error: String(item?.error || ""),
     httpStatus: item?.httpStatus ? Number(item.httpStatus) : null,
@@ -405,6 +406,7 @@ function normalizeBrowserVisit(item, store) {
     startedAt,
     endedAt,
     lastEventAt: isoOrEmpty(item?.lastEventAt) || now(),
+    snapshotCapturedAt: isoOrEmpty(item?.snapshotCapturedAt) || (item?.title || item?.excerpt ? now() : ""),
     external: Boolean(item?.external || status === "external"),
   };
 }
