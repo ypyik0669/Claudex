@@ -1086,6 +1086,17 @@ function parseJsonArrayOutput(output) {
   return Array.isArray(parsed) ? parsed : [];
 }
 
+function parseJsonListOutput(output, keys = []) {
+  const parsed = parseJsonOutput(output);
+  if (Array.isArray(parsed)) return parsed;
+  if (!parsed || typeof parsed !== "object") return [];
+  const candidateKeys = [...keys, "items", "data", "results", "plugins", "marketplaces", "servers"];
+  for (const key of candidateKeys) {
+    if (Array.isArray(parsed[key])) return parsed[key];
+  }
+  return [];
+}
+
 function stripAnsi(value) {
   return String(value || "").replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, "");
 }
@@ -1134,30 +1145,66 @@ function parseClaudePluginText(rawOutput) {
   return items;
 }
 
+function summarizeStructuredList(value) {
+  if (Array.isArray(value)) return value.map((item) => String(item || "").trim()).filter(Boolean).join(", ");
+  if (value && typeof value === "object") {
+    return Object.entries(value)
+      .filter(([, itemValue]) => itemValue !== false && itemValue !== null && itemValue !== undefined && itemValue !== "")
+      .map(([key, itemValue]) => itemValue === true ? key : `${key}:${itemValue}`)
+      .join(", ");
+  }
+  return String(value || "").trim();
+}
+
+function pluginToolsSummary(plugin) {
+  return summarizeStructuredList(plugin?.tools || plugin?.toolNames || plugin?.commands || plugin?.slashCommands || plugin?.mcpTools);
+}
+
+function pluginPermissionsSummary(plugin) {
+  return summarizeStructuredList(plugin?.permissions || plugin?.allowedTools || plugin?.capabilities || plugin?.permissionSummary);
+}
+
+function pluginErrorSummary(plugin) {
+  const error = plugin?.error || plugin?.lastError || plugin?.errors || plugin?.diagnostics;
+  if (Array.isArray(error)) return error.map((item) => String(item || "").trim()).filter(Boolean).join(" · ");
+  if (error && typeof error === "object") return Object.entries(error).map(([key, value]) => `${key}:${value}`).join(" · ");
+  return String(error || "").trim();
+}
+
 function normalizeClaudePluginItems(jsonOutput, rawOutput) {
-  const jsonItems = parseJsonArrayOutput(jsonOutput);
+  const jsonItems = parseJsonListOutput(jsonOutput, ["plugins", "installedPlugins"]);
   const sourceItems = jsonItems.length ? jsonItems : parseClaudePluginText(rawOutput);
   return sourceItems.map((plugin) => {
     const idText = String(plugin.id || plugin.name || "").trim();
-    const enabled = typeof plugin.enabled === "boolean" ? plugin.enabled : /enabled/i.test(plugin.status || "");
+    const statusText = String(plugin.status || plugin.state || "").trim();
+    const enabled = typeof plugin.enabled === "boolean"
+      ? plugin.enabled
+      : typeof plugin.disabled === "boolean"
+        ? !plugin.disabled
+        : /enabled|active|ready|ok|connected/i.test(statusText);
+    const source = plugin.source || plugin.installSource || plugin.registry || plugin.repository || plugin.repo || plugin.url || "claude-code";
     return {
       id: idText,
       name: String(plugin.name || pluginNameFromId(idText)).trim() || idText,
       marketplace: String(plugin.marketplace || pluginMarketplaceFromId(idText)).trim(),
       version: String(plugin.version || "unknown"),
+      description: String(plugin.description || plugin.summary || ""),
       scope: String(plugin.scope || ""),
       enabled,
-      status: enabled ? "enabled" : "disabled",
-      installPath: String(plugin.installPath || ""),
+      status: statusText || (enabled ? "enabled" : "disabled"),
+      installPath: String(plugin.installPath || plugin.path || plugin.location || ""),
       installedAt: String(plugin.installedAt || ""),
       lastUpdated: String(plugin.lastUpdated || ""),
-      source: "claude-code",
+      source: marketplacePluginSourceSummary(source) || "claude-code",
+      tools: pluginToolsSummary(plugin),
+      permissions: pluginPermissionsSummary(plugin),
+      error: pluginErrorSummary(plugin),
     };
   }).filter((plugin) => plugin.id);
 }
 
 function normalizeMarketplaceItems(jsonOutput, rawOutput) {
-  const jsonItems = parseJsonArrayOutput(jsonOutput);
+  const jsonItems = parseJsonListOutput(jsonOutput, ["marketplaces"]);
   if (jsonItems.length) {
     return jsonItems.map((item) => ({
       name: String(item.name || "").trim(),

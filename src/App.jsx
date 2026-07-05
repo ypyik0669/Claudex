@@ -1272,6 +1272,7 @@ function structuredQueryMatch(item, query) {
     item?.repo,
     item?.scope,
     item?.status,
+    item?.installPath,
     item?.detail,
     item?.tools,
     item?.transport,
@@ -6657,12 +6658,31 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                 {installedPluginRows.length === 0 && <p className="empty-list">{t.pluginsEmpty}</p>}
                 {installedPluginRows.map((plugin) => {
                   const recentRun = findRecentPluginActionRun(recentCapabilityRuns, [plugin.id, plugin.name], ["enable", "disable", "update", "install"]);
+                  const pluginMeta = [
+                    plugin.version && plugin.version !== "unknown" ? [t.version, plugin.version] : null,
+                    plugin.scope ? [t.scope, plugin.scope] : null,
+                    plugin.source ? [t.source, messageExcerpt(plugin.source, 72), plugin.source] : null,
+                    plugin.installPath ? [t.installPath, compactPath(plugin.installPath, 72), plugin.installPath] : null,
+                    plugin.tools ? [t.tools, messageExcerpt(plugin.tools, 72), plugin.tools] : null,
+                    plugin.permissions ? [t.allowedTools, messageExcerpt(plugin.permissions, 72), plugin.permissions] : null,
+                    plugin.error ? [t.mcpError, messageExcerpt(plugin.error, 72), plugin.error] : null,
+                  ].filter(Boolean);
                   return (
                     <article className="structured-plugin-row" key={plugin.id}>
                     <span className="plugin-manager-icon"><Plug size={17} /></span>
                     <div className="plugin-manager-copy">
                       <strong>{plugin.id}</strong>
                       <small title={plugin.installPath || ""}>{[plugin.version && plugin.version !== "unknown" ? `${t.version}: ${plugin.version}` : "", plugin.scope && `${t.scope}: ${plugin.scope}`, plugin.marketplace].filter(Boolean).join(" · ") || t.installedLocal}</small>
+                      {pluginMeta.length > 0 && (
+                        <dl className="structured-row-meta" aria-label={`${plugin.id} plugin metadata`}>
+                          {pluginMeta.map(([label, value, title]) => (
+                            <div key={`${label}:${value}`}>
+                              <dt>{label}</dt>
+                              <dd title={title || value}>{value}</dd>
+                            </div>
+                          ))}
+                        </dl>
+                      )}
                     </div>
                     <em className={cx("plugin-status-badge", plugin.enabled ? "enabled" : "disabled")}>{plugin.enabled ? t.pluginStatusEnabled : t.pluginStatusDisabled}</em>
                     <div className="structured-row-actions">
@@ -6772,16 +6792,16 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
           <p className="empty-list">{t.noCapabilities}</p>
         )}
         {activeTab === "plugins" && (
-          <section className="plugin-cli-output">
-            <span>{t.cliPluginOutput}</span>
+          <details className="plugin-cli-output raw-output-details">
+            <summary>{t.cliPluginOutput} · {t.rawOutput}</summary>
             <pre>{cliStatus?.plugins || t.noCliOutputYet}</pre>
-          </section>
+          </details>
         )}
         {activeTab === "mcp" && (
-          <section className="plugin-cli-output">
-            <span>{t.cliMcpOutput}</span>
+          <details className="plugin-cli-output raw-output-details">
+            <summary>{t.cliMcpOutput} · {t.rawOutput}</summary>
             <pre>{cliStatus?.mcp || t.noCliOutputYet}</pre>
-          </section>
+          </details>
         )}
       </div>
     </ShellModal>
