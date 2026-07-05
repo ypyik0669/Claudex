@@ -39,6 +39,20 @@ async function waitFor(win, script, timeoutMs = 10000) {
   return false;
 }
 
+async function waitForStore(predicate, timeoutMs = 10000) {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    try {
+      const parsed = JSON.parse(fs.readFileSync(DATA_FILE, "utf8"));
+      if (predicate(parsed)) return true;
+    } catch (_error) {
+      // Store may still be mid-write during renderer/main-process handoff.
+    }
+    await wait(150);
+  }
+  return false;
+}
+
 function assertStep(name, ok) {
   console.log(name, ok);
   if (!ok) throw new Error(`${name} failed`);
@@ -107,6 +121,7 @@ function writeInitialStore(claudeCommand) {
     automations: [],
     subagentRuns: [],
     commandRuns: [],
+    runEvents: [],
     sourceRefs: [],
     browserVisits: [],
     notices: [],
@@ -174,13 +189,25 @@ async function runTest() {
       /auth status/.test(document.querySelector('.claude-command-evidence-stack')?.textContent || '') &&
       /qa-provider/.test(document.querySelector('.claude-command-evidence-stack')?.textContent || ''))
   `, 10000));
-  assertStep("PASS52_COMMAND_PERSISTED", (() => {
-    const parsed = JSON.parse(fs.readFileSync(DATA_FILE, "utf8"));
-    return parsed.commandRuns?.some((run) => run.kind === "claude" &&
+  assertStep("PASS52_TIMELINE_VISIBLE", await waitFor(win, `
+    (() => {
+      const timeline = document.querySelector('.run-timeline');
+      const okRow = Array.from(document.querySelectorAll('.run-timeline-row.ok'))
+        .find((row) => /auth status/.test(row.textContent || ''));
+      return Boolean(timeline && okRow);
+    })()
+  `, 10000));
+  assertStep("PASS52_COMMAND_PERSISTED", await waitForStore((parsed) => (
+    parsed.commandRuns?.some((run) => run.kind === "claude" &&
       /auth status/.test(run.command || "") &&
       run.code === 0 &&
-      /qa-provider/.test(run.stdout || ""));
-  })());
+      /qa-provider/.test(run.stdout || ""))
+  )));
+  assertStep("PASS52_RUN_EVENT_PERSISTED", await waitForStore((parsed) => (
+    parsed.runEvents?.some((event) => event.type === "claude-command" &&
+      /auth status/.test(event.title || "") &&
+      event.status === "ok")
+  )));
 
   console.log("PASS52_CLAUDE_COMMAND_EVIDENCE_DONE");
   cleanup();

@@ -77,6 +77,7 @@ const AUTOMATION_LIMIT = 80;
 const AUTOMATION_POLL_MS = 15000;
 const SUBAGENT_RUN_LIMIT = 40;
 const COMMAND_RUN_LIMIT = 80;
+const RUN_EVENT_LIMIT = 120;
 const SOURCE_REF_LIMIT = 80;
 const BROWSER_VISIT_LIMIT = 60;
 const NOTICE_LIMIT = 80;
@@ -391,6 +392,34 @@ function upsertCommandRun(store, run) {
   return normalized;
 }
 
+function normalizeRunEvent(item, store) {
+  const project = normalizeAutomationProject(item?.project, store);
+  const status = ["running", "ok", "error", "cancelled"].includes(item?.status) ? item.status : "ok";
+  return {
+    id: item?.id || id("run_event"),
+    type: String(item?.type || "run").trim() || "run",
+    status,
+    title: String(item?.title || "").trim(),
+    detail: String(item?.detail || ""),
+    commandLine: String(item?.commandLine || ""),
+    cwd: String(item?.cwd || project?.path || ""),
+    code: typeof item?.code === "number" ? item.code : null,
+    durationMs: typeof item?.durationMs === "number" ? item.durationMs : null,
+    project,
+    sessionId: String(item?.sessionId || ""),
+    createdAt: isoOrEmpty(item?.createdAt) || now(),
+  };
+}
+
+function upsertRunEvent(store, event) {
+  const normalized = normalizeRunEvent(event, store);
+  store.runEvents = [
+    normalized,
+    ...(store.runEvents || []).filter((item) => item.id !== normalized.id),
+  ].slice(0, RUN_EVENT_LIMIT);
+  return normalized;
+}
+
 function normalizeSourceRef(item, store) {
   const project = normalizeAutomationProject(item?.project, store);
   const sourcePath = slashPath(item?.path || item?.relativePath || "");
@@ -613,6 +642,7 @@ function defaultStore() {
     automations: [],
     subagentRuns: [],
     commandRuns: [],
+    runEvents: [],
     sourceRefs: [],
     browserVisits: [],
     notices: [],
@@ -696,6 +726,11 @@ function normalizeStore(store) {
       ? store.commandRuns.map((run) => normalizeCommandRun(run, { ...store, activeProject }))
           .filter((run) => run.command)
           .slice(0, COMMAND_RUN_LIMIT)
+      : [],
+    runEvents: Array.isArray(store.runEvents)
+      ? store.runEvents.map((event) => normalizeRunEvent(event, { ...store, activeProject }))
+          .filter((event) => event.title)
+          .slice(0, RUN_EVENT_LIMIT)
       : [],
     sourceRefs: Array.isArray(store.sourceRefs)
       ? store.sourceRefs.map((source) => normalizeSourceRef(source, { ...store, activeProject }))
@@ -2378,6 +2413,23 @@ ipcMain.handle("notice:record", (_event, payload = {}) => {
   return {
     ...sanitizeStore(store),
     notice,
+  };
+});
+
+ipcMain.handle("run-event:record", (_event, payload = {}) => {
+  const store = readStore();
+  const project = payload.projectPath && fs.existsSync(payload.projectPath)
+    ? projectFromPath(payload.projectPath)
+    : payload.project || store.activeProject || localWorkspaceProject();
+  const runEvent = upsertRunEvent(store, {
+    ...payload,
+    project,
+  });
+  writeStore(store);
+  broadcastStoreUpdate(store);
+  return {
+    ...sanitizeStore(store),
+    runEvent,
   };
 });
 

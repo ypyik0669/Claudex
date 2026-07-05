@@ -10,6 +10,7 @@ const desktopApi = {
   saveSettings: (settings) => ipcRenderer.invoke("app:save-settings", settings),
   saveCapabilities: (capabilities) => ipcRenderer.invoke("app:save-capabilities", capabilities),
   recordNotice: (payload) => ipcRenderer.invoke("notice:record", payload),
+  recordRunEvent: (payload) => ipcRenderer.invoke("run-event:record", payload),
   dismissNotice: (payload) => ipcRenderer.invoke("notice:dismiss", payload),
   clearNotices: () => ipcRenderer.invoke("notice:clear"),
   createAutomation: (payload) => ipcRenderer.invoke("automation:create", payload),

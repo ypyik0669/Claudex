@@ -1363,6 +1363,7 @@ function fallbackState() {
     automations: [],
     subagentRuns: [],
     commandRuns: [],
+    runEvents: [],
     sourceRefs: [],
     browserVisits: [],
     notices: [],
@@ -5843,7 +5844,7 @@ export function App() {
   const [environment, setEnvironment] = useState(null);
   const [ideOptions, setIdeOptions] = useState([]);
   const [selectedIdeId, setSelectedIdeId] = useState("");
-  const [runEvents, setRunEvents] = useState([]);
+  const [runEvents, setRunEvents] = useState(() => state.runEvents || []);
 
   useEffect(() => {
     let cancelled = false;
@@ -5856,6 +5857,7 @@ export function App() {
         const next = await desktopApi.getState();
         if (!cancelled) {
           setState(next);
+          setRunEvents(Array.isArray(next.runEvents) ? next.runEvents : []);
           setActiveSessionId(next.sessions[0]?.id || "");
           setLoadError("");
         }
@@ -5917,6 +5919,7 @@ export function App() {
     return desktopApi.onStateUpdate((next) => {
       if (!next?.settings) return;
       setState(next);
+      setRunEvents(Array.isArray(next.runEvents) ? next.runEvents : []);
       setActiveSessionId((current) => (
         next.sessions?.some((session) => session.id === current) ? current : next.sessions?.[0]?.id || ""
       ));
@@ -6010,7 +6013,21 @@ export function App() {
   }
 
   function recordRunEvent(entry) {
-    setRunEvents((current) => prependRunEvent(current, entry));
+    const optimisticEvent = {
+      id: entry?.id || `run_event_${Date.now()}_${Math.random().toString(16).slice(2)}`,
+      createdAt: new Date().toISOString(),
+      ...entry,
+    };
+    setRunEvents((current) => prependRunEvent(current, optimisticEvent));
+    if (desktopApi?.recordRunEvent) {
+      void desktopApi.recordRunEvent({
+        projectPath: activeProject?.path || "",
+        sessionId: activeSession?.id || "",
+        ...optimisticEvent,
+      }).then((next) => {
+        if (Array.isArray(next?.runEvents)) setRunEvents(next.runEvents);
+      }).catch(() => {});
+    }
     if (entry?.status === "error" && !entry.suppressNotice) {
       void recordNotice({
         level: "error",
