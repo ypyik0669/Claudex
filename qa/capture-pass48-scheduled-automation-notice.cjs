@@ -168,9 +168,13 @@ async function runTest() {
     (async function() {
       const state = await window.claudexDesktop.getState();
       const automation = state.automations?.find((item) => item.id === 'pass48-automation');
+      const event = state.runEvents?.find((item) => item.id === automation?.lastRun?.id);
       return Boolean(
         automation?.lastRun?.status === 'failed' &&
         /pass48 scheduled automation failed/.test(automation.lastRun.error || '') &&
+        event?.type === 'automation' &&
+        event.status === 'error' &&
+        /pass48 scheduled automation failed/.test(event.detail || '') &&
         state.notices?.some((notice) => !notice.dismissedAt && notice.source === 'automation' && /pass48 scheduled automation failed/.test((notice.title || '') + (notice.detail || '')))
       );
     })();
@@ -185,7 +189,11 @@ async function runTest() {
   assertStep("PASS48_STORE_PERSISTED", (() => {
     const parsed = JSON.parse(fs.readFileSync(DATA_FILE, "utf8"));
     const automation = parsed.automations?.find((item) => item.id === "pass48-automation");
+    const event = parsed.runEvents?.find((item) => item.id === automation?.lastRun?.id);
     return automation?.lastRun?.status === "failed" &&
+      event?.type === "automation" &&
+      event.status === "error" &&
+      /pass48 scheduled automation failed/.test(event.detail || "") &&
       parsed.notices?.some((notice) => notice.source === "automation" && /pass48 scheduled automation failed/.test(`${notice.title || ""} ${notice.detail || ""}`));
   })());
 

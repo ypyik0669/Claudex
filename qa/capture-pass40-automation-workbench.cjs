@@ -206,9 +206,13 @@ app.whenReady().then(async () => {
         const state = await window.claudexDesktop.getState();
         const automation = state.automations?.[0];
         const session = state.sessions.find((item) => item.id === 'default');
+        const event = state.runEvents?.find((item) => item.id === automation?.lastRun?.id);
         return Boolean(
           automation?.lastRun?.status === 'succeeded' &&
           automation.history?.[0]?.status === 'succeeded' &&
+          event?.type === 'automation' &&
+          event.status === 'ok' &&
+          /pass40-automation-ok/.test(event.detail || '') &&
           session?.messages?.some((message) => /pass40 automation prompt/.test(message.content || '')) &&
           session?.messages?.some((message) => /pass40-automation-ok/.test(message.content || '')) &&
           /pass40-automation-ok/.test(document.body.textContent || '')
@@ -219,6 +223,15 @@ app.whenReady().then(async () => {
     assertStep("PASS40_RUN_TIMELINE", await waitFor(win, `
       Boolean(document.querySelector('.bottom-work-panel .run-timeline-row.ok') && /pass40-automation-ok/.test(document.body.textContent || ''))
     `, 5000));
+
+    assertStep("PASS40_RUN_EVENT_PERSISTED", (() => {
+      const parsed = JSON.parse(fs.readFileSync(DATA_FILE, "utf8"));
+      const automation = parsed.automations?.[0];
+      const event = parsed.runEvents?.find((item) => item.id === automation?.lastRun?.id);
+      return event?.type === "automation" &&
+        event.status === "ok" &&
+        /pass40-automation-ok/.test(event.detail || "");
+    })());
 
     assertStep("PASS40_DELETE_AUTOMATION", await waitFor(win, `
       (async function() {

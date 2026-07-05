@@ -324,6 +324,31 @@ function prependAutomationHistory(automation, entry) {
   automation.lastRun = entry;
 }
 
+function automationRunEventTitle(automation) {
+  return `自动化：${titleFromUserContent(automation?.prompt || "计划任务")}`;
+}
+
+function automationRunEventDetail(automation, entry) {
+  const trigger = entry?.trigger === "scheduled" ? "计划触发" : "手动触发";
+  const project = automation?.project?.name || automation?.project?.path || "本地工作区";
+  const output = entry?.error || entry?.detail || "";
+  return [trigger, project, output].filter(Boolean).join(" · ");
+}
+
+function upsertAutomationRunEvent(store, automation, entry, status) {
+  return upsertRunEvent(store, {
+    id: entry.id,
+    type: "automation",
+    status,
+    title: automationRunEventTitle(automation),
+    detail: automationRunEventDetail(automation, entry),
+    project: automation.project,
+    sessionId: entry.sessionId || automation.threadId || "",
+    durationMs: typeof entry.durationMs === "number" ? entry.durationMs : null,
+    createdAt: entry.startedAt || now(),
+  });
+}
+
 function normalizeSubagentRun(item, store) {
   const startedAt = isoOrEmpty(item?.startedAt) || now();
   const status = ["running", "done", "error", "cancelled"].includes(item?.status) ? item.status : "done";
@@ -2105,7 +2130,7 @@ async function runAutomationById(automationId, { requestId = "", trigger = "manu
     throw new Error("这个自动化任务正在运行。");
   }
   automationRunLocks.add(automationId);
-  const runId = id("automation_run");
+  const runId = requestId || id("automation_run");
   const startedAt = now();
   const startedMs = Date.now();
   let store = readStore();
@@ -2128,6 +2153,7 @@ async function runAutomationById(automationId, { requestId = "", trigger = "manu
   };
   automation.status = "running";
   prependAutomationHistory(automation, runningEntry);
+  upsertAutomationRunEvent(store, automation, runningEntry, "running");
   writeStore(store);
   if (trigger === "scheduled") broadcastStoreUpdate(store);
 
@@ -2172,6 +2198,7 @@ async function runAutomationById(automationId, { requestId = "", trigger = "manu
     if (trigger === "scheduled" && automation.schedule?.type === "once") automation.enabled = false;
     automation.status = "succeeded";
     updateAutomationAfterMutation(automation);
+    upsertAutomationRunEvent(store, automation, finalEntry, "ok");
     writeStore(store);
     if (trigger === "scheduled") broadcastStoreUpdate(store);
     return {
@@ -2211,6 +2238,7 @@ async function runAutomationById(automationId, { requestId = "", trigger = "manu
         project: automation.project,
       });
     }
+    upsertAutomationRunEvent(store, automation, finalEntry, "error");
     writeStore(store);
     if (trigger === "scheduled") broadcastStoreUpdate(store);
     return {

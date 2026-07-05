@@ -639,6 +639,10 @@ const copy = {
     automationStatusRunning: "运行中",
     automationStatusSucceeded: "已完成",
     automationStatusFailed: "失败",
+    automationTriggerManual: "手动触发",
+    automationTriggerScheduled: "计划触发",
+    automationEvidence: "运行证据",
+    automationRunHistoryShort: "最近 3 次",
     automationCreated: "自动化已保存",
     automationDeleted: "自动化已删除",
     automationPaused: "自动化已暂停",
@@ -1160,6 +1164,20 @@ function formatBytes(value) {
   if (bytes < 1024) return `${bytes} B`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(bytes < 10 * 1024 ? 1 : 0)} KB`;
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function formatDurationMs(value) {
+  const ms = Number(value || 0);
+  if (!Number.isFinite(ms) || ms <= 0) return "-";
+  if (ms < 1000) return `${Math.round(ms)}ms`;
+  if (ms < 60 * 1000) return `${(ms / 1000).toFixed(ms < 10 * 1000 ? 1 : 0)}s`;
+  const minutes = Math.floor(ms / 60000);
+  const seconds = Math.round((ms % 60000) / 1000);
+  return seconds ? `${minutes}m ${seconds}s` : `${minutes}m`;
+}
+
+function automationTriggerLabel(trigger, t) {
+  return trigger === "scheduled" ? t.automationTriggerScheduled : t.automationTriggerManual;
 }
 
 function formatFileTimestamp(value) {
@@ -2490,6 +2508,7 @@ function SubagentWorkbench({
           <div className="automation-task-list">
             {automationItems.slice(0, 4).map((item) => {
               const lastRunDetail = item.lastRun?.error || item.lastRun?.detail || "";
+              const history = Array.isArray(item.history) ? item.history.slice(0, 3) : [];
               const timing = item.lastRun?.endedAt
                 ? `${t.automationLastRun}: ${formatDate(item.lastRun.endedAt)}`
                 : item.nextRun
@@ -2509,7 +2528,41 @@ function SubagentWorkbench({
                       <span>{automationThreadLabel(item, sessions, t)}</span>
                       <span>{timing}</span>
                     </div>
+                    {item.lastRun && (
+                      <div className="automation-task-evidence-block">
+                        <span>{t.automationEvidence}</span>
+                        <dl className="automation-task-evidence" aria-label={t.automationEvidence}>
+                          <div>
+                            <dt>{t.scheduleStatus}</dt>
+                            <dd>{automationStatusLabel(item.lastRun.status, t)}</dd>
+                          </div>
+                          <div>
+                            <dt>{t.scheduleHistory}</dt>
+                            <dd>{automationTriggerLabel(item.lastRun.trigger, t)}</dd>
+                          </div>
+                          <div>
+                            <dt>{t.commandDuration}</dt>
+                            <dd>{formatDurationMs(item.lastRun.durationMs)}</dd>
+                          </div>
+                        </dl>
+                      </div>
+                    )}
                     {lastRunDetail && <p className="automation-task-detail">{lastRunDetail}</p>}
+                    {history.length > 0 && (
+                      <details className="automation-task-history">
+                        <summary>{t.automationRunHistoryShort}</summary>
+                        <ul>
+                          {history.map((entry) => (
+                            <li key={entry.id} className={entry.status}>
+                              <span>{automationStatusLabel(entry.status, t)}</span>
+                              <time>{formatDate(entry.endedAt || entry.startedAt)}</time>
+                              <em>{automationTriggerLabel(entry.trigger, t)}</em>
+                              {(entry.detail || entry.error) && <p>{messageExcerpt(entry.detail || entry.error, 110)}</p>}
+                            </li>
+                          ))}
+                        </ul>
+                      </details>
+                    )}
                     <div className="automation-task-actions">
                       <button
                         type="button"
@@ -5857,6 +5910,8 @@ function ScheduledModal({
                           <li key={entry.id} className={entry.status}>
                             <span>{automationStatusLabel(entry.status, t)}</span>
                             <time>{formatDate(entry.endedAt || entry.startedAt, lang)}</time>
+                            <em>{automationTriggerLabel(entry.trigger, t)}</em>
+                            {typeof entry.durationMs === "number" && entry.durationMs > 0 && <em>{formatDurationMs(entry.durationMs)}</em>}
                             {(entry.detail || entry.error) && <p>{entry.detail || entry.error}</p>}
                           </li>
                         ))}
@@ -6251,14 +6306,16 @@ export function App() {
     showToast(t.automationRunning);
     const next = await desktopApi.runAutomationNow({ automationId: automation.id, requestId });
     setState(next);
+    if (Array.isArray(next?.runEvents)) setRunEvents((current) => mergeRunEvents(current, next.runEvents));
     const run = next.automationRun;
     const succeeded = run?.status === "succeeded";
+    const finalDetail = succeeded ? (run.detail || t.automationSucceeded) : (run?.error || t.automationFailed);
     recordRunEvent({
       id: requestId,
       type: "automation",
       status: succeeded ? "ok" : "error",
       title: `${t.scheduled}: ${messageExcerpt(automation.prompt, 60)}`,
-      detail: succeeded ? (run.detail || t.automationSucceeded) : (run?.error || t.automationFailed),
+      detail: [t.automationTriggerManual, automationProjectLabel(automation, t), finalDetail].filter(Boolean).join(" · "),
     });
     showToast(succeeded ? t.automationSucceeded : t.automationFailed);
   }

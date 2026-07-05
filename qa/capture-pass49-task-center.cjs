@@ -204,7 +204,11 @@ app.whenReady().then(async () => {
         document.querySelectorAll('.automation-task-card').length === 2 &&
         document.querySelector('.automation-task-card.failed') &&
         document.querySelector('.automation-task-card.scheduled') &&
+        document.querySelector('.automation-task-evidence') &&
+        document.querySelector('.automation-task-history') &&
         /pass49 automation failed/.test(document.body.textContent || '') &&
+        /\\u8fd0\\u884c\\u8bc1\\u636e/.test(document.body.textContent || '') &&
+        /\\u624b\\u52a8\\u89e6\\u53d1/.test(document.body.textContent || '') &&
         /pass49 scheduled automation prompt/.test(document.body.textContent || '') &&
         /\\u81ea\\u52a8\\u5316 2 \\u4e2a/.test(document.body.textContent || '')
       )
@@ -248,9 +252,13 @@ app.whenReady().then(async () => {
         const state = await window.claudexDesktop.getState();
         const automation = state.automations.find((item) => item.id === 'pass49-failed-automation');
         const session = state.sessions.find((item) => item.id === 'default');
+        const event = state.runEvents?.find((item) => item.id === automation?.lastRun?.id);
         return Boolean(
           automation?.lastRun?.status === 'succeeded' &&
           /pass49 automation run ok/.test(automation.lastRun.detail || '') &&
+          event?.type === 'automation' &&
+          event.status === 'ok' &&
+          /pass49 automation run ok/.test(event.detail || '') &&
           session?.messages?.some((message) => /pass49 failed automation prompt/.test(message.content || '')) &&
           session?.messages?.some((message) => /pass49 automation run ok/.test(message.content || '')) &&
           /pass49 automation run ok/.test(document.body.textContent || '')
@@ -309,9 +317,13 @@ app.whenReady().then(async () => {
 
     assertStep("PASS49_STORE_ACTIONS_PERSISTED", (() => {
       const parsed = JSON.parse(fs.readFileSync(DATA_FILE, "utf8"));
+      const automation = parsed.automations?.[0];
+      const event = parsed.runEvents?.find((item) => item.id === automation?.lastRun?.id);
       return parsed.automations?.length === 1 &&
-        parsed.automations[0].id === "pass49-failed-automation" &&
-        parsed.automations[0].lastRun?.status === "succeeded";
+        automation?.id === "pass49-failed-automation" &&
+        automation.lastRun?.status === "succeeded" &&
+        event?.type === "automation" &&
+        event.status === "ok";
     })());
 
     assertStep("PASS49_NO_LOCALSTORAGE_SOURCE", await win.webContents.executeJavaScript(`
