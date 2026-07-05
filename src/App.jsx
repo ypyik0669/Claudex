@@ -920,6 +920,39 @@ function cliStatusIssue(label, commandLine, commandState, t, jsonCommandLine = "
   };
 }
 
+function CliStatusDetail({ issue, t, onRetry, onOpenClaudePanel, disabled, spinning }) {
+  if (!issue) return null;
+  return (
+    <section className="plugin-tab-status-detail error" aria-label={`${t.capabilityStatusIssues}: ${issue.label}`}>
+      <div className="plugin-tab-status-head">
+        <AlertTriangle size={14} />
+        <div>
+          <span>{t.capabilityStatusIssues}</span>
+          <strong>{issue.label}</strong>
+        </div>
+        <em>{t.commandExit}: {issue.code}</em>
+      </div>
+      <dl className="plugin-tab-status-meta">
+        <div><dt>{t.commandLine}</dt><dd>claude {issue.commandLine}</dd></div>
+        {issue.error && <div><dt>{t.commandStderr}</dt><dd title={issue.error}>{messageExcerpt(issue.error, 220)}</dd></div>}
+      </dl>
+      {issue.error && (
+        <pre className="plugin-tab-status-raw">{issue.error}</pre>
+      )}
+      <div className="plugin-tab-status-actions">
+        <button type="button" className="plain-action subtle-action" onClick={onRetry} disabled={disabled} title={disabled ? t.workingHint : t.refreshCliStatus}>
+          <RefreshCw size={13} className={spinning ? "spin" : undefined} />
+          {t.retryCliStatus}
+        </button>
+        <button type="button" className="plain-action subtle-action" onClick={onOpenClaudePanel}>
+          <Bot size={13} />
+          {t.openClaudePanel}
+        </button>
+      </div>
+    </section>
+  );
+}
+
 function isGenericSessionTitle(title, t) {
   const normalized = String(title || "").trim().toLowerCase();
   return ["", "claudex", "new chat", "new coding session", "新聊天", String(t.newChat || "").toLowerCase()].includes(normalized);
@@ -5036,11 +5069,12 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
   const marketplacePluginRows = (Array.isArray(cliStatus?.marketplacePlugins) ? cliStatus.marketplacePlugins : []).filter((item) => structuredQueryMatch(item, normalizedQuery));
   const mcpServerRows = (Array.isArray(cliStatus?.mcpServers) ? cliStatus.mcpServers : []).filter((item) => structuredQueryMatch(item, normalizedQuery));
   const cliWorking = cliBusy || marketplaceBusy || Boolean(cliAction);
-  const cliStatusIssues = [
-    cliStatusIssue(t.plugins, "plugin list", cliStatus?.pluginCommand, t, "plugin list --json"),
-    cliStatusIssue(t.mcps, "mcp list", cliStatus?.mcpCommand, t),
-    cliStatusIssue(t.marketplace, "plugin marketplace list", cliStatus?.marketplaceCommand, t, "plugin marketplace list --json"),
-  ].filter(Boolean);
+  const cliStatusIssueByTab = {
+    plugins: cliStatusIssue(t.plugins, "plugin list", cliStatus?.pluginCommand, t, "plugin list --json"),
+    mcp: cliStatusIssue(t.mcps, "mcp list", cliStatus?.mcpCommand, t),
+    marketplace: cliStatusIssue(t.marketplace, "plugin marketplace list", cliStatus?.marketplaceCommand, t, "plugin marketplace list --json"),
+  };
+  const cliStatusIssues = Object.values(cliStatusIssueByTab).filter(Boolean);
   const searchPlaceholder =
     activeTab === "skills" ? t.searchSkills : activeTab === "marketplace" ? t.searchMarketplace : t.searchPlugins;
 
@@ -5393,10 +5427,12 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
             : id === "skills" ? capabilityRows.filter((item) => item.type === "skill").length
               : id === "mcp" ? mcpServerRows.length || tabRows.mcp.length
                 : marketplacePluginRows.length || marketplaceRows.length || 1;
+          const issue = cliStatusIssueByTab[id];
           return (
-            <button type="button" key={id} className={cx(activeTab === id && "active")} onClick={() => setActiveTab(id)} role="tab" aria-selected={activeTab === id}>
+            <button type="button" key={id} className={cx(activeTab === id && "active", issue && "status-error")} onClick={() => setActiveTab(id)} role="tab" aria-selected={activeTab === id}>
               <span>{label}</span>
               <em>{count}</em>
+              {issue && <em className="plugin-tab-status-badge" title={`${issue.commandLine}: ${issue.error || issue.code}`}>!</em>}
             </button>
           );
         })}
@@ -5404,6 +5440,14 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
       <div className="plugin-manager-list">
         {activeTab === "marketplace" ? (
           <div className="marketplace-workbench">
+            <CliStatusDetail
+              issue={cliStatusIssueByTab.marketplace}
+              t={t}
+              onRetry={refreshCliStatus}
+              onOpenClaudePanel={onOpenClaudePanel}
+              disabled={cliWorking}
+              spinning={cliBusy}
+            />
             <section className="marketplace-card">
               <div className="marketplace-card-head">
                 <div>
@@ -5522,6 +5566,16 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
         ) : (
           <>
             {activeTab === "plugins" && (
+              <CliStatusDetail
+                issue={cliStatusIssueByTab.plugins}
+                t={t}
+                onRetry={refreshCliStatus}
+                onOpenClaudePanel={onOpenClaudePanel}
+                disabled={cliWorking}
+                spinning={cliBusy}
+              />
+            )}
+            {activeTab === "plugins" && (
               <section className="structured-registry-section" aria-label={t.installedCliPlugins}>
                 <div className="structured-registry-head">
                   <span>{t.installedCliPlugins}</span>
@@ -5547,6 +5601,16 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                   </article>
                 ))}
               </section>
+            )}
+            {activeTab === "mcp" && (
+              <CliStatusDetail
+                issue={cliStatusIssueByTab.mcp}
+                t={t}
+                onRetry={refreshCliStatus}
+                onOpenClaudePanel={onOpenClaudePanel}
+                disabled={cliWorking}
+                spinning={cliBusy}
+              />
             )}
             {activeTab === "mcp" && (
               <section className="structured-registry-section" aria-label={t.mcpServers}>
