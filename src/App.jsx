@@ -8484,47 +8484,55 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
               </form>
               <div className="marketplace-source-list">
                 {customMarketplaceRows.length === 0 && <p className="empty-list">{t.noCustomMarketplaces}</p>}
-                {customMarketplaceRows.map((item) => (
-                  <div className="marketplace-source-row" key={item}>
-                    <div>
-                      <strong title={item}>{compactPath(item, 76)}</strong>
-                      <span>{t.customMarketplaceLocalOnly} · {t.customMarketplaceNotInjected} · {t.settings}</span>
+                {customMarketplaceRows.map((item) => {
+                  const customFocused = capabilityFocusMatches("custom-marketplace", item);
+                  return (
+                    <div
+                      className={cx("marketplace-source-row", customFocused && "focused-capability-row")}
+                      key={item}
+                      data-custom-marketplace-row
+                      data-custom-marketplace-id={item}
+                    >
+                      <div>
+                        <strong title={item}>{compactPath(item, 76)}</strong>
+                        <span>{t.customMarketplaceLocalOnly} · {t.customMarketplaceNotInjected} · {t.settings}</span>
+                      </div>
+                      <div className="marketplace-source-actions">
+                        <button
+                          type="button"
+                          className="plain-action subtle-action"
+                          onClick={() => copyCustomMarketplaceUrl(item)}
+                          title={item}
+                        >
+                          <Copy size={13} />
+                          {copiedCustomMarketplace === item ? t.copiedMarketplaceUrl : t.copyMarketplaceUrl}
+                        </button>
+                        <button
+                          type="button"
+                          className="plain-action subtle-action"
+                          onClick={() => runCapabilityClaude("plugin marketplace --help")}
+                          disabled={cliWorking}
+                          title={cliWorking ? t.workingHint : "claude plugin marketplace --help"}
+                        >
+                          <Bot size={13} />
+                          {t.checkMarketplaceCliSupport}
+                        </button>
+                        <button type="button" className="plain-action subtle-action" onClick={onOpenClaudePanel}>
+                          <PanelRight size={13} />
+                          {t.openClaudePanel}
+                        </button>
+                        <button
+                          type="button"
+                          className="plain-action subtle-action"
+                          onClick={() => saveCustomMarketplaces(customMarketplaces.filter((source) => source !== item))}
+                        >
+                          <X size={13} />
+                          {t.remove}
+                        </button>
+                      </div>
                     </div>
-                    <div className="marketplace-source-actions">
-                      <button
-                        type="button"
-                        className="plain-action subtle-action"
-                        onClick={() => copyCustomMarketplaceUrl(item)}
-                        title={item}
-                      >
-                        <Copy size={13} />
-                        {copiedCustomMarketplace === item ? t.copiedMarketplaceUrl : t.copyMarketplaceUrl}
-                      </button>
-                      <button
-                        type="button"
-                        className="plain-action subtle-action"
-                        onClick={() => runCapabilityClaude("plugin marketplace --help")}
-                        disabled={cliWorking}
-                        title={cliWorking ? t.workingHint : "claude plugin marketplace --help"}
-                      >
-                        <Bot size={13} />
-                        {t.checkMarketplaceCliSupport}
-                      </button>
-                      <button type="button" className="plain-action subtle-action" onClick={onOpenClaudePanel}>
-                        <PanelRight size={13} />
-                        {t.openClaudePanel}
-                      </button>
-                      <button
-                        type="button"
-                        className="plain-action subtle-action"
-                        onClick={() => saveCustomMarketplaces(customMarketplaces.filter((source) => source !== item))}
-                      >
-                        <X size={13} />
-                        {t.remove}
-                      </button>
-                    </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             </section>
           </div>
@@ -10491,6 +10499,32 @@ export function App() {
         }),
       }));
 
+    const customMarketplaceCommands = (Array.isArray(state.settings?.customMarketplaces) ? state.settings.customMarketplaces : [])
+      .filter(Boolean)
+      .slice(0, 16)
+      .map((marketplace) => ({
+        id: `capability-custom-marketplace:${commandIdSegment(marketplace)}`,
+        title: `${t.customMarketplaces}: ${compactPath(marketplace, 72)}`,
+        subtitle: [
+          t.customMarketplaceLocalOnly,
+          t.customMarketplaceNotInjected,
+          t.settings,
+        ].filter(Boolean).join(" · "),
+        group: t.capabilities,
+        keywords: [
+          "custom marketplace plugin catalog local settings not injected",
+          marketplace,
+          t.customMarketplaces,
+          t.customMarketplaceLocalOnly,
+          t.customMarketplaceNotInjected,
+        ].filter(Boolean).join(" "),
+        action: () => openCapabilitiesSurface("marketplace", {
+          kind: "custom-marketplace",
+          id: marketplace,
+          query: marketplace,
+        }),
+      }));
+
     const marketplacePluginCommands = (Array.isArray(capabilityCommandStatus?.marketplacePlugins) ? capabilityCommandStatus.marketplacePlugins : [])
       .filter((plugin) => plugin?.id || plugin?.name)
       .slice(0, 24)
@@ -10542,9 +10576,10 @@ export function App() {
       ...installedPluginCommands,
       ...mcpServerCommands,
       ...marketplaceSourceCommands,
+      ...customMarketplaceCommands,
       ...marketplacePluginCommands,
     ];
-  }, [state.projects, state.sessions, state.sourceRefs, state.browserVisits, state.automations, state.subagentRuns, state.commandRuns, capabilityCommandStatus, runEvents, environment, t, activeProject?.path, activeProject?.name]);
+  }, [state.projects, state.sessions, state.sourceRefs, state.browserVisits, state.automations, state.subagentRuns, state.commandRuns, state.settings?.customMarketplaces, capabilityCommandStatus, runEvents, environment, t, activeProject?.path, activeProject?.name]);
 
   async function createAutomation(payload) {
     if (!desktopApi?.createAutomation) return;
