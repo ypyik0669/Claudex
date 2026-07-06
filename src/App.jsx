@@ -9393,6 +9393,7 @@ function ScheduledModal({
   const [scheduleType, setScheduleType] = useState("once");
   const [workingId, setWorkingId] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [copiedAutomationRunId, setCopiedAutomationRunId] = useState("");
 
   async function handleAction(id, action) {
     setWorkingId(id);
@@ -9408,6 +9409,11 @@ function ScheduledModal({
   async function copyAutomationEvidence(item, entry = item?.lastRun) {
     if (!entry) return;
     await onCopy?.(automationEvidenceText(item, entry, t, sessions));
+    const runId = String(entry?.id || item?.id || "").trim();
+    if (runId) {
+      setCopiedAutomationRunId(runId);
+      window.setTimeout(() => setCopiedAutomationRunId((current) => (current === runId ? "" : current)), 1200);
+    }
   }
 
   const scheduleCount = t.scheduleCount.replace("{count}", items.length);
@@ -9522,8 +9528,8 @@ function ScheduledModal({
                                 onClick={() => copyAutomationEvidence(item, entry)}
                                 title={t.copyAutomationEvidence}
                               >
-                                <Copy size={12} />
-                                {t.copyAutomationEvidence}
+                                {copiedAutomationRunId === entry.id ? <Check size={12} /> : <Copy size={12} />}
+                                {copiedAutomationRunId === entry.id ? t.copied : t.copyAutomationEvidence}
                               </button>
                               {entry.id && (
                                 <button
@@ -9588,9 +9594,9 @@ function ScheduledModal({
                     {item.enabled ? t.pauseAutomation : t.resumeAutomation}
                   </button>
                   {item.lastRun && (
-                    <button type="button" onClick={() => copyAutomationEvidence(item)} title={t.copyAutomationEvidence}>
-                      <Copy size={14} />
-                      {t.copyAutomationEvidence}
+                    <button type="button" data-automation-schedule-action="copy-evidence" onClick={() => copyAutomationEvidence(item)} title={copiedAutomationRunId === item.lastRun.id ? t.copied : t.copyAutomationEvidence}>
+                      {copiedAutomationRunId === item.lastRun.id ? <Check size={14} /> : <Copy size={14} />}
+                      {copiedAutomationRunId === item.lastRun.id ? t.copied : t.copyAutomationEvidence}
                     </button>
                   )}
                   {item.lastRun?.id && (
