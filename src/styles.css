@@ -5320,6 +5320,13 @@ button.runtime-health-row {
   background: rgba(155, 179, 108, 0.06);
 }
 
+.structured-plugin-row.focused-capability-row,
+.marketplace-source-row.focused-capability-row,
+.marketplace-plugin-card.focused-capability-row {
+  border-color: rgba(96, 165, 250, 0.72);
+  box-shadow: 0 0 0 1px rgba(96, 165, 250, 0.22), 0 0 0 4px rgba(96, 165, 250, 0.08);
+}
+
 .marketplace-plugin-card-head {
   min-width: 0;
   display: grid;

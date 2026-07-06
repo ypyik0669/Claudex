@@ -6920,7 +6920,7 @@ function ShellModal({ title, subtitle, onClose, children, className = "", closeL
   );
 }
 
-function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenClaudePanel, onNotice, onRunEvent, onOpenBottomPanel, onCommandRuns, surface = false, initialTab = "plugins" }) {
+function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenClaudePanel, onNotice, onRunEvent, onOpenBottomPanel, onCommandRuns, onStatus, surface = false, initialTab = "plugins", focus = null }) {
   const tabs = [
     ["plugins", t.plugins],
     ["mcp", t.mcps],
@@ -6984,6 +6984,13 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
   const cliStatusIssues = Object.values(cliStatusIssueByTab).filter(Boolean);
   const searchPlaceholder =
     activeTab === "skills" ? t.searchSkills : activeTab === "marketplace" ? t.searchMarketplace : t.searchPlugins;
+  const focusedCapabilityKind = String(focus?.kind || "").trim();
+  const focusedCapabilityId = String(focus?.id || "").trim();
+
+  function capabilityFocusMatches(kind, ...ids) {
+    if (!focusedCapabilityKind || focusedCapabilityKind !== kind || !focusedCapabilityId) return false;
+    return ids.some((id) => String(id || "").trim() === focusedCapabilityId);
+  }
 
   function recordCapabilityNotice(title, detail, key = "") {
     onNotice?.({
@@ -7011,6 +7018,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
     try {
       const result = await desktopApi.getClaudeStatus({ projectPath: activeProject?.path });
       setCliStatus(result);
+      onStatus?.(result);
       recordRuntimeHealthNotice(runtimeHealthSummary(result, state.settings, activeProject, t));
     } catch (error) {
       const message = error.message || String(error);
@@ -7294,6 +7302,20 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
     if (tabs.some(([id]) => id === initialTab)) setActiveTab(initialTab);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialTab]);
+  useEffect(() => {
+    if (!focus?.nonce) return;
+    if (tabs.some(([id]) => id === focus.tab)) setActiveTab(focus.tab);
+    setFilter("all");
+    setQuery(String(focus.query || focus.id || "").trim());
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [focus?.nonce]);
+  useEffect(() => {
+    if (!focus?.nonce || !focusedCapabilityKind) return undefined;
+    const timer = window.setTimeout(() => {
+      document.querySelector(".focused-capability-row")?.scrollIntoView?.({ block: "center", behavior: "smooth" });
+    }, 120);
+    return () => window.clearTimeout(timer);
+  }, [focus?.nonce, focusedCapabilityKind, focusedCapabilityId, activeTab, cliStatus, normalizedQuery]);
   return (
     <ShellModal title={t.capabilities} subtitle={t.capabilitiesSubtitle} onClose={onClose} closeLabel={surface ? t.backToApp : t.close} className="capability-modal plugin-manager-modal" surface={surface}>
       <div className="installed-capability-strip" aria-label={t.installed}>
@@ -7505,7 +7527,11 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                     item.error ? [t.mcpError, messageExcerpt(item.error, 72), item.error] : null,
                   ].filter(Boolean);
                   return (
-                    <article className="marketplace-source-row structured-source-row" key={item.name}>
+                    <article
+                      className={cx("marketplace-source-row structured-source-row", capabilityFocusMatches("marketplace-source", item.name) && "focused-capability-row")}
+                      key={item.name}
+                      data-marketplace-source-id={item.name}
+                    >
                       <div>
                         <strong>{item.name}</strong>
                         <span title={item.repo || item.source}>{item.repo || item.source || t.marketplaceSourceClaude}</span>
@@ -7544,7 +7570,11 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                 {marketplacePluginRows.slice(0, 80).map((item) => {
                   const recentRun = findRecentPluginActionRun(recentCapabilityRuns, [item.id, item.name], ["install", "update"]);
                   return (
-                    <article className={cx("marketplace-plugin-card", item.installed && "installed")} key={item.id}>
+                    <article
+                      className={cx("marketplace-plugin-card", item.installed && "installed", capabilityFocusMatches("marketplace-plugin", item.id, item.name) && "focused-capability-row")}
+                      key={item.id}
+                      data-marketplace-plugin-id={item.id}
+                    >
                     <div className="marketplace-plugin-card-head">
                       <div>
                         <strong>{item.name}</strong>
@@ -7674,7 +7704,11 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                     plugin.error ? [t.mcpError, messageExcerpt(plugin.error, 72), plugin.error] : null,
                   ].filter(Boolean);
                   return (
-                    <article className="structured-plugin-row" key={plugin.id}>
+                    <article
+                      className={cx("structured-plugin-row", capabilityFocusMatches("plugin", plugin.id, plugin.name) && "focused-capability-row")}
+                      key={plugin.id}
+                      data-plugin-id={plugin.id}
+                    >
                     <span className="plugin-manager-icon"><Plug size={17} /></span>
                     <div className="plugin-manager-copy">
                       <strong>{plugin.id}</strong>
@@ -7745,7 +7779,12 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                     server.error ? [t.mcpError, messageExcerpt(server.error, 72), server.error] : null,
                   ].filter(Boolean);
                   return (
-                    <article className="structured-plugin-row" key={rowKey}>
+                    <article
+                      className={cx("structured-plugin-row", capabilityFocusMatches("mcp", server.name, rowKey) && "focused-capability-row")}
+                      key={rowKey}
+                      data-mcp-server-id={server.name}
+                      data-mcp-server-key={rowKey}
+                    >
                       <span className="plugin-manager-icon"><Blocks size={17} /></span>
                       <div className="plugin-manager-copy">
                         <strong>{server.name}</strong>
@@ -8407,6 +8446,8 @@ export function App() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [capabilitiesOpen, setCapabilitiesOpen] = useState(false);
   const [capabilityInitialTab, setCapabilityInitialTab] = useState("plugins");
+  const [capabilityFocus, setCapabilityFocus] = useState({ tab: "plugins", kind: "", id: "", query: "", nonce: 0 });
+  const [capabilityCommandStatus, setCapabilityCommandStatus] = useState(null);
   const [projectsOpen, setProjectsOpen] = useState(false);
   const [commandsOpen, setCommandsOpen] = useState(false);
   const [scheduledOpen, setScheduledOpen] = useState(false);
@@ -8544,6 +8585,25 @@ export function App() {
   const lang = resolveLanguage(state.settings.language, state.settings.appLocale);
   const t = copy.zh;
   const activeProject = state.activeProject || { name: t.localWorkspace, path: "" };
+  useEffect(() => {
+    let cancelled = false;
+    async function loadCapabilityCommandStatus() {
+      if (stateLoading || !desktopApi?.getClaudeStatus) {
+        if (!cancelled) setCapabilityCommandStatus(null);
+        return;
+      }
+      try {
+        const result = await desktopApi.getClaudeStatus({ projectPath: activeProject?.path });
+        if (!cancelled) setCapabilityCommandStatus(result);
+      } catch (_error) {
+        if (!cancelled) setCapabilityCommandStatus(null);
+      }
+    }
+    loadCapabilityCommandStatus();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeProject?.path, stateLoading]);
   const projectPathMissing = Boolean(activeProject?.path && environment?.projectMissing);
   const visibleThreadItems = useMemo(() => sidebarThreadItems(state.sessions, t, activeProject, projectScope), [state.sessions, t, activeProject, projectScope]);
   const activeSession =
@@ -8899,8 +8959,152 @@ export function App() {
         action: () => openTaskCenterFocus("subagent", run.id || run.requestId),
       }));
 
-    return [...projectCommands, ...threadCommands, ...automationCommands, ...subagentCommands, ...runEvidenceCommands];
-  }, [state.projects, state.sessions, state.automations, state.subagentRuns, runEvents, t, activeProject?.path, activeProject?.name]);
+    const installedPluginCommands = (Array.isArray(capabilityCommandStatus?.pluginItems) ? capabilityCommandStatus.pluginItems : [])
+      .filter((plugin) => plugin?.id || plugin?.name)
+      .slice(0, 16)
+      .map((plugin) => {
+        const id = plugin.id || plugin.name;
+        return {
+          id: `capability-plugin:${commandIdSegment(id)}`,
+          title: `${t.plugins}: ${id}`,
+          subtitle: [
+            plugin.enabled ? t.pluginStatusEnabled : t.pluginStatusDisabled,
+            plugin.version && plugin.version !== "unknown" ? `${t.version}: ${plugin.version}` : "",
+            plugin.scope && `${t.scope}: ${plugin.scope}`,
+            plugin.source,
+          ].filter(Boolean).join(" Â· "),
+          group: t.capabilities,
+          keywords: [
+            "plugin installed capability claude code tool permissions error",
+            plugin.id,
+            plugin.name,
+            plugin.marketplace,
+            plugin.version,
+            plugin.scope,
+            plugin.status,
+            plugin.source,
+            plugin.tools,
+            plugin.permissions,
+            plugin.error,
+          ].filter(Boolean).join(" "),
+          action: () => openCapabilitiesSurface("plugins", {
+            kind: "plugin",
+            id,
+            query: id,
+          }),
+        };
+      });
+
+    const mcpServerCommands = (Array.isArray(capabilityCommandStatus?.mcpServers) ? capabilityCommandStatus.mcpServers : [])
+      .filter((server) => server?.name)
+      .slice(0, 16)
+      .map((server) => ({
+        id: `capability-mcp:${commandIdSegment(server.name)}`,
+        title: `${t.mcpServers}: ${server.name}`,
+        subtitle: [
+          mcpStatusLabel(server.status, t),
+          typeof server.tools === "number" ? `${t.tools}: ${server.tools}` : "",
+          server.transport,
+          server.source || server.detail,
+        ].filter(Boolean).join(" Â· "),
+        group: t.capabilities,
+        keywords: [
+          "mcp server tool capability claude code transport source error",
+          server.name,
+          server.status,
+          server.detail,
+          server.raw,
+          server.tools,
+          server.transport,
+          server.source,
+          server.error,
+        ].filter(Boolean).join(" "),
+        action: () => openCapabilitiesSurface("mcp", {
+          kind: "mcp",
+          id: server.name,
+          query: server.name,
+        }),
+      }));
+
+    const marketplaceSourceCommands = (Array.isArray(capabilityCommandStatus?.marketplaces) ? capabilityCommandStatus.marketplaces : [])
+      .filter((marketplace) => marketplace?.name)
+      .slice(0, 16)
+      .map((marketplace) => ({
+        id: `capability-marketplace-source:${commandIdSegment(marketplace.name)}`,
+        title: `${t.marketplaceSources}: ${marketplace.name}`,
+        subtitle: [
+          marketplace.status,
+          marketplace.version && `${t.version}: ${marketplace.version}`,
+          marketplace.repo || marketplace.source || marketplace.installLocation,
+        ].filter(Boolean).join(" Â· "),
+        group: t.capabilities,
+        keywords: [
+          "marketplace source plugin catalog capability claude code",
+          marketplace.name,
+          marketplace.status,
+          marketplace.version,
+          marketplace.source,
+          marketplace.repo,
+          marketplace.installLocation,
+          marketplace.tools,
+          marketplace.permissions,
+          marketplace.error,
+        ].filter(Boolean).join(" "),
+        action: () => openCapabilitiesSurface("marketplace", {
+          kind: "marketplace-source",
+          id: marketplace.name,
+          query: marketplace.name,
+        }),
+      }));
+
+    const marketplacePluginCommands = (Array.isArray(capabilityCommandStatus?.marketplacePlugins) ? capabilityCommandStatus.marketplacePlugins : [])
+      .filter((plugin) => plugin?.id || plugin?.name)
+      .slice(0, 24)
+      .map((plugin) => {
+        const id = plugin.id || plugin.name;
+        return {
+          id: `capability-marketplace-plugin:${commandIdSegment(id)}`,
+          title: `${t.marketplace}: ${plugin.name || id}`,
+          subtitle: [
+            plugin.marketplace,
+            plugin.installed ? t.installedLocal : t.installFromMarketplace,
+            plugin.version && plugin.version !== "unknown" ? `${t.version}: ${plugin.version}` : "",
+            plugin.category,
+          ].filter(Boolean).join(" Â· "),
+          group: t.capabilities,
+          keywords: [
+            "marketplace plugin catalog install capability claude code source permissions risk",
+            plugin.id,
+            plugin.name,
+            plugin.marketplace,
+            plugin.version,
+            plugin.description,
+            plugin.category,
+            plugin.author,
+            plugin.source,
+            plugin.permissions,
+            plugin.risk,
+          ].filter(Boolean).join(" "),
+          action: () => openCapabilitiesSurface("marketplace", {
+            kind: "marketplace-plugin",
+            id,
+            query: id,
+          }),
+        };
+      });
+
+    return [
+      ...projectCommands,
+      ...threadCommands,
+      ...automationCommands,
+      ...subagentCommands,
+      ...installedPluginCommands,
+      ...mcpServerCommands,
+      ...marketplaceSourceCommands,
+      ...marketplacePluginCommands,
+      ...runEvidenceCommands,
+    ];
+  }, [state.projects, state.sessions, state.automations, state.subagentRuns, capabilityCommandStatus, runEvents, t, activeProject?.path, activeProject?.name]);
 
   async function createAutomation(payload) {
     if (!desktopApi?.createAutomation) return;
@@ -9193,13 +9397,16 @@ export function App() {
     setSettingsOpen(true);
   }
 
-  function openCapabilitiesSurface(initialTab = "plugins") {
+  function openCapabilitiesSurface(initialTab = "plugins", focus = null) {
     const nextTab = ["plugins", "mcp", "skills", "marketplace"].includes(initialTab) ? initialTab : "plugins";
     setSettingsOpen(false);
     setProjectsOpen(false);
     setScheduledOpen(false);
     setCommandsOpen(false);
     setCapabilityInitialTab(nextTab);
+    setCapabilityFocus(focus
+      ? { ...focus, tab: nextTab, nonce: Date.now() }
+      : { tab: nextTab, kind: "", id: "", query: "", nonce: Date.now() });
     setCapabilitiesOpen(true);
   }
 
@@ -9467,8 +9674,10 @@ export function App() {
             onRunEvent={recordRunEvent}
             onOpenBottomPanel={(panel) => setBottomPanel(panel)}
             onCommandRuns={(commandRuns) => setState((current) => ({ ...current, commandRuns }))}
+            onStatus={setCapabilityCommandStatus}
             surface
             initialTab={capabilityInitialTab}
+            focus={capabilityFocus}
           />
         ) : (
         <Conversation
