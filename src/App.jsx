@@ -1108,6 +1108,39 @@ function safeCapabilityRetryArgsFromRun(run) {
   return safePatterns.some((pattern) => pattern.test(args)) ? args : "";
 }
 
+function mutatingCapabilityRetryArgsFromRun(run) {
+  const args = claudeArgsFromRun(run);
+  if (!args) return "";
+  const mutatingPatterns = [
+    /^plugin\s+(?:install|update|enable|disable)\s+\S+/i,
+    /^plugin\s+marketplace\s+update$/i,
+  ];
+  return mutatingPatterns.some((pattern) => pattern.test(args)) ? args : "";
+}
+
+function capabilityRetryArgsFromRun(run) {
+  return safeCapabilityRetryArgsFromRun(run) || mutatingCapabilityRetryArgsFromRun(run);
+}
+
+function capabilityRetryFocusForArgs(args) {
+  const actionFocus = capabilityActionFocusForCommand(args);
+  if (actionFocus) return actionFocus;
+  const parts = String(args || "").trim().split(/\s+/).filter(Boolean);
+  if (parts[0] === "plugin" && parts[1] === "marketplace" && parts[2] === "update") {
+    return { tab: "marketplace", kind: "marketplace-source", id: "", query: "" };
+  }
+  if (parts[0] === "plugin" && ["install", "update", "enable", "disable"].includes(String(parts[1] || "").toLowerCase())) {
+    const identifier = parts[2] || "";
+    return {
+      tab: parts[1] === "install" ? "marketplace" : "plugins",
+      kind: parts[1] === "install" ? "marketplace-plugin" : "plugin",
+      id: identifier,
+      query: parts[1] === "install" ? panelPluginNameFromId(identifier) : identifier,
+    };
+  }
+  return { tab: "plugins", kind: "", id: "", query: "" };
+}
+
 function capabilityActionFocusForCommand(args, context = {}) {
   const parts = String(args || "").trim().split(/\s+/).filter(Boolean);
   if (parts[0] !== "plugin" || !parts[1]) return null;
@@ -3115,6 +3148,7 @@ function Conversation({
   onContinueSubagent,
   onRetryClaudeCommand,
   onRetryCapabilityCommand,
+  onConfirmCapabilityCommand,
   onOpenRunTimeline,
   runTimelineFocus,
   taskCenterFocus,
@@ -3435,15 +3469,21 @@ function Conversation({
     }
   }
   async function retryBottomCapabilityEntry(entry) {
-    const args = safeCapabilityRetryArgsFromRun(entry);
-    if (!args || !onRetryCapabilityCommand || bottomCapabilityRetryingId) return;
-    setBottomCapabilityRetryingId(entry.id || args);
-    try {
-      await onRetryCapabilityCommand(args);
-    } finally {
-      setBottomCapabilityRetryingId("");
+    const safeArgs = safeCapabilityRetryArgsFromRun(entry);
+    if (safeArgs && onRetryCapabilityCommand && !bottomCapabilityRetryingId) {
+      setBottomCapabilityRetryingId(entry.id || safeArgs);
+      try {
+        await onRetryCapabilityCommand(safeArgs);
+      } finally {
+        setBottomCapabilityRetryingId("");
+      }
+      return;
     }
+    const mutatingArgs = mutatingCapabilityRetryArgsFromRun(entry);
+    if (!mutatingArgs || !onConfirmCapabilityCommand) return;
+    onConfirmCapabilityCommand(mutatingArgs);
   }
+
   function handleNoticeAction(notice) {
     const action = String(notice?.action || "");
     if (action.startsWith("runtime-health:")) {
@@ -3748,7 +3788,7 @@ function Conversation({
                       entries={capabilityCommandRuns}
                       liveEntry={null}
                       onRetryEntry={onRetryCapabilityCommand ? retryBottomCapabilityEntry : null}
-                      canRetryEntry={(entry) => Boolean(safeCapabilityRetryArgsFromRun(entry))}
+                      canRetryEntry={(entry) => Boolean(capabilityRetryArgsFromRun(entry))}
                       retryDisabled={Boolean(bottomCapabilityRetryingId)}
                       onClear={null}
                       t={t}
@@ -7936,6 +7976,13 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
     setFilter("all");
     setQuery(String(focus.query || focus.id || "").trim());
     setCapabilityActionFocus({ tab: "", kind: "", id: "", query: "", nonce: 0 });
+    if (focus.confirmCommand?.args) {
+      setConfirmingCliCommand({
+        args: String(focus.confirmCommand.args || "").trim(),
+        label: String(focus.confirmCommand.label || focus.confirmCommand.args || "").trim(),
+        reviewRows: Array.isArray(focus.confirmCommand.reviewRows) ? focus.confirmCommand.reviewRows : [],
+      });
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focus?.nonce]);
   useEffect(() => {
@@ -9595,6 +9642,24 @@ export function App() {
     }
   }
 
+  function openCapabilityRetryConfirmation(args) {
+    const nextArgs = String(args || "").trim();
+    if (!mutatingCapabilityRetryArgsFromRun({ commandLine: `claude ${nextArgs}` })) return;
+    const focus = capabilityRetryFocusForArgs(nextArgs);
+    const nextTab = focus?.tab || "plugins";
+    openCapabilitiesSurface(nextTab, {
+      ...focus,
+      confirmCommand: {
+        args: nextArgs,
+        label: `${t.retry}: claude ${nextArgs}`,
+        reviewRows: [
+          [t.commandLine, `claude ${nextArgs}`],
+          [t.commandCwd, activeProject?.path || t.localWorkspace],
+        ],
+      },
+    });
+  }
+
   function applySessionState(next, preferredId = "", scope = projectScope) {
     setState(next);
     setActiveSessionId(selectSessionIdForProject(next, t, next.activeProject || activeProject, preferredId, scope));
@@ -10723,6 +10788,7 @@ export function App() {
           onContinueSubagent={continueSubagent}
           onRetryClaudeCommand={runPersistedClaudeCommand}
           onRetryCapabilityCommand={runPersistedCapabilityCommand}
+          onConfirmCapabilityCommand={openCapabilityRetryConfirmation}
           onOpenRunTimeline={openRunTimeline}
           runTimelineFocus={runTimelineFocus}
           taskCenterFocus={taskCenterFocus}
