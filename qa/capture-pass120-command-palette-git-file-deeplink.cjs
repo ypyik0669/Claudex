@@ -176,6 +176,23 @@ async function clickGitFileCommand(win, query, fileName) {
   `);
 }
 
+async function clickGitOpenFileCommand(win, fileName) {
+  return win.webContents.executeJavaScript(`
+    (async function() {
+      const modal = document.querySelector('.command-modal');
+      if (!modal) return false;
+      const button = [...modal.querySelectorAll('.command-list button')]
+        .find((candidate) =>
+          (candidate.getAttribute('data-command-id') || '').startsWith('git-open-file:') &&
+          (candidate.textContent || '').includes(${JSON.stringify(fileName)})
+        );
+      if (!button) return false;
+      button.click();
+      return true;
+    })();
+  `);
+}
+
 async function runTest() {
   await wait(1600);
   const win = BrowserWindow.getAllWindows()[0];
@@ -233,6 +250,28 @@ async function runTest() {
         !/pass120-other-diff-evidence/.test(preview) &&
         /${TARGET_FILE}/.test(panel) &&
         /pass120-target-diff-evidence/.test(panel);
+    })()
+  `, 10000));
+  assertStep("PASS120_OPEN_PALETTE_QUERY_TARGET_WORKSPACE", await openPaletteAndQuery(win, "workspace open pass120-target"));
+  assertStep("PASS120_GIT_OPEN_FILE_COMMAND_VISIBLE", await waitFor(win, `
+    Boolean([...document.querySelectorAll('.command-modal .command-list button')].some((button) =>
+      (button.getAttribute('data-command-id') || '').startsWith('git-open-file:') &&
+      /${TARGET_FILE}/.test(button.textContent || '') &&
+      /workspace/i.test(button.textContent || '')
+    ))
+  `, 5000));
+  assertStep("PASS120_CLICK_TARGET_GIT_OPEN_FILE_COMMAND", await clickGitOpenFileCommand(win, TARGET_FILE));
+  assertStep("PASS120_TARGET_FILE_OPENED_IN_WORKSPACE", await waitFor(win, `
+    (function() {
+      const textarea = document.querySelector('.file-editor textarea');
+      const editor = document.querySelector('.file-editor')?.textContent || '';
+      return Boolean(
+        textarea &&
+        textarea.getAttribute('aria-label') === ${JSON.stringify(TARGET_FILE)} &&
+        textarea.value.includes('pass120-target-diff-evidence') &&
+        editor.includes(${JSON.stringify(TARGET_FILE)}) &&
+        !editor.includes(${JSON.stringify(OTHER_FILE)})
+      );
     })()
   `, 10000));
   assertStep("PASS120_OPEN_PALETTE_QUERY_UNTRACKED", await openPaletteAndQuery(win, "pass120-untracked"));

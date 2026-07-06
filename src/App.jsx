@@ -11303,6 +11303,41 @@ export function App() {
         };
       });
 
+    const gitOpenFileCommands = (Array.isArray(environment?.git?.files) ? environment.git.files : [])
+      .filter((file) => file?.path && !/D/.test(file.status || ""))
+      .slice(0, 24)
+      .map((file) => {
+        const filePath = file.path || "";
+        const previousLabel = file.previousPath && file.previousPath !== filePath ? `${file.previousPath} -> ${filePath}` : "";
+        return {
+          id: `git-open-file:${commandIdSegment(filePath)}`,
+          title: `${t.openWorkspaceTool} Workspace: ${filePath}`,
+          subtitle: [
+            gitChangeKindLabel(file.kind, t),
+            file.status,
+            typeof file.additions === "number" || typeof file.deletions === "number" ? `+${file.additions || 0} -${file.deletions || 0}` : "",
+            previousLabel,
+          ].filter(Boolean).join(" Â· "),
+          group: t.changes,
+          keywords: [
+            "git changed file workspace open editor diff changes status evidence",
+            filePath,
+            file.previousPath,
+            file.status,
+            file.kind,
+            environment?.git?.branch,
+            environment?.git?.root,
+            environment?.git?.raw,
+            environment?.git?.stat,
+          ].filter(Boolean).join(" "),
+          action: () => openWorkspaceFile(filePath, {
+            projectPath: activeProject?.path || environment?.git?.root || "",
+            projectLabel: projectLabel(activeProject, t),
+            force: true,
+          }),
+        };
+      });
+
     const gitHunkCommands = (Array.isArray(environment?.git?.diff?.fileDiffs) ? environment.git.diff.fileDiffs : [])
       .filter((fileDiff) => fileDiff?.text && (fileDiff.path || fileDiff.previousPath))
       .slice(0, 16)
@@ -11840,6 +11875,7 @@ export function App() {
       ...commandRunCommands,
       ...noticeCommands,
       ...gitFileCommands,
+      ...gitOpenFileCommands,
       ...gitHunkCommands,
       ...sourceRefCommands,
       ...sourceFileCommands,
