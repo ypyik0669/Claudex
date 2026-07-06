@@ -1670,9 +1670,9 @@ function compactPath(value, max = 54) {
 }
 
 function structuredQueryMatch(item, query) {
-  const normalized = String(query || "").trim().toLowerCase();
-  if (!normalized) return true;
-  return [
+  const tokens = String(query || "").trim().toLowerCase().split(/\s+/).filter(Boolean);
+  if (!tokens.length) return true;
+  const haystack = [
     item?.id,
     item?.name,
     item?.marketplace,
@@ -1692,7 +1692,8 @@ function structuredQueryMatch(item, query) {
     item?.tools,
     item?.transport,
     item?.error,
-  ].join(" ").toLowerCase().includes(normalized);
+  ].filter(Boolean).join(" ").toLowerCase();
+  return tokens.every((token) => haystack.includes(token));
 }
 
 function summarizePanelPluginField(value) {
