@@ -3741,7 +3741,8 @@ function Conversation({
     setSelectedGitHunkId(focusedHunkId);
   }, [gitPanelFocus?.path, gitPanelFocus?.hunkId, gitPanelFocus?.all, gitPanelFocus?.nonce]);
   async function runGitFileAction(action, file = selectedGitFile) {
-    if (!file?.path || !activeProject?.path) return;
+    const commandProjectPath = selectedGitWorkspaceProjectPath || activeProject?.path || "";
+    if (!file?.path || !commandProjectPath) return;
     if (!desktopApi?.runWorkspaceCommand) {
       window.alert?.(t.desktopOnly);
       return;
@@ -3762,10 +3763,10 @@ function Conversation({
       title: `Git: ${actionLabel}`,
       detail: file.path,
       commandLine: command,
-      cwd: activeProject.path,
+      cwd: commandProjectPath,
     });
     try {
-      const result = await desktopApi.runWorkspaceCommand({ projectPath: activeProject.path, command, requestId });
+      const result = await desktopApi.runWorkspaceCommand({ projectPath: commandProjectPath, command, requestId });
       if (Array.isArray(result?.commandRuns)) onCommandRuns?.(result.commandRuns);
       const code = typeof result?.code === "number" ? result.code : null;
       onRunEvent?.({
@@ -3775,7 +3776,7 @@ function Conversation({
         title: `Git: ${actionLabel}`,
         detail: `${t.commandExit}: ${code ?? "-"}`,
         commandLine: result?.command || command,
-        cwd: result?.cwd || activeProject.path,
+        cwd: result?.cwd || commandProjectPath,
         code,
         durationMs: typeof result?.durationMs === "number" ? result.durationMs : null,
       });
@@ -3788,14 +3789,15 @@ function Conversation({
         title: `Git: ${actionLabel}`,
         detail: error?.message || String(error),
         commandLine: command,
-        cwd: activeProject.path,
+        cwd: commandProjectPath,
       });
     } finally {
       setGitActionWorkingPath("");
     }
   }
   async function runGitRepoAction(action) {
-    if (!activeProject?.path) return;
+    const commandProjectPath = selectedGitWorkspaceProjectPath || activeProject?.path || "";
+    if (!commandProjectPath) return;
     if (!desktopApi?.runWorkspaceCommand) {
       window.alert?.(t.desktopOnly);
       return;
@@ -3818,10 +3820,10 @@ function Conversation({
       title: `Git: ${actionLabel}`,
       detail: isCommit ? message : branchLabel,
       commandLine: command,
-      cwd: activeProject.path,
+      cwd: commandProjectPath,
     });
     try {
-      const result = await desktopApi.runWorkspaceCommand({ projectPath: activeProject.path, command, requestId });
+      const result = await desktopApi.runWorkspaceCommand({ projectPath: commandProjectPath, command, requestId });
       if (Array.isArray(result?.commandRuns)) onCommandRuns?.(result.commandRuns);
       const code = typeof result?.code === "number" ? result.code : null;
       if (isCommit && code === 0) setGitCommitMessage("");
@@ -3843,7 +3845,7 @@ function Conversation({
         title: `Git: ${actionLabel}`,
         detail: handoffDetail,
         commandLine: result?.command || command,
-        cwd: result?.cwd || activeProject.path,
+        cwd: result?.cwd || commandProjectPath,
         code,
         durationMs: typeof result?.durationMs === "number" ? result.durationMs : null,
       });
@@ -3855,7 +3857,7 @@ function Conversation({
         title: `Git: ${actionLabel}`,
         detail: error?.message || String(error),
         commandLine: command,
-        cwd: activeProject.path,
+        cwd: commandProjectPath,
       });
     } finally {
       setGitActionWorkingPath("");
@@ -4736,6 +4738,7 @@ function Conversation({
                           <button
                             type="button"
                             className="plain-action subtle-action"
+                            data-git-action="stage-file"
                             onClick={() => runGitFileAction("stage", selectedGitFile)}
                             disabled={Boolean(gitActionWorkingPath)}
                             title={gitActionWorkingPath ? t.gitActionRunning : t.stageFile}
@@ -4748,6 +4751,7 @@ function Conversation({
                           <button
                             type="button"
                             className="plain-action subtle-action danger-inline-action"
+                            data-git-action="unstage-file"
                             onClick={() => runGitFileAction("unstage", selectedGitFile)}
                             disabled={Boolean(gitActionWorkingPath)}
                             title={gitActionWorkingPath ? t.gitActionRunning : t.unstageFile}
