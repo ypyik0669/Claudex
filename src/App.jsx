@@ -3533,10 +3533,10 @@ function Conversation({
   useEffect(() => {
     const focusedPath = String(gitPanelFocus?.path || "").trim();
     const focusedHunkId = String(gitPanelFocus?.hunkId || "").trim();
-    if (!focusedPath && !focusedHunkId) return;
+    if (!focusedPath && !focusedHunkId && !gitPanelFocus?.all) return;
     setSelectedGitDiffPath(focusedPath);
     setSelectedGitHunkId(focusedHunkId);
-  }, [gitPanelFocus?.path, gitPanelFocus?.hunkId, gitPanelFocus?.nonce]);
+  }, [gitPanelFocus?.path, gitPanelFocus?.hunkId, gitPanelFocus?.all, gitPanelFocus?.nonce]);
   async function runGitFileAction(action, file = selectedGitFile) {
     if (!file?.path || !activeProject?.path) return;
     if (!desktopApi?.runWorkspaceCommand) {
@@ -9701,7 +9701,7 @@ function commandMatchScore(command, query) {
   const subtitle = String(command.subtitle || "").toLowerCase();
   const group = String(command.group || "").toLowerCase();
   const phrase = tokens.join(" ");
-  let score = 10;
+  let score = 10 + Number(command.priority || 0);
   if (title.includes(phrase)) score += 120;
   if (subtitle.includes(phrase)) score += 70;
   if (haystack.includes(phrase)) score += 40;
@@ -11591,7 +11591,7 @@ export function App() {
   const [rightPanelVisible, setRightPanelVisible] = useState(false);
   const [bottomPanel, setBottomPanel] = useState("");
   const [runTimelineFocus, setRunTimelineFocus] = useState({ id: "", nonce: 0 });
-  const [gitPanelFocus, setGitPanelFocus] = useState({ path: "", hunkId: "", nonce: 0 });
+  const [gitPanelFocus, setGitPanelFocus] = useState({ path: "", hunkId: "", all: false, nonce: 0 });
   const [sourcePanelFocus, setSourcePanelFocus] = useState({ id: "", path: "", nonce: 0 });
   const [browserPanelFocus, setBrowserPanelFocus] = useState({ id: "", url: "", nonce: 0 });
   const [taskCenterFocus, setTaskCenterFocus] = useState({ type: "", id: "", nonce: 0 });
@@ -11667,9 +11667,14 @@ export function App() {
     openBottomPanel("outputs");
   }
 
-  function openGitFileDiff(pathValue = "", hunkId = "") {
+  function openGitFileDiff(pathValue = "", hunkId = "", options = {}) {
     const focusedPath = String(pathValue || "").trim();
-    setGitPanelFocus({ path: focusedPath, hunkId: String(hunkId || "").trim(), nonce: Date.now() });
+    setGitPanelFocus({
+      path: focusedPath,
+      hunkId: String(hunkId || "").trim(),
+      all: Boolean(options.all),
+      nonce: Date.now(),
+    });
     openBottomPanel("changes");
   }
 
@@ -11884,10 +11889,10 @@ export function App() {
     { id: "terminal", title: t.openTerminal, subtitle: projectLabel(activeProject, t), group: t.tools, keywords: "终端 shell powershell", action: openTerminal },
     { id: "settings", title: t.settings, subtitle: t.setupProvider, group: t.settings, kbd: "Ctrl+,", keywords: "服务商 api key 模型 设置", action: openSettingsSurface },
     { id: "capabilities", title: t.capabilities, subtitle: t.plugins, group: t.capabilities, keywords: "插件 技能 工具", action: openCapabilitiesSurface },
-    { id: "capability-plugins", title: t.plugins, subtitle: t.capabilities, group: t.capabilities, keywords: "plugins installed installed plugins claude code 插件 已安装 capability", action: () => openCapabilitiesSurface("plugins") },
-    { id: "capability-skills", title: t.skills, subtitle: t.localSkillRegistry, group: t.capabilities, keywords: "skills registry local SKILL.md 技能 本地 能力", action: () => openCapabilitiesSurface("skills") },
-    { id: "capability-mcp", title: t.mcps, subtitle: t.mcpServers, group: t.capabilities, keywords: "mcp servers tools mcps server 工具 服务器", action: () => openCapabilitiesSurface("mcp") },
-    { id: "capability-marketplace", title: t.marketplace, subtitle: t.marketplaceCatalog, group: t.capabilities, keywords: "marketplace catalog install plugin 市场 插件目录 安装", action: () => openCapabilitiesSurface("marketplace") },
+    { id: "capability-plugins", title: t.plugins, subtitle: t.capabilities, group: t.capabilities, priority: 80, keywords: "plugins installed installed plugins claude code 插件 已安装 capability", action: () => openCapabilitiesSurface("plugins") },
+    { id: "capability-skills", title: t.skills, subtitle: t.localSkillRegistry, group: t.capabilities, priority: 80, keywords: "skills registry local SKILL.md 技能 本地 能力", action: () => openCapabilitiesSurface("skills") },
+    { id: "capability-mcp", title: t.mcps, subtitle: t.mcpServers, group: t.capabilities, priority: 100, keywords: "mcp servers tools mcps server 工具 服务器", action: () => openCapabilitiesSurface("mcp") },
+    { id: "capability-marketplace", title: t.marketplace, subtitle: t.marketplaceCatalog, group: t.capabilities, priority: 80, keywords: "marketplace catalog install plugin 市场 插件目录 安装", action: () => openCapabilitiesSurface("marketplace") },
     ...settingsSectionCommands,
     { id: "automation", title: t.scheduled, subtitle: t.scheduledTitle, group: t.scheduled, keywords: "automation schedule 自动化 计划 任务", action: openScheduledSurface },
     { id: "tool-workspace", title: t.workspaceTool, subtitle: t.openSidePanel, group: t.tools, keywords: "workspace files editor diff 工作区 文件 编辑", action: () => activateTool("workspace") },
@@ -11897,7 +11902,7 @@ export function App() {
     { id: "panel-outputs", title: t.outputs, subtitle: t.bottomPanel, group: t.bottomPanel, keywords: "outputs run timeline evidence 输出 证据 时间线", action: () => openBottomPanel("outputs") },
     { id: "panel-notices", title: t.noticeCenter, subtitle: t.bottomPanel, group: t.bottomPanel, keywords: "notices errors warnings failures 错误 通知 告警", action: () => openBottomPanel("notices") },
     { id: "panel-environment", title: t.environment, subtitle: t.bottomPanel, group: t.bottomPanel, keywords: "environment cwd git ide 环境 项目", action: () => openBottomPanel("environment") },
-    { id: "panel-changes", title: t.changes, subtitle: t.gitDiffPreview, group: t.bottomPanel, keywords: "changes git diff status 变更 差异", action: () => openBottomPanel("changes") },
+    { id: "panel-changes", title: t.changes, subtitle: t.gitDiffPreview, group: t.bottomPanel, keywords: "changes git diff status 变更 差异", action: () => openGitFileDiff("", "", { all: true }) },
     { id: "panel-sources", title: t.sources, subtitle: t.bottomPanel, group: t.bottomPanel, keywords: "sources files project 来源 文件", action: () => openBottomPanel("sources") },
     { id: "panel-subagents", title: t.subagents, subtitle: t.bottomPanel, group: t.bottomPanel, keywords: "subagents agents 子代理 agent", action: () => openBottomPanel("subagents") },
     { id: "panel-task-center", title: t.taskCenter, subtitle: t.bottomPanel, group: t.bottomPanel, keywords: "task center automations subagents evidence 任务中心 自动化 子代理", action: () => openBottomPanel("subagents") },
