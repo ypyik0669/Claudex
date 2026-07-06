@@ -10351,6 +10351,48 @@ export function App() {
         action: () => openTaskCenterFocus("subagent", run.id || run.requestId),
       }));
 
+    const subagentRunCommands = (state.subagentRuns || [])
+      .filter((run) => run?.id || run?.requestId)
+      .slice(0, 16)
+      .map((run) => {
+        const runId = run.requestId || run.id;
+        const artifactSearchParts = Array.isArray(run.artifacts)
+          ? run.artifacts.map((artifact) => [
+            artifact?.label,
+            artifact?.path,
+            artifact?.type,
+            subagentArtifactContent(artifact),
+          ].filter(Boolean).join(" "))
+          : [];
+        return {
+          id: `subagent-run:${commandIdSegment(runId)}`,
+          title: `${t.openRunTimeline}: ${run.nickname || "Subagent"}`,
+          subtitle: [
+            run.summary || run.stderr || messageExcerpt(run.task, 72),
+            subagentStatusLabel(run.status, t),
+            run.endedAt ? formatDate(run.endedAt) : "",
+          ].filter(Boolean).join(" · "),
+          group: t.taskCenter,
+          keywords: [
+            "subagent run timeline evidence stdout stderr artifact",
+            run.id,
+            run.requestId,
+            run.nickname,
+            run.task,
+            run.status,
+            run.summary,
+            run.stdout,
+            run.stderr,
+            run.sessionId,
+            run.project?.name,
+            run.project?.path,
+            run.cwd,
+            ...artifactSearchParts,
+          ].filter(Boolean).join(" "),
+          action: () => openRunTimeline(runId),
+        };
+      });
+
     const installedPluginCommands = (Array.isArray(capabilityCommandStatus?.pluginItems) ? capabilityCommandStatus.pluginItems : [])
       .filter((plugin) => plugin?.id || plugin?.name)
       .slice(0, 16)
@@ -10496,6 +10538,7 @@ export function App() {
       ...automationCommands,
       ...automationRunCommands,
       ...subagentCommands,
+      ...subagentRunCommands,
       ...installedPluginCommands,
       ...mcpServerCommands,
       ...marketplaceSourceCommands,
