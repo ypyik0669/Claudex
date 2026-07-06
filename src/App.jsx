@@ -1081,9 +1081,20 @@ function findRecentMcpActionRun(runs) {
   return runs.find((run) => /(?:^|\s)mcp\s+list(?=\s|$)/i.test(capabilityCommandLine(run))) || null;
 }
 
-function capabilityActionFocusForCommand(args) {
+function capabilityActionFocusForCommand(args, context = {}) {
   const parts = String(args || "").trim().split(/\s+/).filter(Boolean);
   if (parts[0] !== "plugin" || !parts[1]) return null;
+  if (parts[1] === "marketplace" && parts[2] === "update") {
+    const source = (context.marketplaces || []).find((item) => item?.name) || null;
+    const idText = String(source?.name || "").trim();
+    if (!idText) return null;
+    return {
+      tab: "marketplace",
+      kind: "marketplace-source",
+      id: idText,
+      query: idText,
+    };
+  }
   const action = parts[1].toLowerCase();
   const identifier = parts[2] || "";
   if (!identifier) return null;
@@ -7598,7 +7609,9 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
     const nextArgs = String(args || "").trim();
     if (!desktopApi?.runClaudeCommand || !nextArgs) return;
     const requestId = `capability_${Date.now()}_${Math.random().toString(16).slice(2)}`;
-    const nextActionFocus = capabilityActionFocusForCommand(nextArgs);
+    const nextActionFocus = capabilityActionFocusForCommand(nextArgs, {
+      marketplaces: Array.isArray(cliStatus?.marketplaces) ? cliStatus.marketplaces : marketplaceRows,
+    });
     setCliAction(nextArgs);
     setCliError("");
     onRunEvent?.({
@@ -8026,6 +8039,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
               <div className="marketplace-source-list structured-source-list">
                 {marketplaceRows.length === 0 && <p className="empty-list">{t.noCliOutputYet}</p>}
                 {marketplaceRows.map((item) => {
+                  const sourceFocused = capabilityFocusMatches("marketplace-source", item.name);
                   const sourceMeta = [
                     item.version ? [t.version, item.version] : null,
                     item.status ? [t.status, item.status] : null,
@@ -8036,7 +8050,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                   ].filter(Boolean);
                   return (
                     <article
-                      className={cx("marketplace-source-row structured-source-row", capabilityFocusMatches("marketplace-source", item.name) && "focused-capability-row")}
+                      className={cx("marketplace-source-row structured-source-row", sourceFocused && "focused-capability-row")}
                       key={item.name}
                       data-marketplace-source-id={item.name}
                     >
@@ -8055,6 +8069,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                         )}
                       </div>
                       <em>{item.status || item.source || t.source}</em>
+                      <RowCliActionEvidence run={sourceFocused ? recentMarketplaceActionRun : null} t={t} onOpenOutputs={openCapabilityOutputs} />
                     </article>
                   );
                 })}

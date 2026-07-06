@@ -4537,6 +4537,10 @@ button.runtime-health-row {
   grid-column: 2 / -1;
 }
 
+.marketplace-source-row .row-cli-action-evidence {
+  grid-column: 1 / -1;
+}
+
 .row-cli-action-evidence.error {
   border-color: rgba(211, 106, 92, 0.32);
   background: rgba(211, 106, 92, 0.06);
