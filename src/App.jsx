@@ -1090,6 +1090,12 @@ function pluginActionArgsFromRun(run, fallbackIdentifier = "") {
   return `plugin ${action} ${identifier}`;
 }
 
+function claudeArgsFromRun(run) {
+  return String(run?.commandLine || run?.command || "")
+    .replace(/^claude\s+/i, "")
+    .trim();
+}
+
 function capabilityActionFocusForCommand(args, context = {}) {
   const parts = String(args || "").trim().split(/\s+/).filter(Boolean);
   if (parts[0] !== "plugin" || !parts[1]) return null;
@@ -3095,6 +3101,7 @@ function Conversation({
   onCancelSubagent,
   onArchiveSubagent,
   onContinueSubagent,
+  onRetryClaudeCommand,
   onOpenRunTimeline,
   runTimelineFocus,
   taskCenterFocus,
@@ -3348,6 +3355,7 @@ function Conversation({
   const workspaceCommandRuns = useMemo(() => commandRunsToHistory(commandRuns, "workspace"), [commandRuns]);
   const claudeCommandRuns = useMemo(() => commandRunsToHistory(commandRuns, "claude"), [commandRuns]);
   const capabilityCommandRuns = useMemo(() => commandRunsToHistory(commandRuns, "capability"), [commandRuns]);
+  const [bottomClaudeRetryingId, setBottomClaudeRetryingId] = useState("");
   const latestGitActionEvent = useMemo(() => (
     (runEvents || []).find((event) => event.type === "git-command" && event.status !== "running") || null
   ), [runEvents]);
@@ -3402,6 +3410,16 @@ function Conversation({
     { id: "browser", label: t.browser, icon: Globe2 },
   ];
   const toggleBottomPanel = (id) => setBottomPanel(bottomPanel === id ? "" : id);
+  async function retryBottomClaudeEntry(entry) {
+    const args = claudeArgsFromRun(entry);
+    if (!args || !onRetryClaudeCommand || bottomClaudeRetryingId) return;
+    setBottomClaudeRetryingId(entry.id || args);
+    try {
+      await onRetryClaudeCommand(args);
+    } finally {
+      setBottomClaudeRetryingId("");
+    }
+  }
   function handleNoticeAction(notice) {
     const action = String(notice?.action || "");
     if (action.startsWith("runtime-health:")) {
@@ -3691,6 +3709,8 @@ function Conversation({
                       title={t.claudeCommandEvidence}
                       entries={claudeCommandRuns}
                       liveEntry={null}
+                      onRetryEntry={onRetryClaudeCommand ? retryBottomClaudeEntry : null}
+                      retryDisabled={Boolean(bottomClaudeRetryingId)}
                       onClear={null}
                       t={t}
                     />
@@ -6641,7 +6661,7 @@ function ToolsPanel({
                 liveEntry={claudeLiveEntry}
                 entries={claudeHistory}
                 onRetryEntry={(entry) => {
-                  const args = String(entry?.commandLine || "").replace(/^claude\s+/i, "").trim();
+                  const args = claudeArgsFromRun(entry);
                   if (args) runClaude(args);
                 }}
                 retryDisabled={claudeBusy}
@@ -9439,6 +9459,58 @@ export function App() {
     }
   }
 
+  async function runPersistedClaudeCommand(args) {
+    const nextArgs = String(args || "").trim();
+    if (!nextArgs || !desktopApi?.runClaudeCommand) return null;
+    const requestId = `claude_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+    const commandLine = `claude ${nextArgs}`;
+    recordRunEvent({
+      id: requestId,
+      type: "claude-command",
+      status: "running",
+      title: `${t.runClaude}: ${commandLine}`,
+      detail: activeProject?.path || "",
+      commandLine,
+      cwd: activeProject?.path || "",
+    });
+    try {
+      const result = await desktopApi.runClaudeCommand({
+        projectPath: activeProject?.path,
+        args: nextArgs,
+        requestId,
+        persistCommandRun: true,
+        commandRunKind: "claude",
+      });
+      if (Array.isArray(result.commandRuns)) {
+        setState((current) => ({ ...current, commandRuns: result.commandRuns }));
+      }
+      const resolvedArgs = result.args?.join(" ") || nextArgs;
+      recordRunEvent({
+        id: requestId,
+        type: "claude-command",
+        status: result.code === 0 ? "ok" : "error",
+        title: `${t.runClaude}: claude ${resolvedArgs}`,
+        detail: `${t.commandExit}: ${result.code}`,
+        commandLine: `claude ${resolvedArgs}`,
+        cwd: result.cwd || activeProject?.path || "",
+        code: result.code,
+        durationMs: result.durationMs,
+      });
+      return result;
+    } catch (error) {
+      recordRunEvent({
+        id: requestId,
+        type: "claude-command",
+        status: "error",
+        title: `${t.runClaude}: ${commandLine}`,
+        detail: error.message || String(error),
+        commandLine,
+        cwd: activeProject?.path || "",
+      });
+      throw error;
+    }
+  }
+
   function applySessionState(next, preferredId = "", scope = projectScope) {
     setState(next);
     setActiveSessionId(selectSessionIdForProject(next, t, next.activeProject || activeProject, preferredId, scope));
@@ -10565,6 +10637,7 @@ export function App() {
           onCancelSubagent={cancelSubagent}
           onArchiveSubagent={archiveSubagent}
           onContinueSubagent={continueSubagent}
+          onRetryClaudeCommand={runPersistedClaudeCommand}
           onOpenRunTimeline={openRunTimeline}
           runTimelineFocus={runTimelineFocus}
           taskCenterFocus={taskCenterFocus}
