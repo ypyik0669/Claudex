@@ -1096,6 +1096,18 @@ function claudeArgsFromRun(run) {
     .trim();
 }
 
+function safeCapabilityRetryArgsFromRun(run) {
+  const args = claudeArgsFromRun(run);
+  if (!args) return "";
+  const safePatterns = [
+    /^mcp\s+(?:list|--help)$/i,
+    /^plugin\s+list(?:\s+--json)?$/i,
+    /^plugin\s+--help$/i,
+    /^plugin\s+marketplace\s+(?:list(?:\s+--json)?|--help)$/i,
+  ];
+  return safePatterns.some((pattern) => pattern.test(args)) ? args : "";
+}
+
 function capabilityActionFocusForCommand(args, context = {}) {
   const parts = String(args || "").trim().split(/\s+/).filter(Boolean);
   if (parts[0] !== "plugin" || !parts[1]) return null;
@@ -3102,6 +3114,7 @@ function Conversation({
   onArchiveSubagent,
   onContinueSubagent,
   onRetryClaudeCommand,
+  onRetryCapabilityCommand,
   onOpenRunTimeline,
   runTimelineFocus,
   taskCenterFocus,
@@ -3356,6 +3369,7 @@ function Conversation({
   const claudeCommandRuns = useMemo(() => commandRunsToHistory(commandRuns, "claude"), [commandRuns]);
   const capabilityCommandRuns = useMemo(() => commandRunsToHistory(commandRuns, "capability"), [commandRuns]);
   const [bottomClaudeRetryingId, setBottomClaudeRetryingId] = useState("");
+  const [bottomCapabilityRetryingId, setBottomCapabilityRetryingId] = useState("");
   const latestGitActionEvent = useMemo(() => (
     (runEvents || []).find((event) => event.type === "git-command" && event.status !== "running") || null
   ), [runEvents]);
@@ -3418,6 +3432,16 @@ function Conversation({
       await onRetryClaudeCommand(args);
     } finally {
       setBottomClaudeRetryingId("");
+    }
+  }
+  async function retryBottomCapabilityEntry(entry) {
+    const args = safeCapabilityRetryArgsFromRun(entry);
+    if (!args || !onRetryCapabilityCommand || bottomCapabilityRetryingId) return;
+    setBottomCapabilityRetryingId(entry.id || args);
+    try {
+      await onRetryCapabilityCommand(args);
+    } finally {
+      setBottomCapabilityRetryingId("");
     }
   }
   function handleNoticeAction(notice) {
@@ -3723,6 +3747,9 @@ function Conversation({
                       title={t.capabilityCommandEvidence}
                       entries={capabilityCommandRuns}
                       liveEntry={null}
+                      onRetryEntry={onRetryCapabilityCommand ? retryBottomCapabilityEntry : null}
+                      canRetryEntry={(entry) => Boolean(safeCapabilityRetryArgsFromRun(entry))}
+                      retryDisabled={Boolean(bottomCapabilityRetryingId)}
                       onClear={null}
                       t={t}
                     />
@@ -4209,10 +4236,10 @@ function CommandOutputCard({ commandLine, cwd, code, durationMs, stdout = "", st
   );
 }
 
-function CommandHistory({ title, liveEntry, entries, onClear, onRetryEntry, retryDisabled = false, t }) {
+function CommandHistory({ title, liveEntry, entries, onClear, onRetryEntry, canRetryEntry, retryDisabled = false, t }) {
   if (!liveEntry && !entries.length) return null;
   const summary = liveEntry ? t.runningNow : t.completedRuns.replace("{count}", entries.length);
-  const retryPropsFor = (entry) => (onRetryEntry && entry?.code !== 0 && !entry?.cancelled
+  const retryPropsFor = (entry) => (onRetryEntry && entry?.code !== 0 && !entry?.cancelled && (!canRetryEntry || canRetryEntry(entry))
     ? { onRetry: () => onRetryEntry(entry), retryDisabled }
     : {});
 
@@ -9511,6 +9538,63 @@ export function App() {
     }
   }
 
+  async function runPersistedCapabilityCommand(args) {
+    const nextArgs = String(args || "").trim();
+    if (!nextArgs || !desktopApi?.runClaudeCommand) return null;
+    const requestId = `capability_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+    const commandLine = `claude ${nextArgs}`;
+    setBottomPanel("outputs");
+    recordRunEvent({
+      id: requestId,
+      type: "capability-cli",
+      status: "running",
+      title: `${t.pluginActions}: ${commandLine}`,
+      detail: projectLabel(activeProject, t),
+      commandLine,
+      cwd: activeProject?.path || "",
+    });
+    try {
+      const result = await desktopApi.runClaudeCommand({
+        projectPath: activeProject?.path,
+        args: nextArgs,
+        requestId,
+        persistCommandRun: true,
+        commandRunKind: "capability",
+      });
+      if (Array.isArray(result.commandRuns)) {
+        setState((current) => ({ ...current, commandRuns: result.commandRuns }));
+      }
+      const resolvedArgs = result.args?.join(" ") || nextArgs;
+      recordRunEvent({
+        id: requestId,
+        type: "capability-cli",
+        status: result.code === 0 ? "ok" : "error",
+        title: `${t.pluginActions}: claude ${resolvedArgs}`,
+        detail: `${t.commandExit}: ${result.code}`,
+        commandLine: `claude ${resolvedArgs}`,
+        cwd: result.cwd || activeProject?.path || "",
+        stdout: result.stdout || "",
+        stderr: result.stderr || "",
+        code: result.code,
+        durationMs: result.durationMs,
+        suppressNotice: true,
+      });
+      return result;
+    } catch (error) {
+      recordRunEvent({
+        id: requestId,
+        type: "capability-cli",
+        status: "error",
+        title: `${t.pluginActions}: ${commandLine}`,
+        detail: error.message || String(error),
+        commandLine,
+        cwd: activeProject?.path || "",
+        suppressNotice: true,
+      });
+      throw error;
+    }
+  }
+
   function applySessionState(next, preferredId = "", scope = projectScope) {
     setState(next);
     setActiveSessionId(selectSessionIdForProject(next, t, next.activeProject || activeProject, preferredId, scope));
@@ -10638,6 +10722,7 @@ export function App() {
           onArchiveSubagent={archiveSubagent}
           onContinueSubagent={continueSubagent}
           onRetryClaudeCommand={runPersistedClaudeCommand}
+          onRetryCapabilityCommand={runPersistedCapabilityCommand}
           onOpenRunTimeline={openRunTimeline}
           runTimelineFocus={runTimelineFocus}
           taskCenterFocus={taskCenterFocus}
