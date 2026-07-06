@@ -4867,13 +4867,32 @@ function Conversation({
                     {sourceRefs.slice(0, 12).map((source) => {
                       const sourceKey = sourceRefKey(source);
                       const selected = focusedSourceKey && [sourceKey, source.id, source.path].filter(Boolean).includes(focusedSourceKey);
+                      const sourcePath = String(source.path || "").trim();
                       return (
                         <article className={cx("source-ref-card", selected && "selected")} key={sourceKey || source.id || source.path}>
                           <FileText size={14} />
-                          <div>
+                          <div className="source-ref-card-main">
                             <strong title={source.path}>{source.path}</strong>
                             <span title={source.project?.path || ""}>{projectLabel(source.project, t)} · {formatBytes(source.size)} · {t.sourceLastOpened} {formatDate(source.lastOpenedAt)}</span>
                           </div>
+                          {sourcePath && (
+                            <div className="source-ref-card-actions">
+                              <button
+                                type="button"
+                                className="plain-action subtle-action"
+                                data-source-open-workspace={sourceKey || sourcePath}
+                                onClick={() => onOpenWorkspaceFile?.(sourcePath, {
+                                  projectPath: source.project?.path || activeProject?.path || "",
+                                  projectLabel: projectLabel(source.project, t),
+                                  force: true,
+                                })}
+                                title={`${t.openWorkspaceTool}: ${sourcePath}`}
+                              >
+                                <FileText size={12} />
+                                {t.openWorkspaceTool}
+                              </button>
+                            </div>
+                          )}
                         </article>
                       );
                     })}
