@@ -259,6 +259,34 @@ async function runTest() {
       return Boolean(evidence && /plugin install qa-structured-plugin/.test(text) && /退出码/.test(text) && /\\b0\\b/.test(text));
     })();
   `, 10000));
+  assertStep("PASS59_ROW_EVIDENCE_ACTIONS_VISIBLE", await win.webContents.executeJavaScript(`
+    (function() {
+      const card = [...document.querySelectorAll('.marketplace-plugin-card')]
+        .find((item) => /qa-structured-plugin/.test(item.textContent || ''));
+      const evidence = card?.querySelector('.row-cli-action-evidence.ok');
+      const buttons = [...(evidence?.querySelectorAll('button') || [])].map((button) => button.textContent || button.getAttribute('aria-label') || '');
+      return buttons.some((text) => /复制证据/.test(text)) && buttons.some((text) => /打开输出/.test(text));
+    })();
+  `));
+  assertStep("PASS59_COPY_ROW_EVIDENCE", await win.webContents.executeJavaScript(`
+    (function() {
+      const card = [...document.querySelectorAll('.marketplace-plugin-card')]
+        .find((item) => /qa-structured-plugin/.test(item.textContent || ''));
+      const evidence = card?.querySelector('.row-cli-action-evidence.ok');
+      const button = [...(evidence?.querySelectorAll('button') || [])].find((candidate) => /复制证据/.test(candidate.textContent || candidate.getAttribute('aria-label') || ''));
+      if (!button) return false;
+      button.click();
+      return true;
+    })();
+  `));
+  assertStep("PASS59_COPY_ROW_EVIDENCE_FEEDBACK", await waitFor(win, `
+    (function() {
+      const card = [...document.querySelectorAll('.marketplace-plugin-card')]
+        .find((item) => /qa-structured-plugin/.test(item.textContent || ''));
+      const evidence = card?.querySelector('.row-cli-action-evidence.ok');
+      return /已复制/.test(evidence?.textContent || '');
+    })();
+  `, 3000));
   assertStep("PASS59_GLOBAL_ACTION_EVIDENCE_STILL_VISIBLE", await waitFor(win, `
     (function() {
       const card = document.querySelector('.plugin-cli-action-evidence.ok');
@@ -266,15 +294,27 @@ async function runTest() {
       return Boolean(card && /plugin install qa-structured-plugin/.test(text) && /\\b0\\b/.test(text));
     })();
   `, 10000));
-  assertStep("PASS59_BACK_TO_APP", await win.webContents.executeJavaScript(`
+  assertStep("PASS59_OPEN_OUTPUTS_FROM_ROW_EVIDENCE", await win.webContents.executeJavaScript(`
     (function() {
-      const button = document.querySelector('.surface-back');
+      const card = [...document.querySelectorAll('.marketplace-plugin-card')]
+        .find((item) => /qa-structured-plugin/.test(item.textContent || ''));
+      const evidence = card?.querySelector('.row-cli-action-evidence.ok');
+      const button = [...(evidence?.querySelectorAll('button') || [])].find((candidate) => /打开输出/.test(candidate.textContent || candidate.getAttribute('aria-label') || ''));
       if (!button) return false;
       button.click();
       return true;
     })();
   `));
-  assertStep("PASS59_OPEN_OUTPUTS_PANEL", await waitFor(win, "Boolean(document.querySelector('.workspace-context-tabs'))", 5000) && await openOutputsPanel(win));
+  assertStep("PASS59_OUTPUTS_PANEL_FROM_ROW_EVIDENCE", await waitFor(win, `
+    Boolean(document.querySelector('.bottom-work-panel') &&
+      document.querySelector('.capability-command-evidence-stack') &&
+      /plugin install qa-structured-plugin/.test(document.querySelector('.capability-command-evidence-stack')?.textContent || ''))
+  `, 5000));
+  assertStep("PASS59_APP_RETURNED_FROM_ROW_OUTPUTS", await waitFor(win, `
+    Boolean(!document.querySelector('.plugin-manager-modal') &&
+      document.querySelector('.workspace-context-tabs') &&
+      document.querySelector('.bottom-work-panel'))
+  `, 5000));
   assertStep("PASS59_TIMELINE_HAS_CLI_EVENT", await waitFor(win, `
     Boolean(document.querySelector('.run-timeline') &&
       /plugin install qa-structured-plugin/.test(document.querySelector('.run-timeline')?.textContent || '') &&

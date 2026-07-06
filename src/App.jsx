@@ -558,6 +558,8 @@ const copy = {
     pluginActions: "插件操作",
     pluginActionEvidence: "最近 CLI 操作证据",
     pluginRowActionEvidence: "最近执行",
+    copyEvidence: "复制证据",
+    openOutputs: "打开输出",
     confirmDisableTitle: "要禁用这个插件吗？",
     confirmDisableWarning: "这会禁用「{name}」。之后可以通过重新安装或更新来重新启用它。",
     confirmDisableButton: "确认禁用",
@@ -1396,7 +1398,23 @@ function CliStatusDetail({ issue, t, onRetry, onOpenClaudePanel, disabled, spinn
   );
 }
 
-function RowCliActionEvidence({ run, t }) {
+function rowCliActionEvidenceText(run, t) {
+  const commandLine = capabilityCommandLine(run);
+  const code = typeof run?.code === "number" ? run.code : null;
+  const duration = typeof run?.durationMs === "number" ? `${run.durationMs}ms` : "";
+  const stdout = String(run?.stdout || "");
+  const stderr = String(run?.stderr || "");
+  return [
+    `$ ${commandLine}`,
+    run?.cwd ? `${t.commandCwd}: ${run.cwd}` : "",
+    `${t.commandExit}: ${code ?? "-"}${duration ? ` (${duration})` : ""}`,
+    stdout ? `\n${t.commandStdout}\n${stdout}` : "",
+    stderr ? `\n${t.commandStderr}\n${stderr}` : "",
+  ].filter(Boolean).join("\n");
+}
+
+function RowCliActionEvidence({ run, t, onOpenOutputs }) {
+  const [copied, setCopied] = useState(false);
   if (!run) return null;
   const commandLine = capabilityCommandLine(run);
   const code = typeof run.code === "number" ? run.code : null;
@@ -1404,12 +1422,36 @@ function RowCliActionEvidence({ run, t }) {
   const status = code === 0 ? "ok" : "error";
   const duration = typeof run.durationMs === "number" ? `${run.durationMs}ms` : "";
   const outputSummary = output ? messageExcerpt(output, 180) : "";
+  const evidenceText = rowCliActionEvidenceText(run, t);
+
+  async function copyEvidence() {
+    try {
+      await navigator.clipboard?.writeText(evidenceText);
+    } catch (_error) {
+      // Clipboard permissions vary by shell; visible feedback still records the copy intent.
+    }
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1200);
+  }
+
   return (
     <section className={cx("row-cli-action-evidence", status)} aria-label={t.pluginRowActionEvidence}>
       <div className="row-cli-action-evidence-head">
         <span>{t.pluginRowActionEvidence}</span>
         <code title={commandLine}>{messageExcerpt(commandLine.replace(/^claude\s+/i, ""), 96)}</code>
         <em>{t.commandExit}: {code ?? "-"}{duration ? ` · ${duration}` : ""}</em>
+        <div className="row-cli-action-evidence-actions">
+          <button type="button" className="plain-action subtle-action" onClick={copyEvidence} title={copied ? t.copied : t.copyEvidence}>
+            {copied ? <Check size={12} /> : <Copy size={12} />}
+            {copied ? t.copied : t.copyEvidence}
+          </button>
+          {onOpenOutputs && (
+            <button type="button" className="plain-action subtle-action" onClick={onOpenOutputs} title={t.openOutputs}>
+              <PanelBottom size={12} />
+              {t.openOutputs}
+            </button>
+          )}
+        </div>
       </div>
       {outputSummary && <p className="row-cli-action-message">{outputSummary}</p>}
       {output && (
@@ -7085,6 +7127,11 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
     if (target === "claude") onOpenClaudePanel?.();
   }
 
+  function openCapabilityOutputs() {
+    onOpenBottomPanel?.("outputs");
+    onClose?.();
+  }
+
   function recordRuntimeHealthEvidence(summary, evidenceText) {
     const eventId = `runtime_health_${Date.now()}_${Math.random().toString(16).slice(2)}`;
     onRunEvent?.({
@@ -7344,7 +7391,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                 <summary>{t.rawOutput}</summary>
                 <pre className="settings-raw-output marketplace-output">{marketplaceOutput || cliStatus?.marketplaceOutput || t.noCliOutputYet}</pre>
               </details>
-              <RowCliActionEvidence run={recentMarketplaceActionRun} t={t} />
+              <RowCliActionEvidence run={recentMarketplaceActionRun} t={t} onOpenOutputs={openCapabilityOutputs} />
             </section>
             <section className="marketplace-card">
               <div className="marketplace-card-head">
@@ -7386,7 +7433,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                         </button>
                       )}
                     </div>
-                    <RowCliActionEvidence run={recentRun} t={t} />
+                    <RowCliActionEvidence run={recentRun} t={t} onOpenOutputs={openCapabilityOutputs} />
                   </article>
                   );
                 })}
@@ -7514,7 +7561,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                       )}
                       <button type="button" className="plain-action subtle-action" onClick={() => requestCapabilityClaude(`plugin update ${plugin.id}`, `${t.updatePlugin}: ${plugin.id}`)} disabled={cliWorking} title={cliWorking ? t.workingHint : undefined}>{t.updatePlugin}</button>
                     </div>
-                    <RowCliActionEvidence run={recentRun} t={t} />
+                    <RowCliActionEvidence run={recentRun} t={t} onOpenOutputs={openCapabilityOutputs} />
                   </article>
                   );
                 })}
@@ -7548,7 +7595,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                     </button>
                   </div>
                 </div>
-                <RowCliActionEvidence run={recentMcpActionRun} t={t} />
+                <RowCliActionEvidence run={recentMcpActionRun} t={t} onOpenOutputs={openCapabilityOutputs} />
                 {mcpServerRows.length === 0 && <p className="empty-list">{t.noMcpServers}</p>}
                 {mcpServerRows.map((server) => {
                   const rowKey = mcpServerKey(server);

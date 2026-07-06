@@ -4534,7 +4534,7 @@ button.runtime-health-row {
 .row-cli-action-evidence-head {
   min-width: 0;
   display: grid;
-  grid-template-columns: auto minmax(0, 1fr) auto;
+  grid-template-columns: auto minmax(0, 1fr) auto auto;
   align-items: center;
   gap: 8px;
   padding: 6px 8px;
@@ -4563,6 +4563,19 @@ button.runtime-health-row {
   font-size: 10.5px;
   font-style: normal;
   white-space: nowrap;
+}
+
+.row-cli-action-evidence-actions {
+  display: inline-flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 5px;
+}
+
+.row-cli-action-evidence-actions .plain-action {
+  min-height: 24px;
+  padding: 3px 7px;
+  font-size: 10.5px;
 }
 
 .row-cli-action-message {
