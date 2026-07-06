@@ -187,11 +187,67 @@ async function runTest() {
     (function() {
       const card = document.querySelector('.capability-modal .runtime-health-card');
       const buttons = [...(card?.querySelectorAll('button') || [])].map((button) => button.textContent || '').join(' ');
-      return /\\u91cd\\u8bd5\\u72b6\\u6001/.test(buttons) && /Claude/.test(buttons);
+      return /\\u91cd\\u8bd5\\u72b6\\u6001/.test(buttons) &&
+        /Claude/.test(buttons) &&
+        Boolean(card?.querySelector('button[data-runtime-health-action="copy"]')) &&
+        Boolean(card?.querySelector('button[data-runtime-health-action="pin"]'));
     })();
   `));
+  assertStep("PASS78_COPY_EVIDENCE", await win.webContents.executeJavaScript(`
+    (function() {
+      const button = document.querySelector('.capability-modal .runtime-health-card button[data-runtime-health-action="copy"]');
+      if (!button) return false;
+      button.click();
+      return true;
+    })();
+  `));
+  assertStep("PASS78_COPY_EVIDENCE_FEEDBACK", await waitFor(win, `
+    (function() {
+      const button = document.querySelector('.capability-modal .runtime-health-card button[data-runtime-health-action="copy"]');
+      return Boolean(button && /\\u5df2\\u590d\\u5236/.test(button.textContent || ''));
+    })();
+  `, 5000));
+  assertStep("PASS78_MARKETPLACE_ROW_DEEP_LINK", await win.webContents.executeJavaScript(`
+    (function() {
+      const row = document.querySelector('.capability-modal .runtime-health-row[data-health-row="marketplace"]');
+      if (!row) return false;
+      row.click();
+      return true;
+    })();
+  `));
+  assertStep("PASS78_MARKETPLACE_TAB_OPENED_FROM_HEALTH", await waitFor(win, `
+    Boolean(document.querySelector('.marketplace-workbench'))
+  `, 8000));
+  assertStep("PASS78_PIN_EVIDENCE", await win.webContents.executeJavaScript(`
+    (function() {
+      const button = document.querySelector('.capability-modal .runtime-health-card button[data-runtime-health-action="pin"]');
+      if (!button) return false;
+      button.click();
+      return true;
+    })();
+  `));
+  assertStep("PASS78_STORE_HAS_RUNTIME_HEALTH_EVENT", await waitFor(win, `
+    (async function() {
+      const state = await window.claudexDesktop.getState();
+      const event = (state.runEvents || []).find((item) => item.type === 'runtime-health');
+      return Boolean(event &&
+        /pass78 plugin json failed/.test(event.stdout || '') &&
+        /pass78 marketplace json failed/.test(event.stdout || '') &&
+        event.status === 'error');
+    })();
+  `, 8000));
 
   assertStep("PASS78_CLOSE_CAPABILITIES", await closeSurface(win));
+  assertStep("PASS78_PINNED_EVIDENCE_VISIBLE", await waitFor(win, `
+    (function() {
+      const panel = document.querySelector('.selected-run-evidence-panel');
+      const text = panel?.textContent || '';
+      return Boolean(panel &&
+        /runtime-health/.test(text) &&
+        /pass78 plugin json failed/.test(text) &&
+        /pass78 marketplace json failed/.test(text));
+    })();
+  `, 10000));
   await wait(350);
   assertStep("PASS78_OPEN_CLAUDE_TOOL", await openClaudeTool(win));
   assertStep("PASS78_CLAUDE_TOOL_RUNTIME_HEALTH", await waitFor(win, `

@@ -501,6 +501,8 @@ function normalizeRunEvent(item, store) {
     cwd: String(item?.cwd || project?.path || ""),
     code: typeof item?.code === "number" ? item.code : null,
     durationMs: typeof item?.durationMs === "number" ? item.durationMs : null,
+    stdout: String(item?.stdout || ""),
+    stderr: String(item?.stderr || ""),
     project,
     sessionId: String(item?.sessionId || ""),
     createdAt: isoOrEmpty(item?.createdAt) || now(),

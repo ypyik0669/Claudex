@@ -646,6 +646,10 @@ const copy = {
     runtimeHealthPluginCount: "{count} 个插件",
     runtimeHealthMcpCount: "{count} 个 MCP",
     runtimeHealthMarketplaceCount: "{count} 个市场",
+    runtimeHealthEvidence: "运行健康证据",
+    runtimeHealthOpenTarget: "打开对应工作台",
+    copyRuntimeHealthEvidence: "复制健康证据",
+    pinRuntimeHealthEvidence: "固定到证据",
     noCapabilities: "没有匹配的能力。",
     enabled: "已启用",
     disabled: "已关闭",
@@ -1183,6 +1187,34 @@ function runtimeHealthSummary(claudeStatus, settings, activeProject, t) {
   return { known, status: stateStatus, headline, issues, rows };
 }
 
+function runtimeHealthEvidenceText(summary, t) {
+  const lines = [
+    `${t.runtimeHealth}: ${summary?.headline || ""}`,
+    `${t.scheduleStatus}: ${summary?.status || ""}`,
+    "",
+    ...(summary?.rows || []).map((row) => `${row.label}: ${row.value || "-"} · ${row.status || "-"} · ${row.detail || "-"}`),
+  ];
+  if (summary?.issues?.length) {
+    lines.push("", t.capabilityStatusIssues);
+    for (const issue of summary.issues) {
+      lines.push(`- ${issue.label}: claude ${issue.commandLine} · ${t.commandExit}: ${issue.kind === "auth" ? t.needsKey : issue.code}`);
+      if (issue.error) lines.push(`  ${issue.error}`);
+      if (issue.stdout) lines.push(`  stdout: ${messageExcerpt(issue.stdout, 240)}`);
+      if (issue.stderr && issue.stderr !== issue.error) lines.push(`  stderr: ${messageExcerpt(issue.stderr, 240)}`);
+    }
+  }
+  return lines.filter((line, index) => index < 2 || String(line || "").trim()).join("\n");
+}
+
+function runtimeHealthTargetForRow(row) {
+  if (!row?.id) return "";
+  if (row.id === "plugins") return "plugins";
+  if (row.id === "mcp") return "mcp";
+  if (row.id === "marketplace") return "marketplace";
+  if (row.id === "runtime" || row.id === "auth") return "claude";
+  return "";
+}
+
 function RuntimeHealthCard({
   claudeStatus,
   settings,
@@ -1190,11 +1222,26 @@ function RuntimeHealthCard({
   t,
   onRetry,
   onOpenClaudePanel,
+  onOpenRow,
+  onRecordEvidence,
   busy = false,
   compact = false,
 }) {
+  const [copied, setCopied] = useState(false);
   const summary = runtimeHealthSummary(claudeStatus, settings, activeProject, t);
   const HeadIcon = summary.status === "error" ? AlertTriangle : summary.status === "pending" ? Clock3 : Shield;
+
+  async function copyEvidence() {
+    const text = runtimeHealthEvidenceText(summary, t);
+    try {
+      await navigator.clipboard?.writeText(text);
+    } catch (_error) {
+      // Clipboard permissions vary; visible feedback still records the copy intent.
+    }
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1300);
+  }
+
   return (
     <section className={cx("runtime-health-card", summary.status, compact && "compact")} aria-label={t.runtimeHealth}>
       <div className="runtime-health-head">
@@ -1218,20 +1265,40 @@ function RuntimeHealthCard({
                 {t.openClaudePanel}
               </button>
             )}
+            <button type="button" className="plain-action subtle-action" data-runtime-health-action="copy" onClick={copyEvidence}>
+              <Copy size={13} />
+              {copied ? t.copied : t.copyRuntimeHealthEvidence}
+            </button>
+            {onRecordEvidence && (
+              <button type="button" className="plain-action subtle-action" data-runtime-health-action="pin" onClick={() => onRecordEvidence(summary, runtimeHealthEvidenceText(summary, t))}>
+                <Pin size={13} />
+                {t.pinRuntimeHealthEvidence}
+              </button>
+            )}
           </div>
         )}
       </div>
       <div className="runtime-health-grid">
         {summary.rows.map((row) => {
           const RowIcon = row.status === "error" ? AlertTriangle : row.status === "pending" ? Clock3 : Check;
+          const target = runtimeHealthTargetForRow(row);
+          const actionable = Boolean(target && onOpenRow);
+          const RowTag = actionable ? "button" : "article";
           return (
-            <article className={cx("runtime-health-row", row.status)} key={row.id} title={[row.detail, row.issue?.error].filter(Boolean).join("\n")}>
+            <RowTag
+              className={cx("runtime-health-row", row.status, actionable && "actionable")}
+              key={row.id}
+              title={[row.detail, row.issue?.error, actionable ? t.runtimeHealthOpenTarget : ""].filter(Boolean).join("\n")}
+              data-health-row={row.id}
+              type={actionable ? "button" : undefined}
+              onClick={actionable ? () => onOpenRow(row, summary) : undefined}
+            >
               <RowIcon size={12} />
               <div>
                 <span>{row.label}</span>
                 <strong>{messageExcerpt(row.value, compact ? 36 : 64)}</strong>
               </div>
-            </article>
+            </RowTag>
           );
         })}
       </div>
@@ -1775,8 +1842,8 @@ function runTimelineEvidenceForEvent(event, { commandRuns = [], automations = []
     cwd: event?.cwd || event?.project?.path || "",
     code: typeof event?.code === "number" ? event.code : null,
     durationMs: typeof event?.durationMs === "number" ? event.durationMs : null,
-    stdout: "",
-    stderr: "",
+    stdout: event?.stdout || "",
+    stderr: event?.stderr || "",
     summary: event?.detail || "",
   };
 }
@@ -4433,6 +4500,7 @@ function ToolsPanel({
   onOpenTerminal,
   onOpenBrowserUrl,
   onCapabilities,
+  onOpenBottomPanel,
   onRunEvent,
   onSourceRefs,
   commandRuns = [],
@@ -5106,6 +5174,33 @@ function ToolsPanel({
     loadPlugins();
   }
 
+  function openRuntimeHealthTarget(row) {
+    const target = runtimeHealthTargetForRow(row);
+    if (target === "plugins" || target === "mcp" || target === "marketplace") {
+      onCapabilities?.(target);
+      return;
+    }
+    if (target === "claude") {
+      setSelectedTool("claude");
+    }
+  }
+
+  function recordRuntimeHealthEvidence(summary, evidenceText) {
+    const eventId = `runtime_health_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+    onRunEvent?.({
+      id: eventId,
+      type: "runtime-health",
+      status: summary?.status === "ok" ? "ok" : summary?.status === "pending" ? "running" : "error",
+      title: t.runtimeHealthEvidence,
+      detail: summary?.headline || "",
+      cwd: activeProject?.path || "",
+      stdout: evidenceText,
+      code: Array.isArray(summary?.issues) ? summary.issues.length : null,
+      suppressNotice: true,
+    });
+    onOpenBottomPanel?.("outputs");
+  }
+
   useEffect(() => {
     if (selectedTool === "workspace") loadTree();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -5565,6 +5660,8 @@ function ToolsPanel({
               t={t}
               onRetry={loadClaudeStatus}
               onOpenClaudePanel={openInteractiveClaude}
+              onOpenRow={openRuntimeHealthTarget}
+              onRecordEvidence={recordRuntimeHealthEvidence}
               busy={statusBusy}
               compact
             />
@@ -5952,6 +6049,17 @@ function SettingsModal({
     action?.();
   }
 
+  function openRuntimeHealthTarget(row) {
+    const target = runtimeHealthTargetForRow(row);
+    if (target === "plugins" || target === "mcp" || target === "marketplace") {
+      requestDeepLink(() => onOpenCapabilities?.(target));
+      return;
+    }
+    if (target === "claude") {
+      requestDeepLink(() => onOpenTool?.("claude"));
+    }
+  }
+
   const settingsBody = (
       <form
         ref={modalRef}
@@ -6047,6 +6155,7 @@ function SettingsModal({
                 t={t}
                 onRetry={refreshSettingsStatus}
                 onOpenClaudePanel={() => requestDeepLink(() => onOpenTool?.("claude"))}
+                onOpenRow={openRuntimeHealthTarget}
                 busy={settingsStatusBusy}
               />
             )}
@@ -6755,6 +6864,32 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
     setCustomMarketplaceUrl("");
   }
 
+  function openRuntimeHealthTarget(row) {
+    const target = runtimeHealthTargetForRow(row);
+    if (target === "plugins" || target === "mcp" || target === "marketplace") {
+      setQuery("");
+      setActiveTab(target);
+      return;
+    }
+    if (target === "claude") onOpenClaudePanel?.();
+  }
+
+  function recordRuntimeHealthEvidence(summary, evidenceText) {
+    const eventId = `runtime_health_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+    onRunEvent?.({
+      id: eventId,
+      type: "runtime-health",
+      status: summary?.status === "ok" ? "ok" : summary?.status === "pending" ? "running" : "error",
+      title: t.runtimeHealthEvidence,
+      detail: summary?.headline || "",
+      cwd: activeProject?.path || "",
+      stdout: evidenceText,
+      code: Array.isArray(summary?.issues) ? summary.issues.length : null,
+      suppressNotice: true,
+    });
+    onOpenBottomPanel?.("outputs");
+  }
+
   useEffect(() => {
     refreshCliStatus();
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -6799,6 +6934,8 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
         t={t}
         onRetry={refreshCliStatus}
         onOpenClaudePanel={onOpenClaudePanel}
+        onOpenRow={openRuntimeHealthTarget}
+        onRecordEvidence={recordRuntimeHealthEvidence}
         busy={cliWorking}
       />
       {cliStatusIssues.length > 0 && (
@@ -7423,6 +7560,14 @@ function SettingsBackedStatus({
     : activeSection === "git"
       ? git?.raw || ""
       : "";
+  function openRuntimeHealthTarget(row) {
+    const target = runtimeHealthTargetForRow(row);
+    if (target === "plugins" || target === "mcp" || target === "marketplace") {
+      onOpenCapabilities?.(target);
+      return;
+    }
+    if (target === "claude") onOpenTool?.("claude");
+  }
   const actionsBySection = {
     profile: [
       { label: t.openProjectSurface, icon: Folder, onClick: onOpenProjects },
@@ -7499,6 +7644,7 @@ function SettingsBackedStatus({
             t={t}
             onRetry={onRefresh}
             onOpenClaudePanel={() => onOpenTool?.("claude")}
+            onOpenRow={openRuntimeHealthTarget}
             busy={busy}
             compact
           />
@@ -8718,6 +8864,7 @@ export function App() {
           onOpenTerminal={openTerminal}
           onOpenBrowserUrl={openBrowserUrl}
           onCapabilities={openCapabilitiesSurface}
+          onOpenBottomPanel={openBottomPanel}
           onRunEvent={recordRunEvent}
           onSourceRefs={(sourceRefs) => setState((current) => ({ ...current, sourceRefs }))}
           commandRuns={state.commandRuns}
