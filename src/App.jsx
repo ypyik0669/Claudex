@@ -5302,7 +5302,7 @@ function EnvironmentOverview({
           <span>{t.changes}</span>
           <em>{git?.available ? `${git.changes || 0}` : t.gitUnavailable}</em>
         </button>
-        <button type="button" className="environment-row" title={environment?.cwd || activeProject?.path || t.noProjectPath}>
+        <button type="button" className="environment-row" onClick={() => onOpenBottomPanel?.("environment")} title={environment?.cwd || activeProject?.path || t.noProjectPath}>
           <HardDrive size={15} />
           <span>{t.local}</span>
           <em>{projectMissing ? t.projectPathMissing : activeProject?.path ? compactPath(activeProject.path, 28) : t.noProjectPath}</em>
@@ -5318,7 +5318,7 @@ function EnvironmentOverview({
           <em>{git?.branch || t.gitUnavailable}</em>
         </button>
         {gitRelativePath && gitRelativePath !== "." && (
-          <button type="button" className="environment-row muted" disabled title={gitRelativePath}>
+          <button type="button" className="environment-row muted" onClick={() => onOpenBottomPanel?.("environment")} title={gitRelativePath}>
             <Folder size={15} />
             <span>{t.gitRelativePath}</span>
             <em>{gitRelativeLabel}</em>
