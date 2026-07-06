@@ -3,7 +3,30 @@ const os = require("os");
 const path = require("path");
 const { app, BrowserWindow } = require("electron");
 
-const REPO_DIR = path.join(__dirname, "..");
+function findRepoDir() {
+  const candidates = [
+    process.env.CLAUDEX_REPO_DIR,
+    process.cwd(),
+    __dirname,
+    path.join(__dirname, ".."),
+  ].filter(Boolean);
+  for (const candidate of candidates) {
+    let current = path.resolve(candidate);
+    while (current && current !== path.dirname(current)) {
+      if (
+        fs.existsSync(path.join(current, "package.json")) &&
+        fs.existsSync(path.join(current, "electron", "main.cjs"))
+      ) {
+        return current;
+      }
+      current = path.dirname(current);
+    }
+  }
+  throw new Error("Unable to locate Claudex repo root");
+}
+
+const REPO_DIR = findRepoDir();
+process.chdir(REPO_DIR);
 const USER_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "claudex-pass76-data-"));
 const FAKE_BIN_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "claudex-pass76-bin-"));
 const PROJECT_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "claudex-pass76-project-"));
@@ -288,7 +311,15 @@ app.whenReady().then(async () => {
     assertStep("PASS76_ARCHIVE_PERSISTED", (() => {
       const parsed = persistedState();
       const run = parsed.subagentRuns?.find((item) => item.id === "pass76-error-run");
-      return Boolean(run?.archivedAt);
+      const archiveEvent = parsed.runEvents?.find((item) => item.id === "pass76-error-request:archive");
+      return Boolean(
+        run?.archivedAt &&
+        archiveEvent?.type === "subagent-action" &&
+        archiveEvent.status === "ok" &&
+        /\u5173\u95ed\u8bb0\u5f55/.test(archiveEvent.title || "") &&
+        /pass76 lifecycle failure/.test(archiveEvent.detail || "") &&
+        /pass76 lifecycle failure stderr/.test(archiveEvent.stderr || "")
+      );
     })());
 
     assertStep("PASS76_SHOW_ARCHIVED_AND_RESTORE", await waitFor(win, `
@@ -326,12 +357,18 @@ app.whenReady().then(async () => {
       const parsed = persistedState();
       const done = parsed.subagentRuns?.find((item) => item.id === "pass76-done-run");
       const restored = parsed.subagentRuns?.find((item) => item.id === "pass76-error-run");
+      const restoreEvent = parsed.runEvents?.find((item) => item.id === "pass76-error-request:restore");
       const session = parsed.sessions?.find((item) => item.id === "default");
       const message = session?.messages?.find((item) => item.source?.type === "subagent" && item.source?.runId === "pass76-done-run");
       return Boolean(
         done?.continuedAt &&
         done.continuedSessionId === "default" &&
         !restored?.archivedAt &&
+        restoreEvent?.type === "subagent-action" &&
+        restoreEvent.status === "ok" &&
+        /\u6062\u590d\u8bb0\u5f55/.test(restoreEvent.title || "") &&
+        /pass76 lifecycle failure/.test(restoreEvent.detail || "") &&
+        /pass76 lifecycle failure stderr/.test(restoreEvent.stderr || "") &&
         message &&
         /pass76 lifecycle summary/.test(message.content || "") &&
         /pass76 lifecycle stderr/.test(message.content || "")

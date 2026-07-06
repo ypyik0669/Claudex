@@ -11078,6 +11078,7 @@ export function App() {
     if (!desktopApi?.archiveSubagent || !run) return;
     const next = await desktopApi.archiveSubagent({ runId: run.id, requestId: run.requestId, archived });
     setState(next);
+    if (Array.isArray(next?.runEvents)) setRunEvents((current) => mergeRunEvents(current, next.runEvents));
     showToast(archived ? t.subagentArchived : t.subagentRestored);
   }
 

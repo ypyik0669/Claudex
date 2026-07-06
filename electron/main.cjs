@@ -466,6 +466,27 @@ function upsertSubagentRunEvent(store, run, status) {
   });
 }
 
+function upsertSubagentActionRunEvent(store, run, action) {
+  const actionLabel = action === "restore" ? "恢复记录" : "关闭记录";
+  const eventId = `${run.requestId || run.id}:${action}`;
+  return upsertRunEvent(store, {
+    id: eventId,
+    type: "subagent-action",
+    status: "ok",
+    title: `子代理：${actionLabel} · ${titleFromUserContent(run?.nickname || "Subagent")}`,
+    detail: [run?.project?.name || run?.project?.path || "本地工作区", run?.summary || run?.stderr || run?.task || ""].filter(Boolean).join(" · "),
+    commandLine: [run.command, ...(run.args || [])].filter(Boolean).join(" "),
+    cwd: run.cwd || run.project?.path || "",
+    code: typeof run.code === "number" ? run.code : null,
+    durationMs: typeof run.durationMs === "number" ? run.durationMs : null,
+    stdout: run.stdout || "",
+    stderr: run.stderr || "",
+    project: run.project,
+    sessionId: run.sessionId || "",
+    createdAt: now(),
+  });
+}
+
 function persistSubagentChunk({ runId, requestId, stream, text }) {
   const cleanText = stripAnsi(text || "");
   if (!cleanText) return null;
@@ -3136,10 +3157,12 @@ ipcMain.handle("subagent:archive", (_event, { runId, requestId, archived = true 
     archivedAt: archived ? now() : "",
   }, store);
   upsertSubagentRun(store, normalized);
+  const runEvent = upsertSubagentActionRunEvent(store, normalized, archived ? "archive" : "restore");
   writeStore(store);
   return {
     ...sanitizeStore(store),
     subagentRun: normalized,
+    runEvent,
   };
 });
 
