@@ -11446,6 +11446,10 @@ export function App() {
         };
       });
 
+    const gitWorkspaceProjectPath = String(environment?.git?.root || activeProject?.path || "").trim();
+    const gitWorkspaceProjectLabel = gitWorkspaceProjectPath && gitWorkspaceProjectPath !== activeProject?.path
+      ? compactPath(gitWorkspaceProjectPath, 54)
+      : projectLabel(activeProject, t);
     const gitOpenFileCommands = (Array.isArray(environment?.git?.files) ? environment.git.files : [])
       .filter((file) => file?.path && !/D/.test(file.status || ""))
       .slice(0, 24)
@@ -11474,8 +11478,8 @@ export function App() {
             environment?.git?.stat,
           ].filter(Boolean).join(" "),
           action: () => openWorkspaceFile(filePath, {
-            projectPath: activeProject?.path || environment?.git?.root || "",
-            projectLabel: projectLabel(activeProject, t),
+            projectPath: gitWorkspaceProjectPath,
+            projectLabel: gitWorkspaceProjectLabel,
             force: true,
           }),
         };
