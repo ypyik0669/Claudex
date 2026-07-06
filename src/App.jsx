@@ -4824,6 +4824,7 @@ function Conversation({
                           <button
                             type="button"
                             className="plain-action subtle-action"
+                            data-git-action="commit"
                             onClick={() => runGitRepoAction("commit")}
                             disabled={!gitCanCommit}
                             title={gitStagedCount > 0 ? t.commitStaged : t.gitNoStagedChanges}
@@ -4834,6 +4835,7 @@ function Conversation({
                           <button
                             type="button"
                             className="plain-action subtle-action"
+                            data-git-action="push"
                             onClick={() => runGitRepoAction("push")}
                             disabled={!gitCanPush}
                             title={gitPushTitle}
