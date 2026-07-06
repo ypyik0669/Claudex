@@ -3382,6 +3382,8 @@ function Conversation({
   const gitHunks = useMemo(() => buildGitHunks(displayedGitDiffText), [displayedGitDiffText]);
   const selectedGitHunk = selectedGitHunkId ? gitHunks.find((item) => item.id === selectedGitHunkId) : null;
   const focusedGitDiffText = selectedGitHunk ? selectedGitHunk.text : displayedGitDiffText;
+  const [copiedGitEvidence, setCopiedGitEvidence] = useState(false);
+  const copiedGitEvidenceTimer = useRef(null);
   const gitEvidenceCopyText = useMemo(() => gitEvidenceText({
     t,
     activeProject,
@@ -3401,6 +3403,18 @@ function Conversation({
     hunkCount: gitHunks.length,
   }), [t, activeProject, branchLabel, upstreamLabel, remoteLabel, aheadBehindLabel, selectedGitFile, selectedGitDiffPath, focusedGitDiffText, gitStat, rawGitStatus, gitRootPath, gitRelativePath, gitSummaryItems, selectedGitHunk, gitHunks.length]);
   const gitDiffRows = useMemo(() => buildGitDiffRows(focusedGitDiffText), [focusedGitDiffText]);
+  useEffect(() => () => {
+    if (copiedGitEvidenceTimer.current) window.clearTimeout(copiedGitEvidenceTimer.current);
+  }, []);
+  useEffect(() => {
+    setCopiedGitEvidence(false);
+  }, [gitEvidenceCopyText]);
+  async function copyGitEvidence() {
+    await onCopy?.(gitEvidenceCopyText);
+    setCopiedGitEvidence(true);
+    if (copiedGitEvidenceTimer.current) window.clearTimeout(copiedGitEvidenceTimer.current);
+    copiedGitEvidenceTimer.current = window.setTimeout(() => setCopiedGitEvidence(false), 1200);
+  }
   useEffect(() => {
     if (!selectedGitDiffPath) return;
     const stillExists = gitFiles.some((item) => item.path === selectedGitDiffPath || item.previousPath === selectedGitDiffPath)
@@ -4140,9 +4154,15 @@ function Conversation({
                         <p>{t.gitEvidenceHint}</p>
                       </div>
                       <div className="git-selected-evidence-actions">
-                        <button type="button" className="plain-action subtle-action" onClick={() => onCopy?.(gitEvidenceCopyText)}>
-                          <Copy size={13} />
-                          {t.copyGitEvidence}
+                        <button
+                          type="button"
+                          className="plain-action subtle-action"
+                          data-git-action="copy-evidence"
+                          onClick={copyGitEvidence}
+                          title={copiedGitEvidence ? t.copied : t.copyGitEvidence}
+                        >
+                          {copiedGitEvidence ? <Check size={13} /> : <Copy size={13} />}
+                          {copiedGitEvidence ? t.copied : t.copyGitEvidence}
                         </button>
                         {selectedGitFile && selectedGitCanStage && (
                           <button
