@@ -1552,6 +1552,24 @@ function rowCliActionEvidenceText(run, t) {
   ].filter(Boolean).join("\n");
 }
 
+function pluginEvidenceText(plugin = {}, t) {
+  const status = plugin.enabled ? t.pluginStatusEnabled : t.pluginStatusDisabled;
+  const rows = [
+    [t.pluginName, plugin.id || plugin.name],
+    plugin.name && plugin.name !== plugin.id ? [t.pluginName, plugin.name] : null,
+    plugin.version && plugin.version !== "unknown" ? [t.version, plugin.version] : null,
+    plugin.scope ? [t.scope, plugin.scope] : null,
+    plugin.marketplace ? [t.marketplace, plugin.marketplace] : null,
+    [t.status, status],
+    plugin.source ? [t.source, summarizePanelPluginField(plugin.source)] : null,
+    plugin.installPath ? [t.installPath, plugin.installPath] : null,
+    plugin.tools ? [t.tools, summarizePanelPluginField(plugin.tools)] : null,
+    plugin.permissions ? [t.allowedTools, summarizePanelPluginField(plugin.permissions)] : null,
+    plugin.error ? [t.mcpError, plugin.error] : null,
+  ].filter(Boolean);
+  return rows.map(([label, value]) => `${label}: ${value}`).join("\n");
+}
+
 function RowCliActionEvidence({ run, t, onOpenOutputs, onRetry }) {
   const [copied, setCopied] = useState(false);
   if (!run) return null;
@@ -7712,6 +7730,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
   const [cliAction, setCliAction] = useState("");
   const [cliActionEvidence, setCliActionEvidence] = useState(null);
   const [confirmingCliCommand, setConfirmingCliCommand] = useState(null);
+  const [copiedPluginId, setCopiedPluginId] = useState("");
   const [copiedMcpServerKey, setCopiedMcpServerKey] = useState("");
   const [copiedCustomMarketplace, setCopiedCustomMarketplace] = useState("");
   const [marketplaceOutput, setMarketplaceOutput] = useState("");
@@ -8036,6 +8055,19 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
 
   function mcpServerKey(server) {
     return `${server?.name || ""}:${server?.raw || server?.detail || ""}`;
+  }
+
+  async function copyPluginEvidence(plugin) {
+    const id = String(plugin?.id || plugin?.name || "").trim();
+    const evidence = pluginEvidenceText(plugin, t);
+    if (!id || !evidence) return;
+    try {
+      await navigator.clipboard?.writeText(evidence);
+    } catch (_error) {
+      // Clipboard permissions vary by shell; visible feedback still records the copy intent.
+    }
+    setCopiedPluginId(id);
+    window.setTimeout(() => setCopiedPluginId((current) => (current === id ? "" : current)), 1200);
   }
 
   async function copyMcpServerRaw(server) {
@@ -8602,6 +8634,10 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                         <button type="button" className="plain-action subtle-action" onClick={() => requestCapabilityClaude(`plugin enable ${plugin.id}`, `${t.enablePlugin}: ${plugin.id}`)} disabled={cliWorking} title={cliWorking ? t.workingHint : undefined}>{t.enablePlugin}</button>
                       )}
                       <button type="button" className="plain-action subtle-action" onClick={() => requestCapabilityClaude(`plugin update ${plugin.id}`, `${t.updatePlugin}: ${plugin.id}`)} disabled={cliWorking} title={cliWorking ? t.workingHint : undefined}>{t.updatePlugin}</button>
+                      <button type="button" className="plain-action subtle-action" data-plugin-action="copy-evidence" onClick={() => copyPluginEvidence(plugin)} title={copiedPluginId === plugin.id ? t.copied : t.copyEvidence}>
+                        {copiedPluginId === plugin.id ? <Check size={13} /> : <Copy size={13} />}
+                        {copiedPluginId === plugin.id ? t.copied : t.copyEvidence}
+                      </button>
                     </div>
                     <RowCliActionEvidence run={recentRun} t={t} onOpenOutputs={openCapabilityOutputs} onRetry={pluginRetry} />
                   </article>
