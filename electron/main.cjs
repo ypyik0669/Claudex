@@ -405,6 +405,9 @@ function upsertAutomationRunEvent(store, automation, entry, status) {
     status,
     title: automationRunEventTitle(automation),
     detail: automationRunEventDetail(automation, entry),
+    cwd: automation.project?.path || "",
+    stdout: entry.stdout || "",
+    stderr: entry.stderr || "",
     project: automation.project,
     sessionId: entry.sessionId || automation.threadId || "",
     code: typeof entry.code === "number" ? entry.code : null,
@@ -2846,8 +2849,8 @@ function automationProjectFromPayload(store, payload = {}) {
 
 function ensureAutomationSession(store, automation) {
   const existing = (store.sessions || []).find((session) => session.id === automation.threadId);
-  if (existing) return existing;
   const project = automation.project || store.activeProject || localWorkspaceProject();
+  if (existing && sessionMatchesProject(existing, project)) return existing;
   const createdAt = now();
   const session = {
     id: id("session"),
@@ -2869,6 +2872,18 @@ function findAutomationOrThrow(store, automationId) {
   const automation = (store.automations || []).find((item) => item.id === automationId);
   if (!automation) throw new Error("没有找到这个自动化任务。");
   return automation;
+}
+
+function findAutomationRunEntry(store, runId) {
+  const targetId = String(runId || "");
+  if (!targetId) return null;
+  for (const automation of store.automations || []) {
+    const history = Array.isArray(automation.history) ? automation.history : [];
+    const entry = history.find((item) => item?.id === targetId)
+      || (automation.lastRun?.id === targetId ? automation.lastRun : null);
+    if (entry) return { automation, entry };
+  }
+  return null;
 }
 
 async function runAutomationById(automationId, { requestId = "", trigger = "manual" } = {}) {
@@ -3298,11 +3313,25 @@ ipcMain.handle("notice:record", (_event, payload = {}) => {
 
 ipcMain.handle("run-event:record", (_event, payload = {}) => {
   const store = readStore();
-  const project = payload.projectPath && fs.existsSync(payload.projectPath)
-    ? projectFromPath(payload.projectPath)
-    : payload.project || store.activeProject || localWorkspaceProject();
+  const automationRun = payload.type === "automation" ? findAutomationRunEntry(store, payload.id) : null;
+  const eventPayload = automationRun
+    ? {
+        ...payload,
+        projectPath: automationRun.automation.project?.path || payload.projectPath || "",
+        project: automationRun.automation.project,
+        cwd: automationRun.automation.project?.path || payload.cwd || "",
+        sessionId: automationRun.entry.sessionId || automationRun.automation.threadId || payload.sessionId || "",
+        stdout: payload.stdout || automationRun.entry.stdout || "",
+        stderr: payload.stderr || automationRun.entry.stderr || "",
+        code: typeof payload.code === "number" ? payload.code : automationRun.entry.code,
+        durationMs: typeof payload.durationMs === "number" ? payload.durationMs : automationRun.entry.durationMs,
+      }
+    : payload;
+  const project = eventPayload.projectPath && fs.existsSync(eventPayload.projectPath)
+    ? projectFromPath(eventPayload.projectPath)
+    : eventPayload.project || store.activeProject || localWorkspaceProject();
   const runEvent = upsertRunEvent(store, {
-    ...payload,
+    ...eventPayload,
     project,
   });
   writeStore(store);

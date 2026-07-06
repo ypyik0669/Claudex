@@ -12097,6 +12097,10 @@ export function App() {
       status: "running",
       title: `${t.scheduled}: ${messageExcerpt(automation.prompt, 60)}`,
       detail: automationProjectLabel(automation, t),
+      projectPath: automation.project?.path || "",
+      project: automation.project,
+      cwd: automation.project?.path || "",
+      sessionId: automation.threadId || "",
     });
     showToast(t.automationRunning);
     const next = await desktopApi.runAutomationNow({ automationId: automation.id, requestId });
@@ -12111,6 +12115,14 @@ export function App() {
       status: succeeded ? "ok" : "error",
       title: `${t.scheduled}: ${messageExcerpt(automation.prompt, 60)}`,
       detail: [t.automationTriggerManual, automationProjectLabel(automation, t), finalDetail].filter(Boolean).join(" · "),
+      projectPath: automation.project?.path || "",
+      project: automation.project,
+      cwd: automation.project?.path || "",
+      sessionId: run?.sessionId || automation.threadId || "",
+      stdout: run?.stdout || "",
+      stderr: run?.stderr || "",
+      code: typeof run?.code === "number" ? run.code : null,
+      durationMs: typeof run?.durationMs === "number" ? run.durationMs : null,
     });
     showToast(succeeded ? t.automationSucceeded : t.automationFailed);
   }
