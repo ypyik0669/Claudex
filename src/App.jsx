@@ -3201,6 +3201,7 @@ function Conversation({
   onConfirmCapabilityCommand,
   onOpenRunTimeline,
   runTimelineFocus,
+  gitPanelFocus,
   taskCenterFocus,
   draft,
   setDraft,
@@ -3326,6 +3327,12 @@ function Conversation({
   useEffect(() => {
     if (selectedGitHunkId && !gitHunks.some((item) => item.id === selectedGitHunkId)) setSelectedGitHunkId("");
   }, [selectedGitHunkId, gitHunks]);
+  useEffect(() => {
+    const focusedPath = String(gitPanelFocus?.path || "").trim();
+    if (!focusedPath) return;
+    setSelectedGitDiffPath(focusedPath);
+    setSelectedGitHunkId("");
+  }, [gitPanelFocus?.path, gitPanelFocus?.nonce]);
   async function runGitFileAction(action, file = selectedGitFile) {
     if (!file?.path || !activeProject?.path) return;
     if (!desktopApi?.runWorkspaceCommand) {
@@ -9111,10 +9118,29 @@ function commandSearchText(command) {
 }
 
 function commandMatchesQuery(command, query) {
+  return commandMatchScore(command, query) > 0;
+}
+
+function commandMatchScore(command, query) {
   const tokens = String(query || "").trim().toLowerCase().split(/\s+/).filter(Boolean);
-  if (!tokens.length) return true;
+  if (!tokens.length) return 1;
   const haystack = commandSearchText(command);
-  return tokens.every((token) => haystack.includes(token));
+  if (!tokens.every((token) => haystack.includes(token))) return 0;
+  const title = String(command.title || "").toLowerCase();
+  const subtitle = String(command.subtitle || "").toLowerCase();
+  const group = String(command.group || "").toLowerCase();
+  const phrase = tokens.join(" ");
+  let score = 10;
+  if (title.includes(phrase)) score += 120;
+  if (subtitle.includes(phrase)) score += 70;
+  if (haystack.includes(phrase)) score += 40;
+  for (const token of tokens) {
+    if (title.includes(token)) score += 8;
+    else if (subtitle.includes(token)) score += 4;
+    else if (group.includes(token)) score += 2;
+    else score += 1;
+  }
+  return score;
 }
 
 function CommandPalette({ commands, t, onClose }) {
@@ -9123,7 +9149,11 @@ function CommandPalette({ commands, t, onClose }) {
   useEffect(() => {
     inputRef.current?.focus();
   }, []);
-  const filtered = commands.filter((command) => commandMatchesQuery(command, commandQuery));
+  const filtered = commands
+    .map((command, index) => ({ command, index, score: commandMatchScore(command, commandQuery) }))
+    .filter((item) => item.score > 0)
+    .sort((a, b) => b.score - a.score || a.index - b.index)
+    .map((item) => item.command);
   return (
     <ShellModal title={t.commandPalette} onClose={onClose} closeLabel={t.close} className="command-modal">
       <label className="command-search">
@@ -10111,6 +10141,37 @@ export function App() {
         };
       });
 
+    const gitFileCommands = (Array.isArray(environment?.git?.files) ? environment.git.files : [])
+      .filter((file) => file?.path || file?.previousPath)
+      .slice(0, 24)
+      .map((file) => {
+        const filePath = file.path || file.previousPath || "";
+        const previousLabel = file.previousPath && file.previousPath !== filePath ? `${file.previousPath} -> ${filePath}` : "";
+        return {
+          id: `git-file:${commandIdSegment(filePath)}`,
+          title: `${t.focusFileDiff}: ${filePath}`,
+          subtitle: [
+            gitChangeKindLabel(file.kind, t),
+            file.status,
+            typeof file.additions === "number" || typeof file.deletions === "number" ? `+${file.additions || 0} -${file.deletions || 0}` : "",
+            previousLabel,
+          ].filter(Boolean).join(" Â· "),
+          group: t.changes,
+          keywords: [
+            "git file diff changes status evidence focus changed file",
+            filePath,
+            file.previousPath,
+            file.status,
+            file.kind,
+            environment?.git?.branch,
+            environment?.git?.root,
+            environment?.git?.raw,
+            environment?.git?.stat,
+          ].filter(Boolean).join(" "),
+          action: () => openGitFileDiff(filePath),
+        };
+      });
+
     const automationCommands = (state.automations || [])
       .filter((automation) => automation?.id)
       .slice(0, 16)
@@ -10315,6 +10376,7 @@ export function App() {
       ...threadCommands,
       ...threadActionCommands,
       ...runEvidenceCommands,
+      ...gitFileCommands,
       ...automationCommands,
       ...subagentCommands,
       ...installedPluginCommands,
@@ -10322,7 +10384,7 @@ export function App() {
       ...marketplaceSourceCommands,
       ...marketplacePluginCommands,
     ];
-  }, [state.projects, state.sessions, state.automations, state.subagentRuns, state.commandRuns, capabilityCommandStatus, runEvents, t, activeProject?.path, activeProject?.name]);
+  }, [state.projects, state.sessions, state.automations, state.subagentRuns, state.commandRuns, capabilityCommandStatus, runEvents, environment, t, activeProject?.path, activeProject?.name]);
 
   async function createAutomation(payload) {
     if (!desktopApi?.createAutomation) return;
@@ -10617,6 +10679,7 @@ export function App() {
   const [rightPanelVisible, setRightPanelVisible] = useState(false);
   const [bottomPanel, setBottomPanel] = useState("");
   const [runTimelineFocus, setRunTimelineFocus] = useState({ id: "", nonce: 0 });
+  const [gitPanelFocus, setGitPanelFocus] = useState({ path: "", nonce: 0 });
   const [taskCenterFocus, setTaskCenterFocus] = useState({ type: "", id: "", nonce: 0 });
   const [composerFocusToken, setComposerFocusToken] = useState(0);
   const [browserOpenRequest, setBrowserOpenRequest] = useState({ url: "", id: "", nonce: 0 });
@@ -10687,6 +10750,12 @@ export function App() {
     const focusedId = String(eventId || "").trim();
     setRunTimelineFocus({ id: focusedId, nonce: Date.now() });
     openBottomPanel("outputs");
+  }
+
+  function openGitFileDiff(pathValue = "") {
+    const focusedPath = String(pathValue || "").trim();
+    setGitPanelFocus({ path: focusedPath, nonce: Date.now() });
+    openBottomPanel("changes");
   }
 
   function openTaskCenterFocus(type, id = "") {
@@ -10985,6 +11054,7 @@ export function App() {
           onConfirmCapabilityCommand={openCapabilityRetryConfirmation}
           onOpenRunTimeline={openRunTimeline}
           runTimelineFocus={runTimelineFocus}
+          gitPanelFocus={gitPanelFocus}
           taskCenterFocus={taskCenterFocus}
           draft={draft}
           setDraft={setDraft}
