@@ -3,7 +3,31 @@ const os = require("os");
 const path = require("path");
 const { app, BrowserWindow } = require("electron");
 
-const REPO_DIR = path.join(__dirname, "..");
+function findRepoDir() {
+  const candidates = [
+    process.env.CLAUDEX_REPO_DIR,
+    process.cwd(),
+    __dirname,
+    path.join(__dirname, ".."),
+  ].filter(Boolean);
+  for (const candidate of candidates) {
+    let current = path.resolve(candidate);
+    while (current && current !== path.dirname(current)) {
+      if (
+        fs.existsSync(path.join(current, "package.json")) &&
+        fs.existsSync(path.join(current, "electron", "main.cjs"))
+      ) {
+        return current;
+      }
+      current = path.dirname(current);
+    }
+  }
+  throw new Error("Unable to locate Claudex repo root");
+}
+
+const REPO_DIR = findRepoDir();
+process.chdir(REPO_DIR);
+
 const USER_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "claudex-pass101-data-"));
 const FAKE_BIN_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "claudex-pass101-bin-"));
 const PROJECT_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "claudex-pass101-project-"));
@@ -195,6 +219,64 @@ async function runTest() {
       );
     })();
   `, 10000));
+  assertStep("PASS101_ERROR_RECOVERY_ACTIONS", await waitFor(win, `
+    (function() {
+      const error = Array.from(document.querySelectorAll('.bottom-work-panel .browser-evidence-card'))
+        .find((card) => /ERR_CONNECTION_REFUSED/.test(card.textContent || ''));
+      const text = error?.textContent || '';
+      return Boolean(
+        error?.querySelector('[data-browser-visit-action="copy"]') &&
+        error?.querySelector('[data-browser-visit-action="retry"]') &&
+        error?.querySelector('[data-browser-visit-action="external"]') &&
+        /\\u91cd\\u8bd5/.test(text) &&
+        /\\u5916\\u90e8\\u6253\\u5f00/.test(text)
+      );
+    })();
+  `, 10000));
+  assertStep("PASS101_ERROR_EXTERNAL_BACKED_BY_IPC", await waitFor(win, `
+    (async function() {
+      const error = Array.from(document.querySelectorAll('.bottom-work-panel .browser-evidence-card'))
+        .find((card) => /ERR_CONNECTION_REFUSED/.test(card.textContent || ''));
+      const external = error?.querySelector('[data-browser-visit-action="external"]');
+      if (!external || !window.claudexDesktop?.getState) return false;
+      external.click();
+      await new Promise((resolve) => setTimeout(resolve, 650));
+      const state = await window.claudexDesktop.getState();
+      return Boolean(state.browserVisits?.some((visit) =>
+        visit.status === "external" &&
+        visit.external === true &&
+        visit.url === "http://127.0.0.1:9/pass101-error" &&
+        visit.project?.path === ${JSON.stringify(PROJECT_DIR)}
+      ));
+    })();
+  `, 10000));
+  assertStep("PASS101_ERROR_RETRY_REOPENS_BROWSER_TOOL", await waitFor(win, `
+    (async function() {
+      const error = Array.from(document.querySelectorAll('.bottom-work-panel .browser-evidence-card'))
+        .find((card) => /ERR_CONNECTION_REFUSED/.test(card.textContent || ''));
+      const retry = error?.querySelector('[data-browser-visit-action="retry"]');
+      if (!retry) return false;
+      retry.click();
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      const grid = document.querySelector('.app-grid');
+      const detail = document.querySelector('.tools-panel .browser-detail');
+      const input = detail?.querySelector('.browser-toolbar input');
+      const webview = detail?.querySelector('.browser-frame webview');
+      const currentUrl = webview?.getAttribute('src') || '';
+      return Boolean(
+        grid && !grid.classList.contains('right-panel-hidden') &&
+        detail &&
+        input?.value === "http://127.0.0.1:9/pass101-error" &&
+        currentUrl === "http://127.0.0.1:9/pass101-error"
+      );
+    })();
+  `, 12000));
+  assertStep("PASS101_BROWSER_ERROR_PANEL_RECOVERY", await waitFor(win, `
+    Boolean(
+      document.querySelector('.tools-panel .browser-error-panel [data-browser-error-action="retry"]') &&
+      document.querySelector('.tools-panel .browser-error-panel [data-browser-error-action="external"]')
+    );
+  `, 15000));
   assertStep("PASS101_COPY_READY_EVIDENCE", await waitFor(win, `
     (async function() {
       Object.defineProperty(navigator, 'clipboard', {

@@ -3390,6 +3390,7 @@ function Conversation({
   sourceRefs,
   browserVisits,
   onOpenBrowserVisit,
+  onOpenExternalBrowserVisit,
   notices,
   onDismissNotice,
   onClearNotices,
@@ -4721,7 +4722,13 @@ function Conversation({
                     </button>
                   </div>
                 </div>
-                <BrowserEvidenceList visits={browserVisits} focusedVisitKey={focusedBrowserVisitKey} onOpenVisit={onOpenBrowserVisit} t={t} />
+                <BrowserEvidenceList
+                  visits={browserVisits}
+                  focusedVisitKey={focusedBrowserVisitKey}
+                  onOpenVisit={onOpenBrowserVisit}
+                  onOpenExternalVisit={onOpenExternalBrowserVisit}
+                  t={t}
+                />
               </div>
             )}
           </div>
@@ -5444,7 +5451,7 @@ function SubagentWorkbench({
   );
 }
 
-function BrowserEvidenceList({ visits = [], focusedVisitKey = "", onOpenVisit, t }) {
+function BrowserEvidenceList({ visits = [], focusedVisitKey = "", onOpenVisit, onOpenExternalVisit, t }) {
   const [copiedVisitId, setCopiedVisitId] = useState("");
 
   async function copyVisitEvidence(visit) {
@@ -5473,6 +5480,8 @@ function BrowserEvidenceList({ visits = [], focusedVisitKey = "", onOpenVisit, t
         const visitKey = visit.id || visit.url;
         const selected = focusedVisitKey && [browserVisitKey(visit), visit.id, visit.url, browserVisitFinalUrl(visit)].filter(Boolean).includes(focusedVisitKey);
         const metadataRows = browserVisitMetadataRows(visit, t);
+        const recoveryUrl = browserVisitFinalUrl(visit) || visit.url;
+        const isErrorVisit = visit.status === "error";
         return (
           <article className={cx("browser-evidence-card", visit.status, selected && "selected")} key={visitKey}>
             <Globe2 size={14} />
@@ -5508,16 +5517,28 @@ function BrowserEvidenceList({ visits = [], focusedVisitKey = "", onOpenVisit, t
                   <Copy size={13} />
                   {copiedVisitId === visitKey ? t.copiedBrowserEvidence : t.copyBrowserEvidence}
                 </button>
-                {onOpenVisit && visit.url && (
+                {onOpenVisit && recoveryUrl && (
                   <button
                     type="button"
                     className="plain-action subtle-action"
-                    data-browser-visit-action="open"
+                    data-browser-visit-action={isErrorVisit ? "retry" : "open"}
                     onClick={() => onOpenVisit(visit)}
-                    title={visit.url}
+                    title={recoveryUrl}
                   >
-                    <Globe2 size={13} />
-                    {t.reopenBrowserVisit}
+                    {isErrorVisit ? <RefreshCw size={13} /> : <Globe2 size={13} />}
+                    {isErrorVisit ? t.retry : t.reopenBrowserVisit}
+                  </button>
+                )}
+                {onOpenExternalVisit && recoveryUrl && (
+                  <button
+                    type="button"
+                    className="plain-action subtle-action"
+                    data-browser-visit-action="external"
+                    onClick={() => onOpenExternalVisit(visit)}
+                    title={recoveryUrl}
+                  >
+                    <ExternalLink size={13} />
+                    {t.openExternal}
                   </button>
                 )}
               </div>
@@ -7206,7 +7227,11 @@ function ToolsPanel({
                     <strong>{t.browserFailed}</strong>
                     <span>{browserError}</span>
                   </div>
-                  <button type="button" className="plain-action subtle-action" onClick={() => onOpenBrowserUrl(browserPreviewUrl)}>
+                  <button type="button" className="plain-action subtle-action" data-browser-error-action="retry" onClick={browserReload}>
+                    <RefreshCw size={13} />
+                    {t.retry}
+                  </button>
+                  <button type="button" className="plain-action subtle-action" data-browser-error-action="external" onClick={() => onOpenBrowserUrl(browserPreviewUrl)}>
                     <ExternalLink size={13} />
                     {t.openExternal}
                   </button>
@@ -7225,7 +7250,12 @@ function ToolsPanel({
                   <strong>{browserVisits?.length ? t.browserVisitCount.replace("{count}", browserVisits.length) : t.browserNoHistory}</strong>
                 </div>
               </div>
-              <BrowserEvidenceList visits={browserVisits} onOpenVisit={(visit) => openBrowserPreviewUrl(visit?.url, visit?.id)} t={t} />
+              <BrowserEvidenceList
+                visits={browserVisits}
+                onOpenVisit={(visit) => openBrowserPreviewUrl(visit?.url || browserVisitFinalUrl(visit), visit?.id)}
+                onOpenExternalVisit={onOpenBrowserUrl ? (visit) => onOpenBrowserUrl(browserVisitFinalUrl(visit) || visit?.url) : null}
+                t={t}
+              />
             </section>
           </div>
         )}
@@ -11818,10 +11848,16 @@ export function App() {
   }
 
   function openBrowserVisit(visit) {
-    const nextUrl = normalizeBrowserUrl(visit?.url);
+    const nextUrl = normalizeBrowserUrl(visit?.url || browserVisitFinalUrl(visit));
     if (!nextUrl) return;
     setBrowserOpenRequest({ url: nextUrl, id: visit?.id || "", nonce: Date.now() });
     activateTool("browser");
+  }
+
+  function openExternalBrowserVisit(visit) {
+    const nextUrl = browserVisitFinalUrl(visit) || visit?.url;
+    if (!nextUrl) return;
+    openBrowserUrl(nextUrl);
   }
 
   async function toggleCapability(id, enabled) {
@@ -12329,6 +12365,7 @@ export function App() {
           sourceRefs={state.sourceRefs}
           browserVisits={state.browserVisits}
           onOpenBrowserVisit={openBrowserVisit}
+          onOpenExternalBrowserVisit={openExternalBrowserVisit}
           notices={state.notices}
           onDismissNotice={dismissNotice}
           onClearNotices={clearNotices}
