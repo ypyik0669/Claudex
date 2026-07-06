@@ -484,6 +484,7 @@ const copy = {
     noticeBackedByLocalState: "来自本地状态、CLI 和 webview 事件。",
     noticeDismiss: "标记已处理",
     noticeClearAll: "全部标记已处理",
+    noticeOpenAction: "打开对应工作台",
     noticeSource: "来源",
     noticeLevelError: "错误",
     noticeLevelWarning: "警告",
@@ -2675,6 +2676,7 @@ function Conversation({
   bottomPanel,
   setBottomPanel,
   onActivateTool,
+  onOpenAutomation,
   onOpenTerminal,
   onOpenProject,
   busy,
@@ -3000,6 +3002,10 @@ function Conversation({
       if (target === "claude") {
         onActivateTool?.("claude");
       }
+      return;
+    }
+    if (action.startsWith("automation:")) {
+      onOpenAutomation?.();
     }
   }
 
@@ -4244,7 +4250,7 @@ function NoticeCenter({ notices = [], onDismiss, onClear, onAction, t }) {
                   {notice.action && (
                     <button type="button" className="plain-action subtle-action" data-notice-action="open" onClick={() => onAction?.(notice)}>
                       <PanelRight size={13} />
-                      {t.runtimeHealthOpenTarget}
+                      {t.noticeOpenAction || t.runtimeHealthOpenTarget}
                     </button>
                   )}
                   <button type="button" className="plain-action subtle-action" data-notice-action="dismiss" onClick={() => onDismiss?.(notice)}>
@@ -8866,6 +8872,7 @@ export function App() {
           bottomPanel={bottomPanel}
           setBottomPanel={setBottomPanel}
           onActivateTool={activateTool}
+          onOpenAutomation={openScheduledSurface}
           onOpenTerminal={openTerminal}
           onOpenProject={openProject}
           busy={busy}

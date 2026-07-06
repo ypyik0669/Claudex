@@ -175,7 +175,12 @@ async function runTest() {
         event?.type === 'automation' &&
         event.status === 'error' &&
         /pass48 scheduled automation failed/.test(event.detail || '') &&
-        state.notices?.some((notice) => !notice.dismissedAt && notice.source === 'automation' && /pass48 scheduled automation failed/.test((notice.title || '') + (notice.detail || '')))
+        state.notices?.some((notice) =>
+          !notice.dismissedAt &&
+          notice.source === 'automation' &&
+          notice.action === 'automation:pass48-automation' &&
+          /pass48 scheduled automation failed/.test((notice.title || '') + (notice.detail || ''))
+        )
       );
     })();
   `, 12000));
@@ -184,7 +189,21 @@ async function runTest() {
   `, 8000));
   assertStep("PASS48_OPEN_NOTICE_PANEL", await openNoticesPanel(win));
   assertStep("PASS48_NOTICE_VISIBLE_WITHOUT_RELOAD", await waitFor(win, `
-    Boolean(document.querySelector('.bottom-work-panel .notice-card.error') && /pass48 scheduled automation failed/.test(document.body.textContent || ''))
+    Boolean(
+      document.querySelector('.bottom-work-panel .notice-card.error button[data-notice-action="open"]') &&
+      /pass48 scheduled automation failed/.test(document.body.textContent || '')
+    )
+  `, 8000));
+  assertStep("PASS48_NOTICE_ACTION_OPEN_AUTOMATION", await win.webContents.executeJavaScript(`
+    (function() {
+      const button = document.querySelector('.bottom-work-panel .notice-card.error button[data-notice-action="open"]');
+      if (!button) return false;
+      button.click();
+      return true;
+    })();
+  `));
+  assertStep("PASS48_AUTOMATION_MODAL_OPENED", await waitFor(win, `
+    Boolean(document.querySelector('.scheduled-modal') && /pass48 scheduled prompt/.test(document.body.textContent || ''))
   `, 8000));
   assertStep("PASS48_STORE_PERSISTED", (() => {
     const parsed = JSON.parse(fs.readFileSync(DATA_FILE, "utf8"));
@@ -194,7 +213,11 @@ async function runTest() {
       event?.type === "automation" &&
       event.status === "error" &&
       /pass48 scheduled automation failed/.test(event.detail || "") &&
-      parsed.notices?.some((notice) => notice.source === "automation" && /pass48 scheduled automation failed/.test(`${notice.title || ""} ${notice.detail || ""}`));
+      parsed.notices?.some((notice) =>
+        notice.source === "automation" &&
+        notice.action === "automation:pass48-automation" &&
+        /pass48 scheduled automation failed/.test(`${notice.title || ""} ${notice.detail || ""}`)
+      );
   })());
 
   console.log("PASS48_SCHEDULED_AUTOMATION_NOTICE_DONE");

@@ -2562,6 +2562,7 @@ async function runAutomationById(automationId, { requestId = "", trigger = "manu
         title: "Scheduled automation failed",
         detail: message,
         key: `automation:${automation.id}:scheduled-failure`,
+        action: `automation:${automation.id}`,
         sessionId: session.id,
         project: automation.project,
       });
