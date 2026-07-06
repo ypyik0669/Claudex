@@ -3376,6 +3376,10 @@ select:focus-visible,
   white-space: nowrap;
 }
 
+.run-timeline-artifact-list {
+  margin-top: 0;
+}
+
 .run-timeline-actions {
   display: flex;
   flex-wrap: wrap;

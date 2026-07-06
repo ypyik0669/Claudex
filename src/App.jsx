@@ -4735,6 +4735,10 @@ function NoticeCenter({ notices = [], onDismiss, onClear, onAction, t }) {
 
 function RunEvidenceDetails({ event, evidence, onCopy, t, pinned = false }) {
   const hasRawEvidence = runTimelineHasEvidence(evidence);
+  async function copyRunArtifact(artifact, index) {
+    await onCopy?.(subagentArtifactEvidenceText(artifact, index, t));
+  }
+
   return (
     <div className={cx("run-timeline-evidence", pinned && "pinned-run-evidence-body")} aria-label={t.timelineEvidence}>
       {hasRawEvidence ? (
@@ -4769,11 +4773,39 @@ function RunEvidenceDetails({ event, evidence, onCopy, t, pinned = false }) {
           {evidence.artifacts?.length > 0 && (
             <div className="run-timeline-artifacts">
               <span>{t.subagentArtifacts}</span>
-              {evidence.artifacts.map((artifact, index) => (
-                <code key={`${subagentArtifactLabel(artifact, index, t)}-${index}`} title={subagentArtifactContent(artifact)}>
-                  {subagentArtifactLabel(artifact, index, t)}
-                </code>
-              ))}
+              <div className="subagent-artifact-list run-timeline-artifact-list">
+                {evidence.artifacts.map((artifact, index) => {
+                  const label = subagentArtifactLabel(artifact, index, t);
+                  const content = subagentArtifactContent(artifact);
+                  return (
+                    <article
+                      className="subagent-artifact-item"
+                      key={`${label}-${index}`}
+                      data-run-timeline-artifact-index={index}
+                    >
+                      <div className="subagent-artifact-head">
+                        <code title={artifact?.path || artifact?.type || label}>{label}</code>
+                        <button
+                          type="button"
+                          className="plain-action subtle-action"
+                          data-run-timeline-artifact-copy={index}
+                          onClick={() => copyRunArtifact(artifact, index)}
+                          title={t.copySubagentArtifact}
+                        >
+                          <Copy size={12} />
+                          {t.copySubagentArtifact}
+                        </button>
+                      </div>
+                      {artifact?.path && <small title={artifact.path}>{artifact.path}</small>}
+                      {content ? (
+                        <pre className="subagent-output secondary-output">{content}</pre>
+                      ) : (
+                        <p className="empty-list">{t.noSubagentArtifacts}</p>
+                      )}
+                    </article>
+                  );
+                })}
+              </div>
             </div>
           )}
           <div className="run-timeline-actions">
