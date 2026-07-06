@@ -2669,6 +2669,8 @@ function runTimelineEvidenceForEvent(event, { commandRuns = [], automations = []
     sessionId: event?.sessionId || "",
     commandLine: event?.commandLine || "",
     cwd: event?.cwd || event?.project?.path || "",
+    path: event?.path || "",
+    action: event?.action || "",
     code: typeof event?.code === "number" ? event.code : null,
     durationMs: typeof event?.durationMs === "number" ? event.durationMs : null,
     stdout: event?.stdout || "",
@@ -2694,6 +2696,7 @@ function runTimelineEvidenceText(event, evidence, t) {
     `${t.automationSession}: ${evidence?.sessionId || "-"}`,
     `${t.commandLine}: ${evidence?.commandLine || "-"}`,
     `${t.commandCwd}: ${evidence?.cwd || "-"}`,
+    evidence?.path ? `${t.path}: ${evidence.path}` : "",
     `${t.commandExit}: ${typeof evidence?.code === "number" ? evidence.code : "-"}`,
     `${t.commandDuration}: ${formatDurationMs(evidence?.durationMs)}`,
     `${t.subagentArtifacts}: ${artifactLabels.length ? artifactLabels.join(", ") : "-"}`,
@@ -3873,6 +3876,11 @@ function Conversation({
   const selectedRunBrowserVisit = selectedRunEvent && selectedRunEvidence?.source === "browser"
     ? findBrowserVisitForEvent(selectedRunEvent, browserVisits)
     : null;
+  const selectedRunWorkspaceFilePath = (() => {
+    const action = String(selectedRunEvidence?.action || selectedRunEvent?.action || "");
+    if (action.startsWith("workspace:file:")) return decodeActionSuffix(action, "workspace:file:");
+    return String(selectedRunEvidence?.path || selectedRunEvent?.path || "").trim();
+  })();
   const selectedRunRecoveryActions = [];
   if (selectedRunAutomation) {
     selectedRunRecoveryActions.push({
@@ -3955,6 +3963,18 @@ function Conversation({
       label: t.openBrowserTool,
       icon: Globe2,
       onClick: () => onActivateTool?.("browser"),
+    });
+  }
+  if (selectedRunWorkspaceFilePath) {
+    selectedRunRecoveryActions.push({
+      key: "open-workspace-file",
+      label: t.openWorkspaceTool,
+      icon: FileText,
+      onClick: () => onOpenWorkspaceFile?.(selectedRunWorkspaceFilePath, {
+        projectPath: selectedRunEvidence?.cwd || activeProject?.path || "",
+        projectLabel: selectedRunEvidence?.project || projectLabel(activeProject, t),
+        force: true,
+      }),
     });
   }
   if (selectedRunCommand) {
@@ -6644,6 +6664,8 @@ function ToolsPanel({
       title: `${t.saveFile}: ${file.path}`,
       detail: changeSummary,
       cwd: file.projectPath || activeProject?.path || "",
+      path: file.path,
+      action: `workspace:file:${encodeURIComponent(file.path)}`,
     });
     try {
       const result = await desktopApi.saveWorkspaceFile({
@@ -6667,6 +6689,8 @@ function ToolsPanel({
         title: `${t.saveFile}: ${file.path}`,
         detail: changeSummary,
         cwd: file.projectPath || activeProject?.path || "",
+        path: file.path,
+        action: `workspace:file:${encodeURIComponent(file.path)}`,
       });
     } catch (error) {
       setWorkspaceError(error.message || String(error));
