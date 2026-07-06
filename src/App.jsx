@@ -4555,6 +4555,7 @@ function SubagentWorkbench({
   const [running, setRunning] = useState(false);
   const [automationWorkingId, setAutomationWorkingId] = useState("");
   const [showArchivedRuns, setShowArchivedRuns] = useState(false);
+  const [copiedSubagentRunId, setCopiedSubagentRunId] = useState("");
   const taskInputRef = useRef(null);
   const activeRuns = runs.filter((run) => !run.archivedAt);
   const archivedRunCount = runs.length - activeRuns.length;
@@ -4605,6 +4606,7 @@ function SubagentWorkbench({
   async function copySubagentEvidence(run) {
     const output = run?.summary || run?.stdout || run?.stderr || "";
     const artifacts = subagentArtifactsEvidenceText(run?.artifacts || [], t);
+    const runId = String(run?.id || run?.requestId || "").trim();
     await onCopy?.([
       `${t.subagents}: ${run?.nickname || "Subagent"}`,
       `${t.subagentTask}: ${run?.task || ""}`,
@@ -4614,6 +4616,10 @@ function SubagentWorkbench({
       output,
       artifacts,
     ].filter((line, index) => index < 4 || line).join("\n"));
+    if (runId) {
+      setCopiedSubagentRunId(runId);
+      window.setTimeout(() => setCopiedSubagentRunId((current) => (current === runId ? "" : current)), 1200);
+    }
   }
 
   async function copySubagentArtifact(artifact, index) {
@@ -4988,9 +4994,9 @@ function SubagentWorkbench({
               {typeof run.durationMs === "number" && run.durationMs > 0 && <span>{formatDurationMs(run.durationMs)}</span>}
               <span>{t.subagentArtifacts}: {run.artifacts?.length || 0}</span>
               {run.continuedAt && <span>{t.subagentContinuedShort}: {formatDate(run.continuedAt)}</span>}
-              <button type="button" className="plain-action subtle-action" onClick={() => copySubagentEvidence(run)}>
-                <Copy size={13} />
-                {t.copySubagentEvidence}
+              <button type="button" className="plain-action subtle-action" data-subagent-run-action="copy-evidence" onClick={() => copySubagentEvidence(run)} title={copiedSubagentRunId === run.id ? t.copiedSubagentEvidence : t.copySubagentEvidence}>
+                {copiedSubagentRunId === run.id ? <Check size={13} /> : <Copy size={13} />}
+                {copiedSubagentRunId === run.id ? t.copiedSubagentEvidence : t.copySubagentEvidence}
               </button>
               <button type="button" className="plain-action subtle-action" onClick={() => onOpenRunTimeline?.(run.requestId || run.id)} title={t.openRunTimeline}>
                 <FileText size={13} />
