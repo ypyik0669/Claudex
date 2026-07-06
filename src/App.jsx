@@ -1756,6 +1756,18 @@ function mcpStatusLabel(status, t) {
   return t.mcpStatusUnknown;
 }
 
+function mcpPanelDisplay(server, t) {
+  const rawName = String(server?.name || "").trim();
+  const detailText = String(server?.detail || "").trim();
+  const detailPair = detailText.match(/^(?![A-Za-z]:)([^:]{1,80}):\s*(.+)$/);
+  const rawNameLooksLikeStatus = /^(?:ok|connected|running|enabled|error|failed|pending|paused|waiting|unknown)$/i.test(rawName);
+  const name = rawNameLooksLikeStatus && detailPair
+    ? detailPair[1].trim()
+    : rawName || detailPair?.[1]?.trim() || t.mcpServers;
+  const detail = rawNameLooksLikeStatus && detailPair ? detailPair[2].trim() : detailText;
+  return { name, detail };
+}
+
 function automationStatusLabel(status, t) {
   if (status === "scheduled") return t.automationStatusScheduled;
   if (status === "paused") return t.automationStatusPaused;
@@ -5757,6 +5769,9 @@ function ToolsPanel({
     : Array.isArray(claudeStatus?.pluginItems)
       ? claudeStatus.pluginItems
       : [];
+  const mcpPanelItems = Array.isArray(claudeStatus?.mcpServers) ? claudeStatus.mcpServers : [];
+  const marketplacePanelSources = Array.isArray(claudeStatus?.marketplaces) ? claudeStatus.marketplaces : [];
+  const marketplacePanelPlugins = Array.isArray(claudeStatus?.marketplacePlugins) ? claudeStatus.marketplacePlugins : [];
 
   return (
     <aside className="tools-panel">
@@ -6268,6 +6283,78 @@ function ToolsPanel({
                 )}
               </div>
             </details>
+            <section className="plugin-status-list claude-panel-structured-status" aria-label={t.mcpServers}>
+              <div className="plugin-status-header">
+                <span>{t.mcpServers}</span>
+                <button type="button" className="icon-only" onClick={loadClaudeStatus} disabled={statusBusy} title={statusBusy ? t.workingHint : t.refreshStatus} aria-label={t.refreshStatus}>
+                  <RefreshCw size={14} className={statusBusy ? "spin" : undefined} />
+                </button>
+              </div>
+              {mcpPanelItems.length === 0 && <p className="empty-list">{t.noMcpServers}</p>}
+              {mcpPanelItems.length > 0 && (
+                <div className="plugin-status-items">
+                  {mcpPanelItems.slice(0, 8).map((server) => {
+                    const display = mcpPanelDisplay(server, t);
+                    const rowKey = `${display.name}:${server?.raw || server?.detail || ""}`;
+                    const meta = [
+                      display.detail,
+                      typeof server.tools === "number" ? `${t.tools}: ${server.tools}` : "",
+                      server.transport,
+                      server.source,
+                      server.error,
+                    ].filter(Boolean).join(" · ");
+                    return (
+                      <div className="plugin-status-item claude-panel-mcp-row" key={rowKey}>
+                        <div>
+                          <strong>{display.name}</strong>
+                          <span title={server.raw || server.detail || meta}>{meta || server.detail || server.raw || t.mcpServers}</span>
+                        </div>
+                        <em className={cx("plugin-status-badge", server.status)}>{mcpStatusLabel(server.status, t)}</em>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </section>
+            <section className="plugin-status-list claude-panel-structured-status" aria-label={t.marketplace}>
+              <div className="plugin-status-header">
+                <span>{t.marketplace}</span>
+                <button type="button" className="icon-only" onClick={loadClaudeStatus} disabled={statusBusy} title={statusBusy ? t.workingHint : t.refreshStatus} aria-label={t.refreshStatus}>
+                  <RefreshCw size={14} className={statusBusy ? "spin" : undefined} />
+                </button>
+              </div>
+              {marketplacePanelSources.length === 0 && marketplacePanelPlugins.length === 0 && <p className="empty-list">{t.noCliOutputYet}</p>}
+              {marketplacePanelSources.length > 0 && (
+                <div className="plugin-status-items">
+                  {marketplacePanelSources.slice(0, 6).map((marketplace) => (
+                    <div className="plugin-status-item claude-panel-marketplace-row" key={marketplace.name}>
+                      <div>
+                        <strong>{marketplace.name}</strong>
+                        <span title={marketplace.repo || marketplace.installLocation || marketplace.source}>
+                          {[marketplace.version, marketplace.status, marketplace.repo || marketplace.installLocation || marketplace.source].filter(Boolean).join(" · ") || t.marketplaceSources}
+                        </span>
+                      </div>
+                      <em className="plugin-status-badge enabled">{marketplace.status || marketplace.source || t.source}</em>
+                    </div>
+                  ))}
+                </div>
+              )}
+              {marketplacePanelPlugins.length > 0 && (
+                <div className="plugin-status-items">
+                  {marketplacePanelPlugins.slice(0, 8).map((plugin) => (
+                    <div className="plugin-status-item claude-panel-marketplace-plugin" key={plugin.id}>
+                      <div>
+                        <strong>{plugin.name || plugin.id}</strong>
+                        <span title={summarizePanelPluginField(plugin.source || plugin.description || plugin.permissions)}>
+                          {[plugin.version && plugin.version !== "unknown" ? `v${plugin.version}` : "", plugin.marketplace, plugin.author, summarizePanelPluginField(plugin.permissions)].filter(Boolean).join(" · ") || t.marketplaceCatalog}
+                        </span>
+                      </div>
+                      <em className={cx("plugin-status-badge", plugin.installed ? "enabled" : "disabled")}>{plugin.installed ? t.installedLocal : t.marketplace}</em>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
             <div className="command-history-slot" ref={claudeOutputRef}>
               <CommandHistory
                 title={t.commandHistory}
