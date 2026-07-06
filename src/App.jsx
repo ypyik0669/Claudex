@@ -8253,8 +8253,12 @@ function SettingsBackedStatus({
     ],
   };
   const rows = rowsBySection[activeSection] || [];
+  const settingsPluginItems = Array.isArray(claudeStatus?.pluginItems) ? claudeStatus.pluginItems : [];
+  const settingsMcpServers = Array.isArray(claudeStatus?.mcpServers) ? claudeStatus.mcpServers : [];
+  const settingsMarketplaceSources = Array.isArray(claudeStatus?.marketplaces) ? claudeStatus.marketplaces : [];
+  const settingsMarketplacePlugins = Array.isArray(claudeStatus?.marketplacePlugins) ? claudeStatus.marketplacePlugins : [];
   const rawCliOutput = activeSection === "mcp"
-    ? `${claudeStatus?.plugins || ""}\n\n${claudeStatus?.mcp || ""}`.trim()
+    ? `${claudeStatus?.plugins || ""}\n\n${claudeStatus?.mcp || ""}\n\n${claudeStatus?.marketplaceOutput || ""}`.trim()
     : activeSection === "git"
       ? git?.raw || ""
       : "";
@@ -8370,7 +8374,7 @@ function SettingsBackedStatus({
         )}
       </section>
       {activeSection === "mcp" && (
-        <section className="settings-section">
+        <section className="settings-section settings-mcp-structured-section">
           <div className="settings-section-head">
             <div>
               <span>{t.installedCliState}</span>
@@ -8378,7 +8382,97 @@ function SettingsBackedStatus({
             </div>
             <em className="settings-badge cli">{t.claudeCodeMode}</em>
           </div>
-          <pre className="settings-raw-output">{rawCliOutput || t.noCliOutputYet}</pre>
+          <div className="structured-registry-section settings-mcp-status-group" aria-label={t.installedPlugins}>
+            <div className="structured-registry-head">
+              <span>{t.installedPlugins}</span>
+              <strong>{settingsPluginItems.length}</strong>
+            </div>
+            {settingsPluginItems.length === 0 && <p className="empty-list">{t.pluginsEmpty}</p>}
+            {settingsPluginItems.slice(0, 6).map((plugin) => (
+              <article className="structured-plugin-row settings-mcp-plugin-row" key={plugin.id}>
+                <span className="plugin-manager-icon"><Plug size={17} /></span>
+                <div className="plugin-manager-copy">
+                  <strong>{plugin.name || plugin.id}</strong>
+                  <small title={plugin.installPath || plugin.source || ""}>
+                    {[plugin.version && plugin.version !== "unknown" ? `${t.version}: ${plugin.version}` : "", plugin.scope && `${t.scope}: ${plugin.scope}`, plugin.marketplace].filter(Boolean).join(" · ") || t.installedLocal}
+                  </small>
+                </div>
+                <em className={cx("plugin-status-badge", plugin.enabled ? "enabled" : "disabled")}>{plugin.enabled ? t.pluginStatusEnabled : t.pluginStatusDisabled}</em>
+              </article>
+            ))}
+          </div>
+          <div className="structured-registry-section settings-mcp-status-group" aria-label={t.mcpServers}>
+            <div className="structured-registry-head">
+              <span>{t.mcpServers}</span>
+              <strong>{settingsMcpServers.length}</strong>
+            </div>
+            {settingsMcpServers.length === 0 && <p className="empty-list">{t.noMcpServers}</p>}
+            {settingsMcpServers.slice(0, 6).map((server) => {
+              const display = mcpPanelDisplay(server, t);
+              const rowMeta = [
+                display.detail ? [t.cliStatus, messageExcerpt(display.detail, 72), display.detail] : null,
+                typeof server.tools === "number" ? [t.tools, String(server.tools)] : null,
+                server.transport ? [t.mcpTransport, server.transport] : null,
+                server.source ? [t.source, compactPath(server.source, 62), server.source] : null,
+                server.error ? [t.mcpError, messageExcerpt(server.error, 72), server.error] : null,
+              ].filter(Boolean);
+              return (
+                <article className="structured-plugin-row settings-mcp-server-row" key={`${display.name}:${server.raw || server.detail || ""}`}>
+                  <span className="plugin-manager-icon"><Blocks size={17} /></span>
+                  <div className="plugin-manager-copy">
+                    <strong>{display.name}</strong>
+                    <small title={server.raw || display.detail}>{display.detail || server.raw || t.mcpServers}</small>
+                    {rowMeta.length > 0 && (
+                      <dl className="structured-row-meta" aria-label={`${display.name} MCP metadata`}>
+                        {rowMeta.map(([metaLabel, value, title]) => (
+                          <div key={`${metaLabel}:${value}`}>
+                            <dt>{metaLabel}</dt>
+                            <dd title={title || value}>{value}</dd>
+                          </div>
+                        ))}
+                      </dl>
+                    )}
+                  </div>
+                  <em className={cx("plugin-status-badge", server.status)}>{mcpStatusLabel(server.status, t)}</em>
+                </article>
+              );
+            })}
+          </div>
+          <div className="structured-registry-section settings-mcp-status-group" aria-label={t.marketplace}>
+            <div className="structured-registry-head">
+              <span>{t.marketplace}</span>
+              <strong>{settingsMarketplaceSources.length + settingsMarketplacePlugins.length}</strong>
+            </div>
+            {settingsMarketplaceSources.length === 0 && settingsMarketplacePlugins.length === 0 && <p className="empty-list">{t.noMarketplacePlugins}</p>}
+            {settingsMarketplaceSources.slice(0, 4).map((marketplace) => (
+              <article className="structured-plugin-row settings-mcp-marketplace-row" key={marketplace.name || marketplace.repo || marketplace.source}>
+                <span className="plugin-manager-icon"><ExternalLink size={17} /></span>
+                <div className="plugin-manager-copy">
+                  <strong>{marketplace.name || t.marketplaceSources}</strong>
+                  <small title={marketplace.repo || marketplace.installLocation || marketplace.source}>
+                    {[marketplace.version, marketplace.status, marketplace.repo || marketplace.installLocation || marketplace.source].filter(Boolean).join(" · ") || t.marketplaceSources}
+                  </small>
+                </div>
+                <em className="plugin-status-badge enabled">{marketplace.status || marketplace.source || t.source}</em>
+              </article>
+            ))}
+            {settingsMarketplacePlugins.slice(0, 6).map((plugin) => (
+              <article className="structured-plugin-row settings-mcp-marketplace-plugin-row" key={plugin.id || plugin.name}>
+                <span className="plugin-manager-icon"><Plug size={17} /></span>
+                <div className="plugin-manager-copy">
+                  <strong>{plugin.name || plugin.id}</strong>
+                  <small title={summarizePanelPluginField(plugin.source || plugin.description || plugin.permissions)}>
+                    {[plugin.version && plugin.version !== "unknown" ? `${t.version}: ${plugin.version}` : "", plugin.marketplace, plugin.author, summarizePanelPluginField(plugin.permissions)].filter(Boolean).join(" · ") || t.marketplaceCatalog}
+                  </small>
+                </div>
+                <em className={cx("plugin-status-badge", plugin.installed ? "enabled" : "disabled")}>{plugin.installed ? t.installedLocal : t.marketplace}</em>
+              </article>
+            ))}
+          </div>
+          <details className="raw-output-details settings-mcp-raw-details">
+            <summary>{t.rawOutput}</summary>
+            <pre className="settings-raw-output">{rawCliOutput || t.noCliOutputYet}</pre>
+          </details>
         </section>
       )}
       {activeSection === "git" && rawCliOutput && (
