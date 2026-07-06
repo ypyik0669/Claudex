@@ -1551,6 +1551,25 @@ function commandIdSegment(value) {
   return encodeURIComponent(String(value || "").trim()).slice(0, 120) || "item";
 }
 
+function settingsSectionCommandSpecs(t) {
+  return [
+    { id: "general", label: t.settingsGeneral, keywords: "general runtime provider model language 通用 运行时 服务商 模型 语言" },
+    { id: "profile", label: t.settingsProfile, keywords: "profile project workspace local state 项目 工作区 本地状态" },
+    { id: "appearance", label: t.settingsAppearance, keywords: "appearance font density theme 外观 字体 密度 主题" },
+    { id: "configuration", label: t.settingsConfiguration, keywords: "configuration claude code cli args permissions 配置 claude code 命令 参数 权限" },
+    { id: "personalization", label: t.settingsPersonalization, keywords: "personalization instructions prompt hooks 个性化 指令 提示词" },
+    { id: "mcp", label: t.settingsMcpServers, keywords: "mcp servers tools plugins capability MCP 服务器 工具 插件 能力" },
+    { id: "browser", label: t.settingsBrowser, keywords: "browser preview web external 浏览器 预览 网页" },
+    { id: "computer", label: t.settingsComputerUse, keywords: "computer use desktop control claude 电脑操作 computer use 桌面控制" },
+    { id: "hooks", label: t.settingsHooks, keywords: "hooks claude code commands automation 钩子 命令 自动化" },
+    { id: "connections", label: t.settingsConnections, keywords: "connections marketplace provider api env 连接 市场 服务商 环境" },
+    { id: "git", label: t.settingsGit, keywords: "git changes diff branch status 变更 差异 分支" },
+    { id: "environments", label: t.settingsEnvironments, keywords: "environment cwd ide terminal shell 环境 终端 IDE" },
+    { id: "worktrees", label: t.settingsWorktrees, keywords: "worktrees git branch workspace 工作树 git 分支 工作区" },
+    { id: "archived", label: t.settingsArchivedChats, keywords: "archived chats history data file 归档 聊天 历史 数据文件" },
+  ];
+}
+
 function sidebarScopeCounts(sessions, t, activeProject) {
   return {
     current: sidebarThreadItems(sessions, t, activeProject, "current").length,
@@ -6244,6 +6263,7 @@ function SettingsModal({
   onOpenCapabilities,
   onOpenProjects,
   surface = false,
+  initialSection = "general",
 }) {
   const initialForm = {
     provider: state.settings.provider,
@@ -6325,7 +6345,6 @@ function SettingsModal({
   const isDirty = JSON.stringify(form) !== initialSnapshotRef.current;
   const modalRef = useRef(null);
   useFocusTrap(modalRef, !surface);
-  const [activeSection, setActiveSection] = useState("general");
   const settingsSections = [
     ["general", t.settingsGeneral, Settings],
     ["profile", t.settingsProfile, UserRound],
@@ -6342,6 +6361,9 @@ function SettingsModal({
     ["worktrees", t.settingsWorktrees, Folder],
     ["archived", t.settingsArchivedChats, Archive],
   ];
+  const validSettingsSectionIds = new Set(settingsSections.map(([id]) => id));
+  const normalizedInitialSection = validSettingsSectionIds.has(initialSection) ? initialSection : "general";
+  const [activeSection, setActiveSection] = useState(normalizedInitialSection);
   const filteredSettingsSections = settingsSections.filter(([id, label]) => {
     const normalized = settingsQuery.trim().toLowerCase();
     return !normalized || `${id} ${label}`.toLowerCase().includes(normalized);
@@ -6388,6 +6410,9 @@ function SettingsModal({
     refreshSettingsStatus();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.activeProject?.path]);
+  useEffect(() => {
+    setActiveSection(normalizedInitialSection);
+  }, [normalizedInitialSection]);
 
   function updateProvider(providerId) {
     const next = providerDefaults(providerId);
@@ -6487,7 +6512,7 @@ function SettingsModal({
               <input value={settingsQuery} onChange={(event) => setSettingsQuery(event.target.value)} placeholder={t.searchSettings} />
             </label>
             {filteredSettingsSections.map(([id, label, Icon]) => (
-              <button type="button" key={id} className={cx(activeSection === id && "active")} onClick={() => setActiveSection(id)}>
+              <button type="button" key={id} className={cx(activeSection === id && "active")} data-settings-section={id} onClick={() => setActiveSection(id)}>
                 <Icon size={15} />
                 <span>{label}</span>
               </button>
@@ -8444,6 +8469,7 @@ export function App() {
   const [query, setQuery] = useState("");
   const [busy, setBusy] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [settingsInitialSection, setSettingsInitialSection] = useState("general");
   const [capabilitiesOpen, setCapabilitiesOpen] = useState(false);
   const [capabilityInitialTab, setCapabilityInitialTab] = useState("plugins");
   const [capabilityFocus, setCapabilityFocus] = useState({ tab: "plugins", kind: "", id: "", query: "", nonce: 0 });
@@ -9389,11 +9415,13 @@ export function App() {
   const [taskCenterFocus, setTaskCenterFocus] = useState({ type: "", id: "", nonce: 0 });
   const [composerFocusToken, setComposerFocusToken] = useState(0);
 
-  function openSettingsSurface() {
+  function openSettingsSurface(initialSection = "general") {
+    const nextSection = settingsSectionCommandSpecs(t).some((section) => section.id === initialSection) ? initialSection : "general";
     setCapabilitiesOpen(false);
     setProjectsOpen(false);
     setScheduledOpen(false);
     setCommandsOpen(false);
+    setSettingsInitialSection(nextSection);
     setSettingsOpen(true);
   }
 
@@ -9556,6 +9584,22 @@ export function App() {
     return () => window.removeEventListener("keydown", onKeyDown);
   });
 
+  const settingsSectionCommands = settingsSectionCommandSpecs(t).map((section) => ({
+    id: `settings-section:${section.id}`,
+    title: `${t.settings}: ${section.label}`,
+    subtitle: t.backedLocalState,
+    group: t.settings,
+    keywords: [
+      "settings section preference configuration status deep link",
+      `${section.id} settings`,
+      `${section.label} settings`,
+      section.id,
+      section.label,
+      section.keywords,
+    ].filter(Boolean).join(" "),
+    action: () => openSettingsSurface(section.id),
+  }));
+
   const commands = [
     { id: "new", title: t.newChat, subtitle: t.chats, group: t.chats, kbd: "Ctrl+N", keywords: "聊天 对话 会话", action: createSession },
     { id: "threads-current", title: t.projectFilteredChats, subtitle: t.chats, group: t.chats, keywords: "current project chats threads 当前项目 聊天 线程 历史", action: () => openThreadScope("current") },
@@ -9568,6 +9612,7 @@ export function App() {
     { id: "capability-plugins", title: t.plugins, subtitle: t.capabilities, group: t.capabilities, keywords: "plugins installed installed plugins claude code 插件 已安装 capability", action: () => openCapabilitiesSurface("plugins") },
     { id: "capability-mcp", title: t.mcps, subtitle: t.mcpServers, group: t.capabilities, keywords: "mcp servers tools mcps server 工具 服务器", action: () => openCapabilitiesSurface("mcp") },
     { id: "capability-marketplace", title: t.marketplace, subtitle: t.marketplaceCatalog, group: t.capabilities, keywords: "marketplace catalog install plugin 市场 插件目录 安装", action: () => openCapabilitiesSurface("marketplace") },
+    ...settingsSectionCommands,
     { id: "automation", title: t.scheduled, subtitle: t.scheduledTitle, group: t.scheduled, keywords: "automation schedule 自动化 计划 任务", action: openScheduledSurface },
     { id: "tool-workspace", title: t.workspaceTool, subtitle: t.openSidePanel, group: t.tools, keywords: "workspace files editor diff 工作区 文件 编辑", action: () => activateTool("workspace") },
     { id: "tool-claude", title: t.claudeCodeTool, subtitle: t.openSidePanel, group: t.tools, keywords: "claude code cli plugin mcp terminal", action: () => activateTool("claude") },
@@ -9660,6 +9705,7 @@ export function App() {
             onOpenCapabilities={openCapabilitiesSurface}
             onOpenProjects={openProjectsSurface}
             surface
+            initialSection={settingsInitialSection}
           />
         ) : capabilitiesOpen ? (
           <CapabilityModal
