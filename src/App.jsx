@@ -726,6 +726,7 @@ const copy = {
     archiveThread: "归档",
     restoreThread: "恢复",
     forkThread: "Fork",
+    resumeThread: "继续",
     deleteThread: "删除",
     renameThreadPrompt: "新的聊天标题",
     threadArchived: "聊天已归档",
@@ -733,6 +734,7 @@ const copy = {
     threadForked: "聊天已 Fork",
     threadPinned: "聊天已置顶",
     threadUnpinned: "已取消置顶",
+    threadResumed: "已继续这个聊天",
     deleteThreadConfirm: "确定要永久删除这个聊天吗？",
     projectFilteredChats: "当前项目",
     allProjectChats: "全部项目",
@@ -2367,6 +2369,7 @@ function Sidebar({
   onArchiveThread,
   onForkThread,
   onDeleteThread,
+  onResumeThread,
   onToggleSidebar,
   loading,
   loadError,
@@ -2556,6 +2559,9 @@ function Sidebar({
                       <button type="button" onClick={() => onDeleteThread(session)} title={t.deleteThread} aria-label={t.deleteThread}>
                         <Trash2 size={12} />
                       </button>
+                      <button type="button" data-thread-action="resume" onClick={() => onResumeThread?.(session)} title={t.resumeThread} aria-label={t.resumeThread}>
+                        <History size={12} />
+                      </button>
                     </span>
                   </article>
                 );
@@ -2593,6 +2599,7 @@ function WelcomeComposer({
   draft,
   setDraft,
   justSent,
+  focusToken,
   t,
 }) {
   const [localValue, setLocalValue] = useState("");
@@ -2621,6 +2628,11 @@ function WelcomeComposer({
     el.style.height = "auto";
     el.style.height = `${el.scrollHeight}px`;
   }, [value]);
+
+  useEffect(() => {
+    if (!focusToken) return;
+    textareaRef.current?.focus();
+  }, [focusToken]);
 
   return (
     <form className="prompt-box" onSubmit={submit}>
@@ -2723,6 +2735,7 @@ function Conversation({
   onContinueSubagent,
   draft,
   setDraft,
+  composerFocusToken,
   environment,
   projectPathMissing = false,
   onRefreshEnvironment,
@@ -3108,6 +3121,7 @@ function Conversation({
               draft={draft}
               setDraft={setDraft}
               justSent={justSent}
+              focusToken={composerFocusToken}
               t={t}
             />
           </section>
@@ -3190,6 +3204,7 @@ function Conversation({
                 draft={draft}
                 setDraft={setDraft}
                 justSent={justSent}
+                focusToken={composerFocusToken}
                 t={t}
               />
               {messages.some((message) => message.role === "error") && (
@@ -8296,6 +8311,10 @@ export function App() {
     setActiveSessionId(selectSessionIdForProject(next, t, next.activeProject || activeProject, preferredId, scope));
   }
 
+  function focusComposer() {
+    setComposerFocusToken((current) => current + 1);
+  }
+
   async function createSession() {
     if (!desktopApi) return;
     const next = await desktopApi.createSession();
@@ -8363,6 +8382,38 @@ export function App() {
       const next = await desktopApi.deleteSession(session.id);
       applySessionState(next, session.id === activeSession?.id ? "" : activeSession?.id);
       showToast(t.threadDeleted);
+    } catch (error) {
+      showToast(error.message || String(error));
+    }
+  }
+
+  async function resumeThread(session) {
+    if (!session) return;
+    const targetScope = session.archived ? "archived" : "current";
+    setSettingsOpen(false);
+    setCapabilitiesOpen(false);
+    setProjectsOpen(false);
+    setScheduledOpen(false);
+    setCommandsOpen(false);
+    setBottomPanel("");
+    setSidebarVisible(true);
+    setProjectScope(targetScope);
+    setDraft("");
+    try {
+      const targetProject = {
+        name: session.project || activeProject?.name || t.localWorkspace,
+        path: session.projectPath || "",
+      };
+      const currentKey = String(activeProject?.path || activeProject?.name || "").trim().toLowerCase();
+      const targetKey = String(targetProject.path || targetProject.name || "").trim().toLowerCase();
+      if (desktopApi?.setActiveProject && targetKey && targetKey !== currentKey) {
+        const next = await desktopApi.setActiveProject(targetProject);
+        applySessionState(next, session.id, targetScope);
+      } else {
+        setActiveSessionId(session.id);
+      }
+      focusComposer();
+      showToast(t.threadResumed);
     } catch (error) {
       showToast(error.message || String(error));
     }
@@ -8502,6 +8553,15 @@ export function App() {
   async function sendMessage(content) {
     if (!desktopApi || !activeSession) return;
     const requestId = `request_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+    let resumeClaudeSessionId = activeSession.claudeSessionId || "";
+    if (!resumeClaudeSessionId && desktopApi.getState) {
+      try {
+        const freshState = await desktopApi.getState();
+        resumeClaudeSessionId = freshState?.sessions?.find((session) => session.id === activeSession.id)?.claudeSessionId || "";
+      } catch {
+        resumeClaudeSessionId = "";
+      }
+    }
     setCurrentRequestId(requestId);
     setOptimisticUser({ sessionId: activeSession.id, content: content.trim(), createdAt: new Date().toISOString() });
     setStreamingAssistant({ requestId, content: "", status: t.waiting, activities: [] });
@@ -8514,7 +8574,12 @@ export function App() {
       detail: content.trim().slice(0, 140),
     });
     try {
-      const next = await desktopApi.sendMessage({ sessionId: activeSession.id, content, requestId });
+      const next = await desktopApi.sendMessage({
+        sessionId: activeSession.id,
+        content,
+        requestId,
+        claudeSessionId: resumeClaudeSessionId,
+      });
       setState(next);
       setActiveSessionId(activeSession.id);
       recordRunEvent({
@@ -8633,6 +8698,7 @@ export function App() {
   const [sidebarVisible, setSidebarVisible] = useState(true);
   const [rightPanelVisible, setRightPanelVisible] = useState(false);
   const [bottomPanel, setBottomPanel] = useState("");
+  const [composerFocusToken, setComposerFocusToken] = useState(0);
 
   function openSettingsSurface() {
     setCapabilitiesOpen(false);
@@ -8858,6 +8924,7 @@ export function App() {
           onArchiveThread={archiveThread}
           onForkThread={forkThread}
           onDeleteThread={deleteThread}
+          onResumeThread={resumeThread}
           onToggleSidebar={() => setSidebarVisible((current) => !current)}
           loading={stateLoading}
           loadError={loadError}
@@ -8944,6 +9011,7 @@ export function App() {
           onContinueSubagent={continueSubagent}
           draft={draft}
           setDraft={setDraft}
+          composerFocusToken={composerFocusToken}
           environment={environment}
           onRefreshEnvironment={refreshEnvironment}
           ideOptions={ideOptions}

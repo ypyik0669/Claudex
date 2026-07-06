@@ -964,7 +964,36 @@ function fileSnapshot(target, content) {
   };
 }
 
+function resolveNodeCommandShim(command, args = []) {
+  if (process.platform !== "win32") return null;
+  if (!/\.(?:cmd|bat)$/i.test(String(command || "")) || !fs.existsSync(command)) return null;
+  const dir = path.dirname(command);
+  let text = "";
+  try {
+    text = fs.readFileSync(command, "utf8");
+  } catch {
+    return null;
+  }
+  const match = text.match(/["']%~dp0([^"']+\.(?:cjs|mjs|js))["']\s+%[*]/i)
+    || text.match(/["']%dp0%\\?([^"']+\.(?:cjs|mjs|js))["']\s+%[*]/i)
+    || text.match(/["']([A-Za-z]:[^"']+\.(?:cjs|mjs|js))["']\s+%[*]/i);
+  if (!match) return null;
+
+  const scriptPath = path.isAbsolute(match[1])
+    ? match[1]
+    : path.resolve(dir, match[1].replace(/^[\\/]+/, ""));
+  if (!fs.existsSync(scriptPath)) return null;
+
+  const localNode = path.join(dir, "node.exe");
+  return {
+    command: fs.existsSync(localNode) ? localNode : "node",
+    args: [scriptPath, ...args],
+  };
+}
+
 function spawnDescriptor(command, args = []) {
+  const nodeShim = resolveNodeCommandShim(command, args);
+  if (nodeShim) return nodeShim;
   if (process.platform === "win32" && /\.(cmd|bat)$/i.test(String(command || ""))) {
     return {
       command: process.env.ComSpec || "cmd.exe",
@@ -3154,11 +3183,13 @@ ipcMain.handle("chat:fork-session", (_event, sessionId) => {
   };
 });
 
-ipcMain.handle("chat:send-message", async (_event, { sessionId, content, requestId }) => {
+ipcMain.handle("chat:send-message", async (_event, { sessionId, content, requestId, claudeSessionId }) => {
   if (!content || !String(content).trim()) throw new Error("消息为空。");
   const store = readStore();
   const session = store.sessions.find((item) => item.id === sessionId) || store.sessions[0];
   if (!session) throw new Error("没有可用的聊天会话。");
+  const resumeId = String(claudeSessionId || "").trim();
+  if (resumeId && !session.claudeSessionId) session.claudeSessionId = resumeId;
 
   const createdAt = now();
   const userContent = String(content).trim();
