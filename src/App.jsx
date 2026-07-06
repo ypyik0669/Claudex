@@ -8349,7 +8349,12 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                     </button>
                   </div>
                 </div>
-                <RowCliActionEvidence run={recentMcpActionRun} t={t} onOpenOutputs={openCapabilityOutputs} />
+                <RowCliActionEvidence
+                  run={recentMcpActionRun}
+                  t={t}
+                  onOpenOutputs={openCapabilityOutputs}
+                  onRetry={recentMcpActionRun && recentMcpActionRun.code !== 0 && !cliWorking ? () => runCapabilityClaude("mcp list") : null}
+                />
                 {mcpServerRows.length === 0 && <p className="empty-list">{t.noMcpServers}</p>}
                 {mcpServerRows.map((server) => {
                   const rowKey = mcpServerKey(server);
