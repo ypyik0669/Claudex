@@ -261,7 +261,8 @@ async function runTest() {
       /外部修改/.test(event.detail || "") &&
       notice &&
       notice.level === "error" &&
-      notice.action === `workspace:file:${encodeURIComponent(FILE_NAME)}`
+      (notice.action || "").startsWith(`workspace:file:${encodeURIComponent(FILE_NAME)}`) &&
+      (notice.action || "").includes(`project=${encodeURIComponent(PROJECT_DIR)}`)
     );
   }, 10000));
   assertStep("PASS134_SWITCH_AWAY_FROM_WORKSPACE", await win.webContents.executeJavaScript(`

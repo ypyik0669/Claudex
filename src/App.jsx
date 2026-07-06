@@ -2156,11 +2156,7 @@ function noticeLevelLabel(level, t) {
 
 function decodeActionSuffix(action, prefix) {
   const encoded = String(action || "").slice(prefix.length);
-  try {
-    return decodeURIComponent(encoded);
-  } catch {
-    return encoded;
-  }
+  return decodeActionPart(encoded);
 }
 
 function encodeActionPart(value) {
@@ -2173,6 +2169,38 @@ function decodeActionPart(value) {
   } catch {
     return String(value || "");
   }
+}
+
+function workspaceFileAction(pathValue = "", options = {}) {
+  const filePath = String(pathValue || "").trim();
+  if (!filePath) return "";
+  const parts = [`workspace:file:${encodeActionPart(filePath)}`];
+  const projectPath = String(options.projectPath || "").trim();
+  const projectLabel = String(options.projectLabel || "").trim();
+  if (projectPath) parts.push(`project=${encodeActionPart(projectPath)}`);
+  if (projectLabel) parts.push(`label=${encodeActionPart(projectLabel)}`);
+  return parts.join("|");
+}
+
+function parseWorkspaceFileAction(action = "") {
+  const prefix = "workspace:file:";
+  const raw = String(action || "");
+  if (!raw.startsWith(prefix)) return null;
+  const [pathPart, ...metaParts] = raw.slice(prefix.length).split("|");
+  const parsed = {
+    path: decodeActionPart(pathPart).trim(),
+    projectPath: "",
+    projectLabel: "",
+  };
+  for (const part of metaParts) {
+    const separatorIndex = part.indexOf("=");
+    if (separatorIndex <= 0) continue;
+    const key = part.slice(0, separatorIndex);
+    const value = decodeActionPart(part.slice(separatorIndex + 1)).trim();
+    if (key === "project") parsed.projectPath = value;
+    if (key === "label") parsed.projectLabel = value;
+  }
+  return parsed.path ? parsed : null;
 }
 
 function capabilityActionFromFocus(focus = {}) {
@@ -3876,10 +3904,18 @@ function Conversation({
   const selectedRunBrowserVisit = selectedRunEvent && selectedRunEvidence?.source === "browser"
     ? findBrowserVisitForEvent(selectedRunEvent, browserVisits)
     : null;
-  const selectedRunWorkspaceFilePath = (() => {
+  const selectedRunWorkspaceFileTarget = (() => {
     const action = String(selectedRunEvidence?.action || selectedRunEvent?.action || "");
-    if (action.startsWith("workspace:file:")) return decodeActionSuffix(action, "workspace:file:");
-    return String(selectedRunEvidence?.path || selectedRunEvent?.path || "").trim();
+    const parsed = parseWorkspaceFileAction(action);
+    if (parsed) return parsed;
+    const filePath = String(selectedRunEvidence?.path || selectedRunEvent?.path || "").trim();
+    return filePath
+      ? {
+          path: filePath,
+          projectPath: selectedRunEvidence?.cwd || activeProject?.path || "",
+          projectLabel: selectedRunEvidence?.project || projectLabel(activeProject, t),
+        }
+      : null;
   })();
   const selectedRunRecoveryActions = [];
   if (selectedRunAutomation) {
@@ -3965,14 +4001,14 @@ function Conversation({
       onClick: () => onActivateTool?.("browser"),
     });
   }
-  if (selectedRunWorkspaceFilePath) {
+  if (selectedRunWorkspaceFileTarget) {
     selectedRunRecoveryActions.push({
       key: "open-workspace-file",
       label: t.openWorkspaceTool,
       icon: FileText,
-      onClick: () => onOpenWorkspaceFile?.(selectedRunWorkspaceFilePath, {
-        projectPath: selectedRunEvidence?.cwd || activeProject?.path || "",
-        projectLabel: selectedRunEvidence?.project || projectLabel(activeProject, t),
+      onClick: () => onOpenWorkspaceFile?.(selectedRunWorkspaceFileTarget.path, {
+        projectPath: selectedRunWorkspaceFileTarget.projectPath || selectedRunEvidence?.cwd || activeProject?.path || "",
+        projectLabel: selectedRunWorkspaceFileTarget.projectLabel || selectedRunEvidence?.project || projectLabel(activeProject, t),
         force: true,
       }),
     });
@@ -4156,11 +4192,13 @@ function Conversation({
       }
     }
     if (action.startsWith("workspace:file:")) {
-      const encodedPath = action.slice("workspace:file:".length);
-      try {
-        onOpenWorkspaceFile?.(decodeURIComponent(encodedPath), { force: true });
-      } catch {
-        onOpenWorkspaceFile?.(encodedPath, { force: true });
+      const target = parseWorkspaceFileAction(action);
+      if (target) {
+        onOpenWorkspaceFile?.(target.path, {
+          projectPath: target.projectPath || notice?.project?.path || "",
+          projectLabel: target.projectLabel || projectLabel(notice?.project, t),
+          force: true,
+        });
       }
     }
   }
@@ -6665,7 +6703,10 @@ function ToolsPanel({
       detail: changeSummary,
       cwd: file.projectPath || activeProject?.path || "",
       path: file.path,
-      action: `workspace:file:${encodeURIComponent(file.path)}`,
+      action: workspaceFileAction(file.path, {
+        projectPath: file.projectPath || activeProject?.path || "",
+        projectLabel: file.projectLabel || projectLabel(activeProject, t),
+      }),
     });
     try {
       const result = await desktopApi.saveWorkspaceFile({
@@ -6690,7 +6731,10 @@ function ToolsPanel({
         detail: changeSummary,
         cwd: file.projectPath || activeProject?.path || "",
         path: file.path,
-        action: `workspace:file:${encodeURIComponent(file.path)}`,
+        action: workspaceFileAction(file.path, {
+          projectPath: file.projectPath || activeProject?.path || "",
+          projectLabel: file.projectLabel || projectLabel(activeProject, t),
+        }),
       });
     } catch (error) {
       setWorkspaceError(error.message || String(error));
@@ -6704,7 +6748,10 @@ function ToolsPanel({
         detail: error.message || String(error),
         cwd: file.projectPath || activeProject?.path || "",
         path: file.path,
-        action: `workspace:file:${encodeURIComponent(file.path)}`,
+        action: workspaceFileAction(file.path, {
+          projectPath: file.projectPath || activeProject?.path || "",
+          projectLabel: file.projectLabel || projectLabel(activeProject, t),
+        }),
       });
     } finally {
       setWorkspaceBusy(false);
@@ -8919,7 +8966,12 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
       path: skill.relativePath || skill.path || "",
       stdout: evidence,
       project: skill.root ? { name: skill.name || t.skills, path: skill.root } : activeProject,
-      action: skill.relativePath && skill.root ? `workspace:file:${encodeURIComponent(skill.relativePath)}` : "",
+      action: skill.relativePath && skill.root
+        ? workspaceFileAction(skill.relativePath, {
+            projectPath: skill.root,
+            projectLabel: skill.name || skill.id || t.skills,
+          })
+        : "",
       suppressNotice: true,
     });
     onOpenBottomPanel?.("outputs");
@@ -10767,7 +10819,12 @@ export function App() {
     }
     if (entry?.status === "error" && !entry.suppressNotice) {
       const noticeAction = entry?.action
-        || (entry?.type === "file-save" && entry?.path ? `workspace:file:${encodeURIComponent(entry.path)}` : "")
+        || (entry?.type === "file-save" && entry?.path
+          ? workspaceFileAction(entry.path, {
+              projectPath: entry.cwd || entry.project?.path || activeProject?.path || "",
+              projectLabel: projectLabel(entry.project || activeProject, t),
+            })
+          : "")
         || (entry?.type === "git-command" && optimisticEvent.id ? `git-run:${encodeURIComponent(optimisticEvent.id)}` : "")
         || (entry?.type === "subagent" && optimisticEvent.id ? `subagent:${encodeURIComponent(optimisticEvent.id)}` : "")
         || (optimisticEvent.id ? `run:${encodeURIComponent(optimisticEvent.id)}` : "");
@@ -12388,7 +12445,14 @@ export function App() {
       return;
     }
     if (action.startsWith("workspace:file:")) {
-      openWorkspaceFile(decodeActionSuffix(action, "workspace:file:"), { force: true });
+      const target = parseWorkspaceFileAction(action);
+      if (target) {
+        openWorkspaceFile(target.path, {
+          projectPath: target.projectPath || notice?.project?.path || "",
+          projectLabel: target.projectLabel || projectLabel(notice?.project, t),
+          force: true,
+        });
+      }
       return;
     }
     if (action.startsWith("capability:")) {
