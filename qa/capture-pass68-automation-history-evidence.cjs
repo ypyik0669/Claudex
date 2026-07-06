@@ -3,7 +3,30 @@ const os = require("os");
 const path = require("path");
 const { app, BrowserWindow } = require("electron");
 
-const REPO_DIR = path.join(__dirname, "..");
+function findRepoDir() {
+  const candidates = [
+    process.env.CLAUDEX_REPO_DIR,
+    process.cwd(),
+    __dirname,
+    path.join(__dirname, ".."),
+  ].filter(Boolean);
+  for (const candidate of candidates) {
+    let current = path.resolve(candidate);
+    while (current && current !== path.dirname(current)) {
+      if (
+        fs.existsSync(path.join(current, "package.json")) &&
+        fs.existsSync(path.join(current, "electron", "main.cjs"))
+      ) {
+        return current;
+      }
+      current = path.dirname(current);
+    }
+  }
+  throw new Error("Unable to locate Claudex repo root");
+}
+
+const REPO_DIR = findRepoDir();
+process.chdir(REPO_DIR);
 const USER_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "claudex-pass68-data-"));
 const FAKE_BIN_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "claudex-pass68-bin-"));
 const PROJECT_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "claudex-pass68-project-"));
@@ -219,6 +242,31 @@ app.whenReady().then(async () => {
           /pass68-automation-result/.test(text) &&
           /pass68-stderr-evidence/.test(text) &&
           /pass68-claude-session/.test(text)
+        );
+      })();
+    `, 5000));
+
+    assertStep("PASS68_TIMELINE_COPY_INCLUDES_IDS", await waitFor(win, `
+      (async function() {
+        Object.defineProperty(navigator, 'clipboard', {
+          configurable: true,
+          value: { writeText: async (text) => { window.__pass68Clipboard = String(text || ''); } },
+        });
+        const state = await window.claudexDesktop.getState();
+        const automation = state.automations?.[0];
+        const run = automation?.history?.[0] || automation?.lastRun;
+        const copy = document.querySelector('.selected-run-evidence-panel [data-run-timeline-action="copy-evidence"]');
+        if (!copy || !automation?.id || !run?.id) return false;
+        copy.click();
+        await new Promise((resolve) => setTimeout(resolve, 250));
+        const text = window.__pass68Clipboard || '';
+        return Boolean(
+          text.includes(automation.id) &&
+          text.includes(run.id) &&
+          text.includes(${JSON.stringify(PROJECT_DIR)}) &&
+          /pass68 evidence prompt/.test(text) &&
+          /pass68-automation-result/.test(text) &&
+          /pass68-stderr-evidence/.test(text)
         );
       })();
     `, 5000));

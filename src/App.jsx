@@ -2681,7 +2681,11 @@ function runTimelineEvidenceForEvent(event, { commandRuns = [], automations = []
     return {
       source: "automation",
       automationId: automation?.id || "",
+      automationRunId: entry.id || event?.id || "",
       automationPrompt: automation?.prompt || "",
+      automationScheduleType: automation?.schedule?.type || "",
+      automationScheduleRunAt: automation?.schedule?.runAt || "",
+      automationNextRun: automation?.nextRun || "",
       title: event?.title || automation?.prompt || "",
       detail: entry.error || entry.detail || entry.summary || event?.detail || "",
       type: event?.type || "automation",
@@ -2778,11 +2782,32 @@ function runTimelineEvidenceText(event, evidence, t) {
     : [];
   const typeRaw = runTimelineTypeRaw(event, evidence);
   const typeLabel = runTimelineTypeLabel(event, evidence, t);
+  const sourceLines = [];
+  if (evidence?.source === "automation") {
+    sourceLines.push(
+      `${t.automationTaskId || "Automation ID"}: ${evidence.automationId || "-"}`,
+      `${t.automationRunId || "Run ID"}: ${evidence.automationRunId || event?.id || "-"}`,
+      `${t.automationTasks}: ${evidence.automationPrompt || evidence?.title || "-"}`,
+      `${t.scheduleRepeat}: ${automationScheduleTypeLabel(evidence.automationScheduleType, t)}`,
+      `${t.scheduleTime}: ${evidence.automationScheduleRunAt || "-"}`,
+      `${t.scheduleNextRun}: ${evidence.automationNextRun || "-"}`,
+      `${t.scheduleThread}: ${evidence.thread || "-"}`,
+    );
+  }
+  if (evidence?.source === "subagent") {
+    sourceLines.push(
+      `${t.subagentRunId || "Run ID"}: ${evidence.subagentRunId || "-"}`,
+      `${t.subagentRequestId || "Request ID"}: ${evidence.subagentRequestId || event?.id || "-"}`,
+      `${t.subagents}: ${evidence.subagentNickname || evidence?.title || "Subagent"}`,
+      `${t.subagentTask}: ${evidence.subagentTask || "-"}`,
+    );
+  }
   const lines = [
     `${t.outputs}: ${event?.title || evidence?.title || ""}`,
     `${t.timelineEventType}: ${typeLabel}`,
     typeRaw !== typeLabel ? `${t.timelineEventRawType}: ${typeRaw}` : "",
     `${t.scheduleStatus}: ${runTimelineStatusLabel(event?.status || evidence?.status, t)}`,
+    ...sourceLines,
     `${t.activeProject}: ${evidence?.project || ""}`,
     `${t.automationSession}: ${evidence?.sessionId || "-"}`,
     `${t.commandLine}: ${evidence?.commandLine || "-"}`,
@@ -2796,7 +2821,7 @@ function runTimelineEvidenceText(event, evidence, t) {
     automationRunOutput(evidence || {}),
     subagentArtifactsEvidenceText(evidence?.artifacts || [], t),
   ];
-  return lines.filter((line, index) => index < 10 || String(line || "").trim()).join("\n");
+  return lines.filter((line, index) => index < 10 + sourceLines.length || String(line || "").trim()).join("\n");
 }
 
 function runTimelineHasEvidence(evidence) {
@@ -5964,6 +5989,19 @@ function RunEvidenceDetails({ event, evidence, onCopy, onOpenWorkspaceFile, t, p
               </dd>
             </div>
             <div><dt>{t.scheduleStatus}</dt><dd>{runTimelineStatusLabel(event?.status || evidence.status, t)}</dd></div>
+            {evidence.source === "automation" && (
+              <>
+                <div><dt>{t.automationTaskId}</dt><dd>{evidence.automationId || "-"}</dd></div>
+                <div><dt>{t.automationRunId}</dt><dd>{evidence.automationRunId || event?.id || "-"}</dd></div>
+                <div><dt>{t.scheduleRepeat}</dt><dd>{automationScheduleTypeLabel(evidence.automationScheduleType, t)}</dd></div>
+              </>
+            )}
+            {evidence.source === "subagent" && (
+              <>
+                <div><dt>{t.subagentRunId}</dt><dd>{evidence.subagentRunId || "-"}</dd></div>
+                <div><dt>{t.subagentRequestId}</dt><dd>{evidence.subagentRequestId || event?.id || "-"}</dd></div>
+              </>
+            )}
             <div><dt>{t.activeProject}</dt><dd title={evidence.cwd || ""}>{evidence.project || "-"}</dd></div>
             <div><dt>{t.automationSession}</dt><dd>{evidence.sessionId || "-"}</dd></div>
             <div><dt>{t.commandExit}</dt><dd>{typeof evidence.code === "number" ? evidence.code : "-"}</dd></div>

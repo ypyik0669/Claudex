@@ -256,13 +256,25 @@ app.whenReady().then(async () => {
           configurable: true,
           value: { writeText: async (text) => { window.__pass75Clipboard = String(text || ''); } },
         });
+        const state = await window.claudexDesktop.getState();
+        const run = state.subagentRuns?.find((item) => item.nickname === 'Timeline QA');
         const copy = document.querySelector('.selected-run-evidence-panel .run-timeline-actions button');
         if (!copy) return false;
         copy.click();
         await new Promise((resolve) => setTimeout(resolve, 250));
-        return /\\u4ea7\\u7269:\\s*Summary, stdout, stderr/.test(window.__pass75Clipboard || '') &&
-          /pass75-subagent-summary artifact evidence/.test(window.__pass75Clipboard || '') &&
-          /pass75-subagent-stderr/.test(window.__pass75Clipboard || '');
+        const text = window.__pass75Clipboard || '';
+        return Boolean(
+          run?.id &&
+          run?.requestId &&
+          text.includes(run.id) &&
+          text.includes(run.requestId) &&
+          /Timeline QA/.test(text) &&
+          /pass75 inspect timeline artifact evidence/.test(text) &&
+          text.includes(${JSON.stringify(PROJECT_DIR)}) &&
+          /\\u4ea7\\u7269:\\s*Summary, stdout, stderr/.test(text) &&
+          /pass75-subagent-summary artifact evidence/.test(text) &&
+          /pass75-subagent-stderr/.test(text)
+        );
       })();
     `, 5000));
 
