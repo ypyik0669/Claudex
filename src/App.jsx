@@ -596,6 +596,7 @@ const copy = {
     installFromMarketplace: "从市场安装",
     openHomepage: "主页",
     source: "来源",
+    repository: "仓库",
     status: "状态",
     description: "描述",
     category: "分类",
@@ -1585,6 +1586,22 @@ function marketplacePluginEvidenceText(plugin = {}, t) {
     plugin.homepage ? [t.openHomepage, plugin.homepage] : null,
     plugin.permissions ? [t.allowedTools, summarizePanelPluginField(plugin.permissions)] : null,
     plugin.risk ? [t.marketplaceRisk, plugin.risk] : null,
+  ].filter(Boolean);
+  return rows.map(([label, value]) => `${label}: ${value}`).join("\n");
+}
+
+function marketplaceSourceEvidenceText(source = {}, t) {
+  const rows = [
+    [t.marketplaceSources, source.name || source.repo || source.source],
+    source.source ? [t.source, summarizePanelPluginField(source.source)] : null,
+    source.repo ? [t.repository, summarizePanelPluginField(source.repo)] : null,
+    source.installLocation ? [t.installPath, source.installLocation] : null,
+    source.version ? [t.version, source.version] : null,
+    source.status ? [t.status, source.status] : null,
+    source.description ? [t.description, source.description] : null,
+    source.permissions ? [t.allowedTools, summarizePanelPluginField(source.permissions)] : null,
+    source.tools ? [t.tools, summarizePanelPluginField(source.tools)] : null,
+    source.error ? [t.mcpError, summarizePanelPluginField(source.error)] : null,
   ].filter(Boolean);
   return rows.map(([label, value]) => `${label}: ${value}`).join("\n");
 }
@@ -7751,6 +7768,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
   const [confirmingCliCommand, setConfirmingCliCommand] = useState(null);
   const [copiedPluginId, setCopiedPluginId] = useState("");
   const [copiedMarketplacePluginId, setCopiedMarketplacePluginId] = useState("");
+  const [copiedMarketplaceSourceId, setCopiedMarketplaceSourceId] = useState("");
   const [copiedMcpServerKey, setCopiedMcpServerKey] = useState("");
   const [copiedCustomMarketplace, setCopiedCustomMarketplace] = useState("");
   const [marketplaceOutput, setMarketplaceOutput] = useState("");
@@ -8101,6 +8119,19 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
     }
     setCopiedMarketplacePluginId(id);
     window.setTimeout(() => setCopiedMarketplacePluginId((current) => (current === id ? "" : current)), 1200);
+  }
+
+  async function copyMarketplaceSourceEvidence(source) {
+    const id = String(source?.name || source?.repo || source?.source || "").trim();
+    const evidence = marketplaceSourceEvidenceText(source, t);
+    if (!id || !evidence) return;
+    try {
+      await navigator.clipboard?.writeText(evidence);
+    } catch (_error) {
+      // Clipboard permissions vary by shell; visible feedback still records the copy intent.
+    }
+    setCopiedMarketplaceSourceId(id);
+    window.setTimeout(() => setCopiedMarketplaceSourceId((current) => (current === id ? "" : current)), 1200);
   }
 
   async function copyMcpServerRaw(server) {
@@ -8461,7 +8492,13 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                           </dl>
                         )}
                       </div>
-                      <em>{item.status || item.source || t.source}</em>
+                      <div className="marketplace-source-actions">
+                        <em>{item.status || item.source || t.source}</em>
+                        <button type="button" className="plain-action subtle-action" data-marketplace-source-action="copy-evidence" onClick={() => copyMarketplaceSourceEvidence(item)} disabled={cliWorking} title={cliWorking ? t.workingHint : copiedMarketplaceSourceId === item.name ? t.copied : t.copyEvidence}>
+                          {copiedMarketplaceSourceId === item.name ? <Check size={13} /> : <Copy size={13} />}
+                          {copiedMarketplaceSourceId === item.name ? t.copied : t.copyEvidence}
+                        </button>
+                      </div>
                       <RowCliActionEvidence run={sourceFocused ? recentMarketplaceActionRun : null} t={t} onOpenOutputs={openCapabilityOutputs} onRetry={sourceRetry} />
                     </article>
                   );
