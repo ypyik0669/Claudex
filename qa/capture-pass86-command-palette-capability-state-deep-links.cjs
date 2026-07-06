@@ -126,7 +126,7 @@ function writeInitialStore() {
   });
 }
 
-async function firstPaletteCommand(win, query) {
+async function paletteCommands(win, query) {
   return win.webContents.executeJavaScript(`
     (async function() {
       window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true, bubbles: true }));
@@ -137,15 +137,15 @@ async function firstPaletteCommand(win, query) {
       setter.call(input, ${JSON.stringify(query)});
       input.dispatchEvent(new Event('input', { bubbles: true }));
       await new Promise((resolve) => setTimeout(resolve, 180));
-      const button = document.querySelector('.command-modal .command-list button');
-      const result = button ? { id: button.getAttribute('data-command-id') || '', text: button.textContent || '' } : null;
+      const result = Array.from(document.querySelectorAll('.command-modal .command-list button'))
+        .map((button) => ({ id: button.getAttribute('data-command-id') || '', text: button.textContent || '' }));
       window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
       return result;
     })();
   `);
 }
 
-async function runPaletteCommand(win, query) {
+async function runPaletteCommand(win, query, expectedId = "") {
   return win.webContents.executeJavaScript(`
     (async function() {
       window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true, bubbles: true }));
@@ -156,7 +156,11 @@ async function runPaletteCommand(win, query) {
       setter.call(input, ${JSON.stringify(query)});
       input.dispatchEvent(new Event('input', { bubbles: true }));
       await new Promise((resolve) => setTimeout(resolve, 180));
-      const button = document.querySelector('.command-modal .command-list button');
+      const buttons = Array.from(document.querySelectorAll('.command-modal .command-list button'));
+      const expectedId = ${JSON.stringify(expectedId)};
+      const button = expectedId
+        ? buttons.find((candidate) => (candidate.getAttribute('data-command-id') || '').includes(expectedId))
+        : buttons[0];
       if (!button) return false;
       button.click();
       return true;
@@ -167,8 +171,8 @@ async function runPaletteCommand(win, query) {
 async function waitForPaletteCommand(win, query, predicate, timeoutMs = 12000) {
   const startedAt = Date.now();
   while (Date.now() - startedAt < timeoutMs) {
-    const command = await firstPaletteCommand(win, query);
-    if (command && predicate(command)) return true;
+    const commands = await paletteCommands(win, query);
+    if (Array.isArray(commands) && commands.some((command) => predicate(command))) return true;
     await wait(180);
   }
   return false;
@@ -188,7 +192,7 @@ async function runTest() {
     "pass86-tool",
     (command) => command.id.includes("capability-plugin:pass86-plugin%40qa-market") && /pass86-plugin@qa-market/.test(command.text || ""),
   ));
-  assertStep("PASS86_OPEN_PLUGIN_FOCUS", await runPaletteCommand(win, "pass86-tool"));
+  assertStep("PASS86_OPEN_PLUGIN_FOCUS", await runPaletteCommand(win, "pass86-tool", "capability-plugin:pass86-plugin%40qa-market"));
   assertStep("PASS86_PLUGIN_ROW_FOCUSED", await waitFor(win, `
     Boolean(
       document.querySelector('.plugin-manager-modal') &&
@@ -203,7 +207,7 @@ async function runTest() {
     "pass86-mcp",
     (command) => command.id.includes("capability-mcp:pass86-mcp") && /pass86-mcp/.test(command.text || ""),
   ));
-  assertStep("PASS86_OPEN_MCP_FOCUS", await runPaletteCommand(win, "pass86-mcp"));
+  assertStep("PASS86_OPEN_MCP_FOCUS", await runPaletteCommand(win, "pass86-mcp", "capability-mcp:pass86-mcp"));
   assertStep("PASS86_MCP_ROW_FOCUSED", await waitFor(win, `
     Boolean(
       document.querySelector('.plugin-manager-modal') &&
@@ -218,7 +222,7 @@ async function runTest() {
     "pass86-catalog-plugin",
     (command) => command.id.includes("capability-marketplace-plugin:pass86-catalog-plugin%40pass86-market-source") && /pass86-catalog-plugin/.test(command.text || ""),
   ));
-  assertStep("PASS86_OPEN_MARKETPLACE_PLUGIN_FOCUS", await runPaletteCommand(win, "pass86-catalog-plugin"));
+  assertStep("PASS86_OPEN_MARKETPLACE_PLUGIN_FOCUS", await runPaletteCommand(win, "pass86-catalog-plugin", "capability-marketplace-plugin:pass86-catalog-plugin%40pass86-market-source"));
   assertStep("PASS86_MARKETPLACE_PLUGIN_CARD_FOCUSED", await waitFor(win, `
     Boolean(
       document.querySelector('.plugin-manager-modal .marketplace-workbench') &&
@@ -233,7 +237,7 @@ async function runTest() {
     "pass86-market-source",
     (command) => command.id.includes("capability-marketplace-source:pass86-market-source") && /pass86-market-source/.test(command.text || ""),
   ));
-  assertStep("PASS86_OPEN_MARKETPLACE_SOURCE_FOCUS", await runPaletteCommand(win, "pass86-market-source"));
+  assertStep("PASS86_OPEN_MARKETPLACE_SOURCE_FOCUS", await runPaletteCommand(win, "pass86-market-source", "capability-marketplace-source:pass86-market-source"));
   assertStep("PASS86_MARKETPLACE_SOURCE_ROW_FOCUSED", await waitFor(win, `
     Boolean(
       document.querySelector('.plugin-manager-modal .marketplace-workbench') &&

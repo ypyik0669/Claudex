@@ -1848,6 +1848,52 @@ function parseMcpTools(segments) {
   return match ? Number(match[1]) : null;
 }
 
+function structuredToolLabels(value) {
+  if (Array.isArray(value)) {
+    return value
+      .map((item) => {
+        if (typeof item === "string" || typeof item === "number") return String(item).trim();
+        if (!item || typeof item !== "object") return "";
+        return String(item.name || item.id || item.tool || item.command || item.title || "").trim();
+      })
+      .filter(Boolean);
+  }
+  if (value && typeof value === "object") {
+    return Object.entries(value)
+      .filter(([, itemValue]) => itemValue !== false && itemValue !== null && itemValue !== undefined && itemValue !== "")
+      .map(([key, itemValue]) => {
+        if (itemValue === true) return key;
+        if (itemValue && typeof itemValue === "object") {
+          return String(itemValue.name || itemValue.id || itemValue.tool || itemValue.command || key).trim();
+        }
+        return key;
+      })
+      .filter(Boolean);
+  }
+  return String(value || "")
+    .split(/[,;\n]/)
+    .map((item) => item.trim())
+    .filter(Boolean);
+}
+
+function structuredToolCount(value) {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (Array.isArray(value)) return value.length;
+  if (value && typeof value === "object") {
+    return Object.values(value).filter((itemValue) => itemValue !== false && itemValue !== null && itemValue !== undefined && itemValue !== "").length;
+  }
+  return null;
+}
+
+function normalizeMcpStatusValue(value) {
+  const text = String(value || "").trim().toLowerCase();
+  if (!text) return "unknown";
+  if (/\b(?:ok|ready|connected|enabled|running|active|success|succeeded)\b/.test(text)) return "ok";
+  if (/\b(?:error|failed|failure|disconnected|unavailable|denied|missing|timeout)\b/.test(text)) return "error";
+  if (/\b(?:pending|starting|waiting|paused)\b/.test(text)) return "pending";
+  return "unknown";
+}
+
 function parseMcpSource(segments) {
   const segment = segments.find((item) => (
     /https?:\/\/|wss?:\/\//i.test(item) ||
@@ -1893,7 +1939,7 @@ function parseMcpServers(rawOutput) {
     .filter(Boolean)
     .filter((line) => !/^checking|^name\s+/i.test(line))
     .map((line) => {
-      const clean = line.replace(/^[✓✔✗✘×!⏸\-\*]\s*/, "").trim();
+      const clean = line.replace(/^(?:[✓✔✗✘×!⏸\-\*]|â\S+|Ã\S+)\s*/, "").trim();
       const pair = clean.match(/^([^:\s]+)\s*[:\s]\s*(.*)$/);
       const name = pair?.[1] || clean.split(/\s+/)[0] || clean;
       const detail = pair?.[2] || clean.replace(name, "").trim();
@@ -1913,6 +1959,50 @@ function parseMcpServers(rawOutput) {
       return { name, detail, status, raw: line, tools, transport, source, error };
     })
     .filter((item) => item.name);
+}
+
+function normalizeMcpServers(jsonOutput, rawOutput) {
+  const rawServers = parseMcpServers(rawOutput);
+  const jsonItems = parseJsonListOutput(jsonOutput, ["mcpServers", "servers"]);
+  if (!jsonItems.length) return rawServers;
+  const rawByName = new Map(rawServers.map((server) => [String(server.name || "").toLowerCase(), server]));
+  const seen = new Set();
+  const normalized = jsonItems
+    .map((item) => {
+      const name = String(item?.name || item?.id || item?.server || item?.label || "").trim();
+      if (!name) return null;
+      const rawMatch = rawByName.get(name.toLowerCase()) || {};
+      seen.add(name.toLowerCase());
+      const toolSource = item?.toolNames || item?.tools || item?.availableTools || item?.capabilities || item?.commands;
+      const toolNames = structuredToolLabels(toolSource);
+      const explicitToolCount = Number(item?.toolCount ?? item?.toolsCount ?? item?.tool_count);
+      const tools = Number.isFinite(explicitToolCount)
+        ? explicitToolCount
+        : structuredToolCount(toolSource) ?? (typeof rawMatch.tools === "number" ? rawMatch.tools : null);
+      const status = normalizeMcpStatusValue(item?.status || item?.state || item?.connection || item?.connected || rawMatch.status);
+      const source = String(item?.source || item?.path || item?.command || item?.url || item?.endpoint || rawMatch.source || "").trim();
+      const transport = String(item?.transport || item?.type || rawMatch.transport || parseMcpTransport([source], source) || "").trim();
+      const detail = String(item?.detail || item?.description || item?.summary || rawMatch.detail || "").trim();
+      const error = pluginErrorSummary(item) || rawMatch.error || "";
+      return {
+        name,
+        detail,
+        status,
+        raw: rawMatch.raw || JSON.stringify(item),
+        tools,
+        toolNames,
+        toolsSummary: toolNames.join(", "),
+        transport,
+        source,
+        error,
+      };
+    })
+    .filter(Boolean);
+  for (const rawServer of rawServers) {
+    const key = String(rawServer.name || "").toLowerCase();
+    if (key && !seen.has(key)) normalized.push(rawServer);
+  }
+  return normalized;
 }
 
 function splitArgs(value) {
@@ -3901,18 +3991,22 @@ ipcMain.handle("claude:status", async (_event, { projectPath } = {}) => {
   const cwd = projectPath && fs.existsSync(projectPath) ? projectPath : app.getPath("home");
   const claudeCommand = configuredClaudeCommand();
   const skillRegistry = loadSkillRegistry(cwd);
-  const [version, auth, plugins, pluginsJson, mcp, marketplaces, marketplacesJson] = await Promise.all([
+  const [version, auth, plugins, pluginsJson, mcp, mcpJson, marketplaces, marketplacesJson] = await Promise.all([
     runClaudeCommand(claudeCommand, ["--version"], { cwd, timeoutMs: 20000 }),
     runClaudeCommand(claudeCommand, ["auth", "status"], { cwd, timeoutMs: 30000 }),
     runClaudeCommand(claudeCommand, ["plugin", "list"], { cwd, timeoutMs: 30000 }),
     runClaudeCommand(claudeCommand, ["plugin", "list", "--json"], { cwd, timeoutMs: 30000 }),
     runClaudeCommand(claudeCommand, ["mcp", "list"], { cwd, timeoutMs: 30000 }),
+    runClaudeCommand(claudeCommand, ["mcp", "list", "--json"], { cwd, timeoutMs: 30000 }),
     runClaudeCommand(claudeCommand, ["plugin", "marketplace", "list"], { cwd, timeoutMs: 30000 }),
     runClaudeCommand(claudeCommand, ["plugin", "marketplace", "list", "--json"], { cwd, timeoutMs: 30000 }),
   ]);
   const pluginItems = normalizeClaudePluginItems(pluginsJson.stdout, plugins.stdout || plugins.stderr);
   const marketplaceItems = normalizeMarketplaceItems(marketplacesJson.stdout, marketplaces.stdout || marketplaces.stderr);
   const mcpRaw = stripAnsi(mcp.stdout || mcp.stderr).trim();
+  const mcpJsonItems = mcpJson.code === 0 ? parseJsonListOutput(mcpJson.stdout, ["mcpServers", "servers"]) : [];
+  const mcpJsonOutput = mcpJsonItems.length ? mcpJson.stdout : "";
+  const mcpJsonStatus = mcpJsonItems.length ? mcpJson : null;
   return {
     available: version.code === 0,
     version: stripAnsi(version.stdout || version.stderr).trim(),
@@ -3927,8 +4021,8 @@ ipcMain.handle("claude:status", async (_event, { projectPath } = {}) => {
     skillRoots: skillRegistry.roots,
     skillsTruncated: skillRegistry.truncated,
     mcp: mcpRaw,
-    mcpServers: parseMcpServers(mcpRaw),
-    mcpCommand: statusCommandState(mcp),
+    mcpServers: normalizeMcpServers(mcpJsonOutput, mcpRaw),
+    mcpCommand: statusCommandState(mcp, mcpJsonStatus),
     marketplaces: marketplaceItems,
     marketplacePlugins: loadMarketplacePluginCatalog(marketplaceItems, pluginItems),
     marketplaceOutput: stripAnsi(marketplaces.stdout || marketplaces.stderr).trim(),

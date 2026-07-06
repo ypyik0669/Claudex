@@ -1640,6 +1640,7 @@ function mcpServerEvidenceText(server = {}, t) {
     server.status ? [t.status, `${mcpStatusLabel(server.status, t)} (${server.status})`] : null,
     server.detail ? [t.description, server.detail] : null,
     typeof server.tools === "number" ? [t.tools, String(server.tools)] : null,
+    server.toolsSummary ? [t.toolsList, server.toolsSummary] : null,
     server.transport ? [t.mcpTransport, server.transport] : null,
     server.source ? [t.source, server.source] : null,
     server.error ? [t.mcpError, server.error] : null,
@@ -1918,6 +1919,8 @@ function structuredQueryMatch(item, query) {
     item?.installLocation,
     item?.detail,
     item?.tools,
+    item?.toolsSummary,
+    Array.isArray(item?.toolNames) ? item.toolNames.join(" ") : item?.toolNames,
     item?.transport,
     item?.error,
   ].filter(Boolean).join(" ").toLowerCase();
@@ -7735,6 +7738,7 @@ function ToolsPanel({
                     const meta = [
                       display.detail,
                       typeof server.tools === "number" ? `${t.tools}: ${server.tools}` : "",
+                      server.toolsSummary ? `${t.toolsList}: ${server.toolsSummary}` : "",
                       server.transport,
                       server.source,
                       server.error,
@@ -9692,6 +9696,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                   const rowRecording = cliAction === "mcp list";
                   const rowMeta = [
                     typeof server.tools === "number" ? [t.tools, String(server.tools)] : null,
+                    server.toolsSummary ? [t.toolsList, messageExcerpt(server.toolsSummary, 72), server.toolsSummary] : null,
                     server.transport ? [t.mcpTransport, server.transport] : null,
                     server.source ? [t.source, compactPath(server.source, 62), server.source] : null,
                     server.error ? [t.mcpError, messageExcerpt(server.error, 72), server.error] : null,
@@ -10181,6 +10186,7 @@ function SettingsBackedStatus({
               const rowMeta = [
                 display.detail ? [t.cliStatus, messageExcerpt(display.detail, 72), display.detail] : null,
                 typeof server.tools === "number" ? [t.tools, String(server.tools)] : null,
+                server.toolsSummary ? [t.toolsList, messageExcerpt(server.toolsSummary, 72), server.toolsSummary] : null,
                 server.transport ? [t.mcpTransport, server.transport] : null,
                 server.source ? [t.source, compactPath(server.source, 62), server.source] : null,
                 server.error ? [t.mcpError, messageExcerpt(server.error, 72), server.error] : null,
@@ -11915,6 +11921,7 @@ export function App() {
         subtitle: [
           mcpStatusLabel(server.status, t),
           typeof server.tools === "number" ? `${t.tools}: ${server.tools}` : "",
+          server.toolsSummary,
           server.transport,
           server.source || server.detail,
         ].filter(Boolean).join(" · "),
@@ -11926,6 +11933,8 @@ export function App() {
           server.detail,
           server.raw,
           server.tools,
+          server.toolsSummary,
+          Array.isArray(server.toolNames) ? server.toolNames.join(" ") : server.toolNames,
           server.transport,
           server.source,
           server.error,
