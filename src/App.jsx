@@ -2109,6 +2109,42 @@ function decodeActionSuffix(action, prefix) {
   }
 }
 
+function encodeActionPart(value) {
+  return encodeURIComponent(String(value || "").trim());
+}
+
+function decodeActionPart(value) {
+  try {
+    return decodeURIComponent(String(value || ""));
+  } catch {
+    return String(value || "");
+  }
+}
+
+function capabilityActionFromFocus(focus = {}) {
+  const tab = String(focus?.tab || "").trim();
+  if (!tab) return "";
+  const kind = String(focus?.kind || "").trim();
+  const idValue = String(focus?.id || "").trim();
+  const query = String(focus?.query || idValue || "").trim();
+  const parts = [tab];
+  if (kind || idValue || query) parts.push(kind, idValue, query);
+  return `capability:${parts.map(encodeActionPart).join(":")}`;
+}
+
+function capabilityFocusFromAction(action) {
+  const rawParts = String(action || "")
+    .slice("capability:".length)
+    .split(":");
+  const [tab, kind = "", idValue = "", query = ""] = rawParts.map(decodeActionPart);
+  return {
+    tab: tab || "plugins",
+    kind,
+    id: idValue,
+    query: query || idValue,
+  };
+}
+
 function authLabel(auth, settings) {
   if (settings?.env?.anthropicApiKey) return "第一方 / API 密钥";
   if (settings?.env?.anthropicAuthToken) return "第一方 / 授权令牌";
@@ -3678,6 +3714,11 @@ function Conversation({
     if (action.startsWith("run:")) {
       const eventId = decodeActionSuffix(action, "run:");
       onOpenRunTimeline?.(eventId);
+      return;
+    }
+    if (action.startsWith("capability:")) {
+      const focus = capabilityFocusFromAction(action);
+      onCapabilities?.(focus.tab, focus.kind || focus.id ? focus : null);
       return;
     }
     if (action.startsWith("runtime-health:")) {
@@ -7976,13 +8017,14 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
     setActiveTab(id);
   }
 
-  function recordCapabilityNotice(title, detail, key = "") {
+  function recordCapabilityNotice(title, detail, key = "", focus = null) {
     onNotice?.({
       level: "error",
       source: "plugin/mcp",
       title,
       detail,
       key: key || `capability:${title}:${detail}`,
+      action: capabilityActionFromFocus(focus),
       projectPath: activeProject?.path || "",
     });
   }
@@ -8079,7 +8121,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
         onOpenBottomPanel?.("outputs");
       }
       setCliError(message);
-      recordCapabilityNotice(`${t.marketplace}: ${t.fetchMarketplace}`, message, "capability:fetch-marketplace");
+      recordCapabilityNotice(`${t.marketplace}: ${t.fetchMarketplace}`, message, "capability:fetch-marketplace", { tab: "marketplace" });
       setMarketplaceOutput(result?.stdout || result?.stderr || message);
     } finally {
       setMarketplaceBusy(false);
@@ -8162,7 +8204,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
         onOpenBottomPanel?.("outputs");
       }
       setCliError(message);
-      recordCapabilityNotice(`${t.pluginActions}: ${nextArgs}`, message, `capability:action:${nextArgs}`);
+      recordCapabilityNotice(`${t.pluginActions}: ${nextArgs}`, message, `capability:action:${nextArgs}`, nextActionFocus);
       if (nextActionFocus && manualCapabilityTabSwitchRef.current === actionTabSwitchGeneration) {
         setActiveTab(nextActionFocus.tab);
         setFilter("all");
@@ -11322,6 +11364,11 @@ export function App() {
     }
     if (action.startsWith("workspace:file:")) {
       openWorkspaceFile(decodeActionSuffix(action, "workspace:file:"), { force: true });
+      return;
+    }
+    if (action.startsWith("capability:")) {
+      const focus = capabilityFocusFromAction(action);
+      openCapabilitiesSurface(focus.tab, focus.kind || focus.id ? focus : null);
       return;
     }
     if (action.startsWith("runtime-health:")) {
