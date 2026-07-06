@@ -244,6 +244,28 @@ async function runTest() {
         /\\u6765\\u81ea\\u771f\\u5b9e Workspace/.test(document.querySelector('.bottom-work-panel')?.textContent || '');
     })()
   `, 10000));
+  assertStep("PASS121_OPEN_PALETTE_QUERY_SOURCE_FILE", await openPaletteAndQuery(win, "workspace open file pass121-source-target"));
+  assertStep("PASS121_SOURCE_FILE_COMMAND_VISIBLE", await waitFor(win, `
+    Boolean([...document.querySelectorAll('.command-modal .command-list button')].some((button) =>
+      (button.getAttribute('data-command-id') || '').startsWith('source-file:') &&
+      (button.textContent || '').includes(${JSON.stringify(SOURCE_TARGET)}) &&
+      /workspace/i.test(button.textContent || '')
+    ))
+  `, 5000));
+  assertStep("PASS121_CLICK_SOURCE_FILE_COMMAND", await clickCommand(win, "source-file:", SOURCE_TARGET));
+  assertStep("PASS121_SOURCE_FILE_OPENED_IN_WORKSPACE", await waitFor(win, `
+    (function() {
+      const textarea = document.querySelector('.file-editor textarea');
+      const editor = document.querySelector('.file-editor')?.textContent || '';
+      return Boolean(
+        textarea &&
+        textarea.getAttribute('aria-label') === ${JSON.stringify(SOURCE_TARGET)} &&
+        textarea.value.includes('pass121 target source evidence') &&
+        editor.includes(${JSON.stringify(SOURCE_TARGET)}) &&
+        !editor.includes(${JSON.stringify(SOURCE_OTHER)})
+      );
+    })()
+  `, 10000));
   assertStep("PASS121_OPEN_OUTPUTS_BEFORE_BROWSER", await openPanel(win, "\\u8f93\\u51fa"));
   assertStep("PASS121_OPEN_PALETTE_QUERY_BROWSER", await openPaletteAndQuery(win, "pass121 browser target"));
   assertStep("PASS121_BROWSER_COMMAND_VISIBLE", await waitFor(win, `

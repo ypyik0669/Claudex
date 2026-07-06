@@ -11361,6 +11361,38 @@ export function App() {
         };
       });
 
+    const sourceFileCommands = (Array.isArray(state.sourceRefs) ? state.sourceRefs : [])
+      .filter((source) => source?.path)
+      .slice(0, 24)
+      .map((source) => {
+        const sourceKey = sourceRefKey(source);
+        const sourcePath = source.path || "";
+        return {
+          id: `source-file:${commandIdSegment(sourceKey || sourcePath)}`,
+          title: `${t.openWorkspaceTool} Workspace: ${sourcePath}`,
+          subtitle: [
+            source.project?.path || projectLabel(source.project, t),
+            source.type,
+            typeof source.size === "number" ? formatBytes(source.size) : "",
+          ].filter(Boolean).join(" Â· "),
+          group: t.sources,
+          keywords: [
+            "source file workspace open editor evidence read",
+            source.id,
+            source.name,
+            source.path,
+            source.type,
+            source.project?.name,
+            source.project?.path,
+          ].filter(Boolean).join(" "),
+          action: () => openWorkspaceFile(sourcePath, {
+            projectPath: source.project?.path || activeProject?.path || "",
+            projectLabel: projectLabel(source.project, t),
+            force: true,
+          }),
+        };
+      });
+
     const browserEvidenceCommands = (Array.isArray(state.browserVisits) ? state.browserVisits : [])
       .filter((visit) => visit?.id || visit?.url || browserVisitFinalUrl(visit))
       .slice(0, 24)
@@ -11810,6 +11842,7 @@ export function App() {
       ...gitFileCommands,
       ...gitHunkCommands,
       ...sourceRefCommands,
+      ...sourceFileCommands,
       ...browserEvidenceCommands,
       ...browserTimelineCommands,
       ...automationCommands,
