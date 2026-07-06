@@ -5119,13 +5119,17 @@ function SubagentWorkbench({
         )}
       </div>
       <div className="subagent-run-list">
-        {visibleRuns.map((run) => (
+        {visibleRuns.map((run) => {
+          const isFocusedRun = focusedSubagentId === run.id || focusedSubagentId === run.requestId;
+          const openFocusedEvidence = Boolean(isFocusedRun && focus?.expandEvidence);
+          const openFocusedArtifacts = Boolean(isFocusedRun && focus?.expandArtifacts);
+          return (
           <article
-            className={cx("subagent-run-card", run.status, run.archivedAt && "archived", (focusedSubagentId === run.id || focusedSubagentId === run.requestId) && "focused-task-card")}
+            className={cx("subagent-run-card", run.status, run.archivedAt && "archived", isFocusedRun && "focused-task-card")}
             key={run.id}
             data-subagent-run-id={run.id}
             data-subagent-request-id={run.requestId || ""}
-            aria-current={(focusedSubagentId === run.id || focusedSubagentId === run.requestId) ? "true" : undefined}
+            aria-current={isFocusedRun ? "true" : undefined}
           >
             <div className="subagent-run-head">
               <div>
@@ -5141,7 +5145,7 @@ function SubagentWorkbench({
                   <pre className="subagent-output">{run.summary}</pre>
                 )}
                 {(run.stdout || run.stderr || typeof run.code === "number") && (
-                  <details className="subagent-evidence-details">
+                  <details className="subagent-evidence-details" open={openFocusedEvidence || undefined}>
                     <summary>{t.subagentEvidence}</summary>
                     <dl className="subagent-evidence-meta">
                       <div><dt>{t.activeProject}</dt><dd title={run.project?.path || run.cwd || ""}>{projectLabel(run.project, t)}</dd></div>
@@ -5165,7 +5169,7 @@ function SubagentWorkbench({
                   </details>
                 )}
                 {run.artifacts?.length > 0 && (
-                  <details className="subagent-evidence-details">
+                  <details className="subagent-evidence-details" open={openFocusedArtifacts || undefined}>
                     <summary>{t.subagentArtifacts}: {run.artifacts.length}</summary>
                     <div className="subagent-artifact-list">
                       {run.artifacts.map((artifact, index) => {
@@ -5263,7 +5267,8 @@ function SubagentWorkbench({
               )}
             </div>
           </article>
-        ))}
+          );
+        })}
         {!visibleRuns.length && (
           <div className="empty-panel">
             <Bot size={20} />
@@ -11072,7 +11077,10 @@ export function App() {
           run.cwd,
           ...(Array.isArray(run.artifacts) ? run.artifacts.map((artifact) => [artifact?.label, artifact?.path, artifact?.type, subagentArtifactContent(artifact)].filter(Boolean).join(" ")) : []),
         ].filter(Boolean).join(" "),
-        action: () => openTaskCenterFocus("subagent", run.id || run.requestId),
+        action: () => openTaskCenterFocus("subagent", run.id || run.requestId, {
+          expandEvidence: true,
+          expandArtifacts: Array.isArray(run.artifacts) && run.artifacts.length > 0,
+        }),
       }));
 
     const subagentRunCommands = (state.subagentRuns || [])
@@ -11837,14 +11845,20 @@ export function App() {
     openBottomPanel("notices");
   }
 
-  function openTaskCenterFocus(type, id = "") {
+  function openTaskCenterFocus(type, id = "", options = {}) {
     const focusedId = String(id || "").trim();
     setSettingsOpen(false);
     setCapabilitiesOpen(false);
     setProjectsOpen(false);
     setScheduledOpen(false);
     setCommandsOpen(false);
-    setTaskCenterFocus({ type, id: focusedId, nonce: Date.now() });
+    setTaskCenterFocus({
+      type,
+      id: focusedId,
+      expandEvidence: Boolean(options.expandEvidence),
+      expandArtifacts: Boolean(options.expandArtifacts),
+      nonce: Date.now(),
+    });
     setBottomPanel("subagents");
   }
 
