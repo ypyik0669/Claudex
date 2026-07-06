@@ -2358,6 +2358,21 @@ function findSubagentRunForEvent(event, runs = []) {
   return (runs || []).find((run) => run?.id === eventId || run?.requestId === eventId) || null;
 }
 
+function findBrowserVisitForEvent(event, visits = []) {
+  const eventId = String(event?.id || "");
+  const eventUrl = normalizeBrowserUrl(event?.url || event?.finalUrl || event?.validatedUrl || "");
+  const eventTitle = String(event?.title || "");
+  return (visits || []).find((visit) => {
+    const finalUrl = browserVisitFinalUrl(visit);
+    return (
+      (eventId && [visit?.id, visit?.url, finalUrl].filter(Boolean).includes(eventId))
+      || (eventUrl && [visit?.url, finalUrl, visit?.validatedUrl].filter(Boolean).includes(eventUrl))
+      || (finalUrl && eventTitle.includes(finalUrl))
+      || (visit?.url && eventTitle.includes(visit.url))
+    );
+  }) || null;
+}
+
 function automationRunTimelineStatus(entry = {}) {
   if (entry.status === "failed") return "error";
   if (entry.status === "running") return "running";
@@ -2372,7 +2387,33 @@ function subagentRunTimelineStatus(run = {}) {
   return "error";
 }
 
-function fallbackRunEventForId(eventId, { automations = [], subagentRuns = [], t } = {}) {
+function browserVisitTimelineStatus(visit = {}) {
+  if (visit.status === "error") return "error";
+  if (visit.status === "loading") return "running";
+  return "ok";
+}
+
+function browserVisitRunEvent(visit = {}, t) {
+  const visitId = browserVisitKey(visit);
+  if (!visitId) return null;
+  const finalUrl = browserVisitFinalUrl(visit);
+  return {
+    id: visitId,
+    type: "browser",
+    status: browserVisitTimelineStatus(visit),
+    title: `${t.browser}: ${visit.title || finalUrl || visit.url}`,
+    detail: visit.error || visit.excerpt || browserStatusLabel(visit.status, t),
+    createdAt: browserVisitCapturedAt(visit) || new Date().toISOString(),
+    project: visit.project,
+    sessionId: "",
+    commandLine: "",
+    cwd: visit.project?.path || "",
+    code: null,
+    durationMs: null,
+  };
+}
+
+function fallbackRunEventForId(eventId, { automations = [], subagentRuns = [], browserVisits = [], t } = {}) {
   const id = String(eventId || "").trim();
   if (!id) return null;
   const automationMatch = findAutomationRunForEvent({ id }, automations);
@@ -2406,6 +2447,8 @@ function fallbackRunEventForId(eventId, { automations = [], subagentRuns = [], t
       durationMs: typeof subagentRun.durationMs === "number" ? subagentRun.durationMs : null,
     };
   }
+  const browserVisit = findBrowserVisitForEvent({ id }, browserVisits);
+  if (browserVisit) return browserVisitRunEvent(browserVisit, t);
   return null;
 }
 
@@ -2415,7 +2458,7 @@ function runEventTimestamp(event = {}) {
   return Number.isFinite(time) ? time : 0;
 }
 
-function localEvidenceRunEvents({ automations = [], subagentRuns = [], t } = {}) {
+function localEvidenceRunEvents({ automations = [], subagentRuns = [], browserVisits = [], t } = {}) {
   const events = [];
   for (const automation of automations || []) {
     for (const entry of automationRunEntries(automation)) {
@@ -2425,13 +2468,17 @@ function localEvidenceRunEvents({ automations = [], subagentRuns = [], t } = {})
   }
   for (const run of subagentRuns || []) {
     const id = String(run?.requestId || run?.id || "").trim();
-    const event = fallbackRunEventForId(id, { automations, subagentRuns, t });
+    const event = fallbackRunEventForId(id, { automations, subagentRuns, browserVisits, t });
+    if (event) events.push(event);
+  }
+  for (const visit of browserVisits || []) {
+    const event = browserVisitRunEvent(visit, t);
     if (event) events.push(event);
   }
   return events;
 }
 
-function timelineEventsForUi(runEvents = [], { automations = [], subagentRuns = [], t } = {}) {
+function timelineEventsForUi(runEvents = [], { automations = [], subagentRuns = [], browserVisits = [], t } = {}) {
   const byId = new Map();
   const add = (event) => {
     const id = String(event?.id || "").trim();
@@ -2439,7 +2486,7 @@ function timelineEventsForUi(runEvents = [], { automations = [], subagentRuns = 
     byId.set(id, event);
   };
   (runEvents || []).forEach(add);
-  localEvidenceRunEvents({ automations, subagentRuns, t }).forEach(add);
+  localEvidenceRunEvents({ automations, subagentRuns, browserVisits, t }).forEach(add);
   return [...byId.values()]
     .sort((a, b) => runEventTimestamp(b) - runEventTimestamp(a))
     .slice(0, 14);
@@ -2462,10 +2509,11 @@ function runTimelineTypeLabel(event, evidence, t) {
   if (raw === "subagent-action") return t.timelineSubagentAction;
   if (raw === "thread-action") return t.timelineThreadAction;
   if (raw === "skill-registry") return t.timelineSkillRegistry;
+  if (raw === "browser") return t.browser;
   return raw;
 }
 
-function runTimelineEvidenceForEvent(event, { commandRuns = [], automations = [], subagentRuns = [], sessions = [], t } = {}) {
+function runTimelineEvidenceForEvent(event, { commandRuns = [], automations = [], subagentRuns = [], browserVisits = [], sessions = [], t } = {}) {
   const commandRun = findCommandRunForEvent(event, commandRuns);
   if (commandRun) {
     return {
@@ -2535,6 +2583,31 @@ function runTimelineEvidenceForEvent(event, { commandRuns = [], automations = []
       stderr: subagentRun.stderr || "",
       summary: subagentRun.summary || "",
       artifacts: Array.isArray(subagentRun.artifacts) ? subagentRun.artifacts : [],
+    };
+  }
+
+  const browserVisit = findBrowserVisitForEvent(event, browserVisits);
+  if (browserVisit) {
+    const finalUrl = browserVisitFinalUrl(browserVisit);
+    const evidenceText = browserVisitEvidenceText(browserVisit, t);
+    return {
+      source: "browser",
+      browserVisitId: browserVisit.id || "",
+      browserUrl: browserVisit.url || "",
+      browserFinalUrl: finalUrl,
+      title: event?.title || browserVisit.title || finalUrl || browserVisit.url,
+      detail: browserVisit.error || browserVisit.excerpt || event?.detail || "",
+      type: "browser",
+      status: browserVisitTimelineStatus(browserVisit),
+      project: projectLabel(browserVisit.project, t),
+      sessionId: event?.sessionId || "",
+      commandLine: "",
+      cwd: browserVisit.project?.path || event?.cwd || "",
+      code: null,
+      durationMs: typeof event?.durationMs === "number" ? event.durationMs : null,
+      stdout: evidenceText,
+      stderr: browserVisit.error || "",
+      summary: browserVisit.error || browserVisit.excerpt || "",
     };
   }
 
@@ -3696,13 +3769,15 @@ function Conversation({
   const fallbackSelectedRunEvent = useMemo(() => fallbackRunEventForId(selectedRunEventId, {
     automations: automationItemsForUi,
     subagentRuns,
+    browserVisits,
     t,
-  }), [selectedRunEventId, automationItemsForUi, subagentRuns, t]);
+  }), [selectedRunEventId, automationItemsForUi, subagentRuns, browserVisits, t]);
   const runTimelineEvents = useMemo(() => timelineEventsForUi(runEvents, {
     automations: automationItemsForUi,
     subagentRuns,
+    browserVisits,
     t,
-  }), [runEvents, automationItemsForUi, subagentRuns, t]);
+  }), [runEvents, automationItemsForUi, subagentRuns, browserVisits, t]);
   const selectedRunEvent = useMemo(() => {
     const existing = runTimelineEvents.find((event) => event.id === selectedRunEventId);
     if (existing) return existing;
@@ -3717,11 +3792,12 @@ function Conversation({
           commandRuns,
           automations: automationItemsForUi,
           subagentRuns,
+          browserVisits,
           sessions,
           t,
         })
       : null
-  ), [selectedRunEvent, commandRuns, automationItemsForUi, subagentRuns, sessions, t]);
+  ), [selectedRunEvent, commandRuns, automationItemsForUi, subagentRuns, browserVisits, sessions, t]);
   const selectedRunAutomation = selectedRunEvidence?.automationId
     ? automationItemsForUi.find((automation) => automation?.id === selectedRunEvidence.automationId)
     : null;
@@ -3733,6 +3809,9 @@ function Conversation({
     : null;
   const selectedRunCommand = selectedRunEvent
     ? findCommandRunForEvent(selectedRunEvent, commandRuns)
+    : null;
+  const selectedRunBrowserVisit = selectedRunEvent && selectedRunEvidence?.source === "browser"
+    ? findBrowserVisitForEvent(selectedRunEvent, browserVisits)
     : null;
   const selectedRunRecoveryActions = [];
   if (selectedRunAutomation) {
@@ -3798,6 +3877,26 @@ function Conversation({
       }),
     });
   }
+  if (selectedRunBrowserVisit) {
+    selectedRunRecoveryActions.push({
+      key: "retry-browser",
+      label: selectedRunBrowserVisit.status === "error" ? t.retry : t.reopenBrowserVisit,
+      icon: RefreshCw,
+      onClick: () => onOpenBrowserVisit?.(selectedRunBrowserVisit),
+    });
+    selectedRunRecoveryActions.push({
+      key: "external-browser",
+      label: t.openExternal,
+      icon: ExternalLink,
+      onClick: () => onOpenExternalBrowserVisit?.(selectedRunBrowserVisit),
+    });
+    selectedRunRecoveryActions.push({
+      key: "browser-tool",
+      label: t.openBrowserTool,
+      icon: Globe2,
+      onClick: () => onActivateTool?.("browser"),
+    });
+  }
   if (selectedRunCommand) {
     const commandKind = selectedRunCommand.kind || selectedRunEvidence?.commandKind || "";
     const canRetryCommand = selectedRunCommand.code !== 0 && !selectedRunCommand.cancelled;
@@ -3859,10 +3958,10 @@ function Conversation({
   useEffect(() => {
     if (!runTimelineEvents.length) return;
     if (selectedRunEventId && runTimelineEvents.some((event) => event.id === selectedRunEventId)) return;
-    if (fallbackRunEventForId(selectedRunEventId, { automations: automationItemsForUi, subagentRuns, t })) return;
+    if (fallbackRunEventForId(selectedRunEventId, { automations: automationItemsForUi, subagentRuns, browserVisits, t })) return;
     if (selectedRunEventId) return;
     setSelectedRunEventId(runTimelineEvents[0].id);
-  }, [runTimelineEvents, selectedRunEventId, automationItemsForUi, subagentRuns, t]);
+  }, [runTimelineEvents, selectedRunEventId, automationItemsForUi, subagentRuns, browserVisits, t]);
   useEffect(() => {
     const focusedId = String(runTimelineFocus?.id || "").trim();
     if (focusedId) setSelectedRunEventId(focusedId);
@@ -4224,6 +4323,7 @@ function Conversation({
                       commandRuns={commandRuns}
                       automations={automationItemsForUi}
                       subagentRuns={subagentRuns}
+                      browserVisits={browserVisits}
                       sessions={sessions}
                       selectedEventId={selectedRunEvent?.id || ""}
                       onSelectEvent={setSelectedRunEventId}
@@ -5614,6 +5714,8 @@ function RunEvidenceDetails({ event, evidence, onCopy, onOpenWorkspaceFile, t, p
   const hasRawEvidence = runTimelineHasEvidence(evidence);
   const typeRaw = runTimelineTypeRaw(event, evidence);
   const typeLabel = runTimelineTypeLabel(event, evidence, t);
+  const primaryOutputLabel = evidence?.source === "browser" ? t.browserEvidence : t.commandStdout;
+  const secondaryOutputLabel = evidence?.source === "browser" ? t.requestError : t.commandStderr;
   const [copiedRunEvidence, setCopiedRunEvidence] = useState(false);
   const copiedRunEvidenceTimer = useRef(null);
   useEffect(() => () => {
@@ -5668,13 +5770,13 @@ function RunEvidenceDetails({ event, evidence, onCopy, onOpenWorkspaceFile, t, p
           {(evidence.summary || evidence.detail) && <p className="run-timeline-summary">{evidence.summary || evidence.detail}</p>}
           {evidence.stdout && (
             <section>
-              <span>{t.commandStdout}</span>
+              <span>{primaryOutputLabel}</span>
               <pre className="subagent-output secondary-output">{evidence.stdout}</pre>
             </section>
           )}
           {evidence.stderr && (
             <section>
-              <span>{t.commandStderr}</span>
+              <span>{secondaryOutputLabel}</span>
               <pre className="subagent-output secondary-output error-output">{evidence.stderr}</pre>
             </section>
           )}
@@ -5796,6 +5898,7 @@ function RunTimeline({
   commandRuns = [],
   automations = [],
   subagentRuns = [],
+  browserVisits = [],
   sessions = [],
   selectedEventId = "",
   onSelectEvent,
@@ -5812,7 +5915,7 @@ function RunTimeline({
       </div>
       <div className="run-timeline-list">
         {events.map((event) => {
-          const evidence = runTimelineEvidenceForEvent(event, { commandRuns, automations, subagentRuns, sessions, t });
+          const evidence = runTimelineEvidenceForEvent(event, { commandRuns, automations, subagentRuns, browserVisits, sessions, t });
           const typeRaw = runTimelineTypeRaw(event, evidence);
           const typeLabel = runTimelineTypeLabel(event, evidence, t);
           return (
@@ -6243,34 +6346,44 @@ function ToolsPanel({
   useEffect(() => {
     const webview = browserWebviewRef.current;
     if (!webview) return undefined;
+    const ensureVisitId = () => {
+      if (!browserVisitIdRef.current) browserVisitIdRef.current = `browser_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+      return browserVisitIdRef.current;
+    };
     const handleStart = () => {
+      const visitId = ensureVisitId();
       browserFailedRef.current = false;
       setBrowserStatus("loading");
       setBrowserError("");
-      recordBrowserVisit({ url: browserPreviewUrl, finalUrl: browserPreviewUrl, status: "loading" });
+      recordBrowserVisit({ id: visitId, url: browserPreviewUrl, finalUrl: browserPreviewUrl, status: "loading" });
     };
     const handleStop = async () => {
       if (browserFailedRef.current) return;
+      const visitId = ensureVisitId();
       setBrowserStatus("ready");
       setBrowserError("");
       const currentWebview = browserWebviewRef.current;
       const finalUrl = currentWebview?.getURL?.() || browserPreviewUrl;
       const snapshot = await captureBrowserSnapshot(currentWebview);
-      recordBrowserVisit({ url: finalUrl, finalUrl, status: "ready", ...snapshot });
+      recordBrowserVisit({ id: visitId, url: finalUrl, finalUrl, status: "ready", ...snapshot });
       onRunEvent?.({
+        id: visitId,
         type: "browser",
         status: "ok",
         title: `${t.browser}: ${finalUrl}`,
         detail: t.browserReady,
+        cwd: activeProject?.path || "",
       });
     };
     const handleFail = (event) => {
       if (event?.errorCode === -3) return;
+      const visitId = ensureVisitId();
       browserFailedRef.current = true;
       setBrowserStatus("error");
       const error = event?.errorDescription || t.browserFailed;
       setBrowserError(error);
       recordBrowserVisit({
+        id: visitId,
         url: event?.validatedURL || browserPreviewUrl,
         finalUrl: event?.validatedURL || browserPreviewUrl,
         status: "error",
@@ -6280,10 +6393,12 @@ function ToolsPanel({
         isMainFrame: Boolean(event?.isMainFrame),
       });
       onRunEvent?.({
+        id: visitId,
         type: "browser",
         status: "error",
         title: `${t.browser}: ${event?.validatedURL || browserPreviewUrl}`,
         detail: error,
+        cwd: activeProject?.path || "",
       });
     };
     const handleNavigate = (event) => {
@@ -6304,7 +6419,7 @@ function ToolsPanel({
       webview.removeEventListener("did-navigate", handleNavigate);
       webview.removeEventListener("did-navigate-in-page", handleNavigate);
     };
-  }, [browserPreviewUrl, selectedTool, t.browserFailed]);
+  }, [activeProject?.path, browserPreviewUrl, selectedTool, t.browserFailed]);
 
   useEffect(() => {
     if (!browserOpenRequest?.url) return;
