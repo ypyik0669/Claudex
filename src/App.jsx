@@ -3742,6 +3742,13 @@ function Conversation({
       onOpenAutomation?.();
       return;
     }
+    if (action.startsWith("subagent:")) {
+      const subagentId = decodeActionSuffix(action, "subagent:");
+      if (subagentId && onOpenTaskCenterFocus) {
+        onOpenTaskCenterFocus("subagent", subagentId);
+        return;
+      }
+    }
     if (action.startsWith("workspace:file:")) {
       const encodedPath = action.slice("workspace:file:".length);
       try {
@@ -10029,6 +10036,7 @@ export function App() {
       const noticeAction = entry?.action
         || (entry?.type === "file-save" && entry?.path ? `workspace:file:${encodeURIComponent(entry.path)}` : "")
         || (entry?.type === "git-command" && optimisticEvent.id ? `git-run:${encodeURIComponent(optimisticEvent.id)}` : "")
+        || (entry?.type === "subagent" && optimisticEvent.id ? `subagent:${encodeURIComponent(optimisticEvent.id)}` : "")
         || (optimisticEvent.id ? `run:${encodeURIComponent(optimisticEvent.id)}` : "");
       void persistedRunEvent.then(() => recordNotice({
         level: "error",
@@ -11396,6 +11404,13 @@ export function App() {
       }
       openScheduledSurface();
       return;
+    }
+    if (action.startsWith("subagent:")) {
+      const subagentId = decodeActionSuffix(action, "subagent:");
+      if (subagentId) {
+        openTaskCenterFocus("subagent", subagentId);
+        return;
+      }
     }
     openBottomPanel("notices");
   }
