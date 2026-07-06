@@ -3660,6 +3660,29 @@ function Conversation({
 
   function handleNoticeAction(notice) {
     const action = String(notice?.action || "");
+    if (action.startsWith("git-run:")) {
+      const encodedId = action.slice("git-run:".length);
+      let eventId = encodedId;
+      try {
+        eventId = decodeURIComponent(encodedId);
+      } catch {
+        eventId = encodedId;
+      }
+      if (eventId) setSelectedRunEventId(eventId);
+      setBottomPanel("changes");
+      return;
+    }
+    if (action.startsWith("run:")) {
+      const encodedId = action.slice("run:".length);
+      let eventId = encodedId;
+      try {
+        eventId = decodeURIComponent(encodedId);
+      } catch {
+        eventId = encodedId;
+      }
+      onOpenRunTimeline?.(eventId);
+      return;
+    }
     if (action.startsWith("runtime-health:")) {
       const target = action.split(":")[1] || "";
       if (["plugins", "mcp", "marketplace"].includes(target)) {
@@ -4084,6 +4107,18 @@ function Conversation({
                     {latestGitActionRun && (
                       <pre>{messageExcerpt(gitCommandOutput(latestGitActionRun) || latestGitActionRun.commandLine, 220)}</pre>
                     )}
+                    <div className="git-latest-action-controls">
+                      <button
+                        type="button"
+                        className="plain-action subtle-action"
+                        data-git-action="open-timeline"
+                        onClick={() => onOpenRunTimeline?.(latestGitActionEvent.id)}
+                        title={t.openRunTimeline}
+                      >
+                        <FileText size={13} />
+                        {t.openRunTimeline}
+                      </button>
+                    </div>
                   </section>
                 )}
                 <div className="git-evidence-layout">
@@ -9947,7 +9982,9 @@ export function App() {
     }
     if (entry?.status === "error" && !entry.suppressNotice) {
       const noticeAction = entry?.action
-        || (entry?.type === "file-save" && entry?.path ? `workspace:file:${encodeURIComponent(entry.path)}` : "");
+        || (entry?.type === "file-save" && entry?.path ? `workspace:file:${encodeURIComponent(entry.path)}` : "")
+        || (entry?.type === "git-command" && optimisticEvent.id ? `git-run:${encodeURIComponent(optimisticEvent.id)}` : "")
+        || (optimisticEvent.id ? `run:${encodeURIComponent(optimisticEvent.id)}` : "");
       void persistedRunEvent.then(() => recordNotice({
         level: "error",
         source: entry.type || "run",
