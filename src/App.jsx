@@ -1547,6 +1547,10 @@ function selectSessionIdForProject(nextState, t, activeProject, preferredId = ""
   return items[0]?.session.id || (nextState?.sessions || []).find((session) => !session.archived)?.id || nextState?.sessions?.[0]?.id || "";
 }
 
+function commandIdSegment(value) {
+  return encodeURIComponent(String(value || "").trim()).slice(0, 120) || "item";
+}
+
 function sidebarScopeCounts(sessions, t, activeProject) {
   return {
     current: sidebarThreadItems(sessions, t, activeProject, "current").length,
@@ -8095,7 +8099,7 @@ function CommandPalette({ commands, t, onClose }) {
     inputRef.current?.focus();
   }, []);
   const filtered = commands.filter((command) =>
-    [command.title, command.subtitle, command.group, command.kbd, command.keywords].join(" ").toLowerCase().includes(commandQuery.toLowerCase()),
+    [command.id, command.title, command.subtitle, command.group, command.kbd, command.keywords].join(" ").toLowerCase().includes(commandQuery.toLowerCase()),
   );
   return (
     <ShellModal title={t.commandPalette} onClose={onClose} closeLabel={t.close} className="command-modal">
@@ -8108,6 +8112,8 @@ function CommandPalette({ commands, t, onClose }) {
           <button
             type="button"
             key={command.id}
+            data-command-id={command.id}
+            data-command-group={command.group || ""}
             onClick={() => {
               onClose();
               command.action();
@@ -8721,6 +8727,85 @@ export function App() {
     }
   }
 
+  const stateDeepLinkCommands = useMemo(() => {
+    const projectCommands = (state.projects || [])
+      .filter((project) => project?.path || project?.name)
+      .slice(0, 12)
+      .map((project) => {
+        const label = projectLabel(project, t);
+        const key = project.path || project.name;
+        return {
+          id: `project:${commandIdSegment(key)}`,
+          title: `${t.projects}: ${label}`,
+          subtitle: project.path || t.noProjectPath,
+          group: t.projects,
+          keywords: [
+            "project workspace folder switch open",
+            project.name,
+            project.path,
+          ].filter(Boolean).join(" "),
+          action: () => {
+            setProjectScope("current");
+            void setActiveProject(project);
+          },
+        };
+      });
+
+    const threadCommands = (state.sessions || [])
+      .filter((session) => session?.id)
+      .slice(0, 24)
+      .map((session) => {
+        const title = sessionDisplayTitle(session, t);
+        const project = sessionProjectLabel(session, t);
+        const meta = [
+          project,
+          sessionMetaLabel(session, t, false),
+          session.archived ? t.showArchivedChats : "",
+          session.pinned ? t.threadPinned : "",
+        ].filter(Boolean).join(" · ");
+        return {
+          id: `thread:${commandIdSegment(session.id)}`,
+          title: `${t.activeThread}: ${title}`,
+          subtitle: meta,
+          group: t.chats,
+          keywords: [
+            "thread chat session resume history",
+            session.id,
+            session.title,
+            session.project,
+            session.projectPath,
+            ...sessionMessages(session).map((message) => message.content),
+          ].filter(Boolean).join(" "),
+          action: () => resumeThread(session),
+        };
+      });
+
+    const runEvidenceCommands = (runEvents || [])
+      .filter((event) => event?.id)
+      .slice(0, 16)
+      .map((event) => ({
+        id: `run:${commandIdSegment(event.id)}`,
+        title: `${t.openRunTimeline}: ${event.title || t.outputs}`,
+        subtitle: [event.detail, runTimelineStatusLabel(event.status, t), event.commandLine].filter(Boolean).join(" · "),
+        group: t.bottomPanel,
+        keywords: [
+          "run timeline evidence output command stdout stderr",
+          event.id,
+          event.type,
+          event.title,
+          event.detail,
+          event.commandLine,
+          event.cwd,
+          event.project?.name,
+          event.project?.path,
+          event.sessionId,
+        ].filter(Boolean).join(" "),
+        action: () => openRunTimeline(event.id),
+      }));
+
+    return [...projectCommands, ...threadCommands, ...runEvidenceCommands];
+  }, [state.projects, state.sessions, runEvents, t, activeProject?.path, activeProject?.name]);
+
   async function createAutomation(payload) {
     if (!desktopApi?.createAutomation) return;
     try {
@@ -9157,6 +9242,7 @@ export function App() {
   });
 
   const commands = [
+    ...stateDeepLinkCommands,
     { id: "new", title: t.newChat, subtitle: t.chats, group: t.chats, kbd: "Ctrl+N", keywords: "聊天 对话 会话", action: createSession },
     { id: "threads-current", title: t.projectFilteredChats, subtitle: t.chats, group: t.chats, keywords: "current project chats threads 当前项目 聊天 线程 历史", action: () => openThreadScope("current") },
     { id: "threads-all", title: t.allProjectChats, subtitle: t.chats, group: t.chats, keywords: "all project chats threads history 全部项目 聊天 线程 历史", action: () => openThreadScope("all") },
