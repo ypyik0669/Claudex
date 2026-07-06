@@ -6359,19 +6359,47 @@ button.runtime-health-row {
 }
 
 .subagent-artifact-list {
-  display: flex;
-  flex-wrap: wrap;
+  display: grid;
   gap: 6px;
   margin-top: 8px;
 }
 
+.subagent-artifact-item {
+  display: grid;
+  gap: 6px;
+  border: 1px solid #252525;
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.02);
+  padding: 7px;
+}
+
+.subagent-artifact-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
 .subagent-artifact-list code {
+  min-width: 0;
   border: 1px solid #2e2e2e;
   border-radius: 999px;
   background: #151515;
   color: #d7d7d4;
   padding: 3px 7px;
   font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.subagent-artifact-list small {
+  overflow: hidden;
+  color: var(--muted);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .subagent-run-foot {

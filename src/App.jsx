@@ -508,6 +508,8 @@ const copy = {
     subagentStatusError: "失败",
     subagentStatusCancelled: "已停止",
     subagentArtifacts: "产物",
+    subagentArtifactPath: "路径",
+    copySubagentArtifact: "复制产物",
     noSubagentArtifacts: "暂无产物",
     subagentEvidence: "证据",
     subagentStdout: "标准输出",
@@ -1808,6 +1810,32 @@ function subagentCommandLine(run) {
   return [run?.command, ...(Array.isArray(run?.args) ? run.args : [])].filter(Boolean).join(" ");
 }
 
+function subagentArtifactLabel(artifact, index, t) {
+  return artifact?.label || artifact?.path || artifact?.type || `${t.subagentArtifacts} ${index + 1}`;
+}
+
+function subagentArtifactContent(artifact) {
+  return String(artifact?.content || artifact?.text || artifact?.summary || artifact?.value || "");
+}
+
+function subagentArtifactEvidenceText(artifact, index, t) {
+  const label = subagentArtifactLabel(artifact, index, t);
+  return [
+    `${t.subagentArtifacts}: ${label}`,
+    artifact?.type ? `${t.timelineEventType}: ${artifact.type}` : "",
+    artifact?.path ? `${t.subagentArtifactPath}: ${artifact.path}` : "",
+    "",
+    subagentArtifactContent(artifact),
+  ].filter((line, lineIndex) => lineIndex === 0 || String(line || "").trim()).join("\n");
+}
+
+function subagentArtifactsEvidenceText(artifacts = [], t) {
+  return (artifacts || [])
+    .map((artifact, index) => subagentArtifactEvidenceText(artifact, index, t))
+    .filter(Boolean)
+    .join("\n\n");
+}
+
 function upsertSubagentRunForUi(runs = [], run) {
   if (!run?.id) return runs;
   return [run, ...runs.filter((item) => item.id !== run.id)].slice(0, 40);
@@ -2138,7 +2166,7 @@ function runTimelineEvidenceForEvent(event, { commandRuns = [], automations = []
 function runTimelineEvidenceText(event, evidence, t) {
   const artifactLabels = Array.isArray(evidence?.artifacts)
     ? evidence.artifacts
-      .map((artifact, index) => artifact?.label || artifact?.path || artifact?.type || `${t.subagentArtifacts} ${index + 1}`)
+      .map((artifact, index) => subagentArtifactLabel(artifact, index, t))
       .filter(Boolean)
     : [];
   const lines = [
@@ -2155,6 +2183,7 @@ function runTimelineEvidenceText(event, evidence, t) {
     "",
     evidence?.summary || evidence?.detail || "",
     automationRunOutput(evidence || {}),
+    subagentArtifactsEvidenceText(evidence?.artifacts || [], t),
   ];
   return lines.filter((line, index) => index < 10 || String(line || "").trim()).join("\n");
 }
@@ -4173,6 +4202,7 @@ function SubagentWorkbench({
 
   async function copySubagentEvidence(run) {
     const output = run?.summary || run?.stdout || run?.stderr || "";
+    const artifacts = subagentArtifactsEvidenceText(run?.artifacts || [], t);
     await onCopy?.([
       `${t.subagents}: ${run?.nickname || "Subagent"}`,
       `${t.subagentTask}: ${run?.task || ""}`,
@@ -4180,7 +4210,12 @@ function SubagentWorkbench({
       `${t.subagentExitCode}: ${run?.code ?? ""}`,
       "",
       output,
+      artifacts,
     ].filter((line, index) => index < 4 || line).join("\n"));
+  }
+
+  async function copySubagentArtifact(artifact, index) {
+    await onCopy?.(subagentArtifactEvidenceText(artifact, index, t));
   }
 
   async function copyAutomationEvidence(item, entry = item?.lastRun) {
@@ -4500,11 +4535,37 @@ function SubagentWorkbench({
                   <details className="subagent-evidence-details">
                     <summary>{t.subagentArtifacts}: {run.artifacts.length}</summary>
                     <div className="subagent-artifact-list">
-                      {run.artifacts.map((artifact, index) => (
-                        <code key={`${artifact?.label || artifact?.path || index}`}>
-                          {artifact?.label || artifact?.path || artifact?.type || `${t.subagentArtifacts} ${index + 1}`}
-                        </code>
-                      ))}
+                      {run.artifacts.map((artifact, index) => {
+                        const label = subagentArtifactLabel(artifact, index, t);
+                        const content = subagentArtifactContent(artifact);
+                        return (
+                          <article
+                            className="subagent-artifact-item"
+                            key={`${label}-${index}`}
+                            data-subagent-artifact-index={index}
+                          >
+                            <div className="subagent-artifact-head">
+                              <code title={artifact?.path || artifact?.type || label}>{label}</code>
+                              <button
+                                type="button"
+                                className="plain-action subtle-action"
+                                data-subagent-artifact-copy={index}
+                                onClick={() => copySubagentArtifact(artifact, index)}
+                                title={t.copySubagentArtifact}
+                              >
+                                <Copy size={12} />
+                                {t.copySubagentArtifact}
+                              </button>
+                            </div>
+                            {artifact?.path && <small title={artifact.path}>{artifact.path}</small>}
+                            {content ? (
+                              <pre className="subagent-output secondary-output">{content}</pre>
+                            ) : (
+                              <p className="empty-list">{t.noSubagentArtifacts}</p>
+                            )}
+                          </article>
+                        );
+                      })}
                     </div>
                   </details>
                 )}
@@ -4709,8 +4770,8 @@ function RunEvidenceDetails({ event, evidence, onCopy, t, pinned = false }) {
             <div className="run-timeline-artifacts">
               <span>{t.subagentArtifacts}</span>
               {evidence.artifacts.map((artifact, index) => (
-                <code key={`${artifact?.label || artifact?.path || index}`}>
-                  {artifact?.label || artifact?.path || artifact?.type || `${t.subagentArtifacts} ${index + 1}`}
+                <code key={`${subagentArtifactLabel(artifact, index, t)}-${index}`} title={subagentArtifactContent(artifact)}>
+                  {subagentArtifactLabel(artifact, index, t)}
                 </code>
               ))}
             </div>
