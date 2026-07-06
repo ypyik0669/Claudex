@@ -208,6 +208,17 @@ async function runTest() {
       /\\u53d8\\u66f4/.test(button.textContent || '')
     ))
   `, 5000));
+  assertStep("PASS120_GIT_FILE_COMMAND_SEPARATOR_CLEAN", await win.webContents.executeJavaScript(`
+    (function() {
+      const button = [...document.querySelectorAll('.command-modal .command-list button')]
+        .find((candidate) =>
+          (candidate.getAttribute('data-command-id') || '').startsWith('git-file:') &&
+          /${TARGET_FILE}/.test(candidate.textContent || '')
+        );
+      const text = button?.textContent || '';
+      return Boolean(button && /\\s\\u00b7\\s/.test(text) && !/\\u00c2\\u00b7/.test(text));
+    })()
+  `));
   assertStep("PASS120_CLICK_TARGET_GIT_COMMAND", await clickGitFileCommand(win, "pass120-target", TARGET_FILE));
   assertStep("PASS120_TARGET_FILE_FOCUSED_FROM_PALETTE", await waitFor(win, `
     (function() {

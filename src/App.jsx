@@ -10561,7 +10561,7 @@ export function App() {
             file.status,
             typeof file.additions === "number" || typeof file.deletions === "number" ? `+${file.additions || 0} -${file.deletions || 0}` : "",
             previousLabel,
-          ].filter(Boolean).join(" Â· "),
+          ].filter(Boolean).join(" · "),
           group: t.changes,
           keywords: [
             "git file diff changes status evidence focus changed file",
@@ -10621,7 +10621,7 @@ export function App() {
             projectLabel(source.project, t),
             typeof source.size === "number" ? formatBytes(source.size) : "",
             source.lastOpenedAt ? `${t.sourceLastOpened} ${formatDate(source.lastOpenedAt)}` : "",
-          ].filter(Boolean).join(" Â· "),
+          ].filter(Boolean).join(" · "),
           group: t.sources,
           keywords: [
             "source reference evidence workspace file opened read",
@@ -10650,7 +10650,7 @@ export function App() {
             finalUrl,
             visit.error,
             visit.lastEventAt ? formatDate(visit.lastEventAt) : "",
-          ].filter(Boolean).join(" Â· "),
+          ].filter(Boolean).join(" · "),
           group: t.browser,
           keywords: [
             "browser evidence visit webview url snapshot excerpt",
@@ -10713,7 +10713,7 @@ export function App() {
           automationStatusLabel(entry.status || automation.status, t),
           entry.summary || entry.error || entry.detail,
           entry.endedAt ? formatDate(entry.endedAt) : "",
-        ].filter(Boolean).join(" Â· "),
+        ].filter(Boolean).join(" · "),
         group: t.taskCenter,
         keywords: [
           "automation run history timeline evidence stdout stderr",
@@ -10821,7 +10821,7 @@ export function App() {
             plugin.version && plugin.version !== "unknown" ? `${t.version}: ${plugin.version}` : "",
             plugin.scope && `${t.scope}: ${plugin.scope}`,
             plugin.source,
-          ].filter(Boolean).join(" Â· "),
+          ].filter(Boolean).join(" · "),
           group: t.capabilities,
           keywords: [
             "plugin installed capability claude code tool permissions error",
@@ -10855,7 +10855,7 @@ export function App() {
           typeof server.tools === "number" ? `${t.tools}: ${server.tools}` : "",
           server.transport,
           server.source || server.detail,
-        ].filter(Boolean).join(" Â· "),
+        ].filter(Boolean).join(" · "),
         group: t.capabilities,
         keywords: [
           "mcp server tool capability claude code transport source error",
@@ -10885,7 +10885,7 @@ export function App() {
           marketplace.status,
           marketplace.version && `${t.version}: ${marketplace.version}`,
           marketplace.repo || marketplace.source || marketplace.installLocation,
-        ].filter(Boolean).join(" Â· "),
+        ].filter(Boolean).join(" · "),
         group: t.capabilities,
         keywords: [
           "marketplace source plugin catalog capability claude code",
@@ -10945,7 +10945,7 @@ export function App() {
             plugin.installed ? t.installedLocal : t.installFromMarketplace,
             plugin.version && plugin.version !== "unknown" ? `${t.version}: ${plugin.version}` : "",
             plugin.category,
-          ].filter(Boolean).join(" Â· "),
+          ].filter(Boolean).join(" · "),
           group: t.capabilities,
           keywords: [
             "marketplace plugin catalog install capability claude code source permissions risk",
