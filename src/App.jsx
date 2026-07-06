@@ -8936,18 +8936,30 @@ export function App() {
         };
       });
 
-    const threadCommands = (state.sessions || [])
+    const threadCommandSessions = (state.sessions || [])
       .filter((session) => session?.id)
-      .slice(0, 24)
+      .slice(0, 24);
+
+    const threadMetaForCommand = (session) => [
+      sessionProjectLabel(session, t),
+      sessionMetaLabel(session, t, false),
+      session.archived ? t.showArchivedChats : "",
+      session.pinned ? t.threadPinned : "",
+    ].filter(Boolean).join(" · ");
+
+    const threadSearchParts = (session, title) => [
+      session.id,
+      title,
+      session.title,
+      session.project,
+      session.projectPath,
+      ...sessionMessages(session).map((message) => message.content),
+    ].filter(Boolean);
+
+    const threadCommands = threadCommandSessions
       .map((session) => {
         const title = sessionDisplayTitle(session, t);
-        const project = sessionProjectLabel(session, t);
-        const meta = [
-          project,
-          sessionMetaLabel(session, t, false),
-          session.archived ? t.showArchivedChats : "",
-          session.pinned ? t.threadPinned : "",
-        ].filter(Boolean).join(" · ");
+        const meta = threadMetaForCommand(session);
         return {
           id: `thread:${commandIdSegment(session.id)}`,
           title: `${t.activeThread}: ${title}`,
@@ -8955,14 +8967,43 @@ export function App() {
           group: t.chats,
           keywords: [
             "thread chat session resume history",
-            session.id,
-            session.title,
-            session.project,
-            session.projectPath,
-            ...sessionMessages(session).map((message) => message.content),
-          ].filter(Boolean).join(" "),
+            ...threadSearchParts(session, title),
+          ].join(" "),
           action: () => resumeThread(session),
         };
+      });
+
+    const threadActionCommands = threadCommandSessions
+      .flatMap((session) => {
+        const title = sessionDisplayTitle(session, t);
+        const meta = threadMetaForCommand(session);
+        const searchParts = threadSearchParts(session, title);
+        const pinAction = session.pinned
+          ? { id: "unpin", verb: "unpin", label: t.unpinThread, keywords: "unpin thread chat session pinned 取消置顶", action: () => togglePinThread(session) }
+          : { id: "pin", verb: "pin", label: t.pinThread, keywords: "pin thread chat session pinned 置顶", action: () => togglePinThread(session) };
+        const archiveAction = session.archived
+          ? { id: "restore", verb: "restore", label: t.restoreThread, keywords: "restore thread chat session archived 恢复 归档", action: () => archiveThread(session) }
+          : { id: "archive", verb: "archive", label: t.archiveThread, keywords: "archive thread chat session archived 归档", action: () => archiveThread(session) };
+        return [
+          { id: "rename", verb: "rename", label: t.renameThread, keywords: "rename thread chat session title 重命名 标题", action: () => renameThread(session) },
+          pinAction,
+          archiveAction,
+          { id: "fork", verb: "fork", label: t.forkThread, keywords: "fork thread chat session copy branch 分叉 复制", action: () => forkThread(session) },
+          { id: "delete", verb: "delete", label: t.deleteThread, keywords: "delete thread chat session remove 删除", action: () => deleteThread(session) },
+          { id: "resume", verb: "resume", label: t.resumeThread, keywords: "resume thread chat session open continue 继续 打开", action: () => resumeThread(session) },
+        ].map((spec) => ({
+          id: `thread-action:${spec.id}:${commandIdSegment(session.id)}`,
+          title: `${spec.label}: ${title}`,
+          subtitle: meta,
+          group: t.chats,
+          keywords: [
+            `${spec.verb} ${title}`,
+            `${spec.label} ${title}`,
+            spec.keywords,
+            ...searchParts,
+          ].join(" "),
+          action: spec.action,
+        }));
       });
 
     const runEvidenceCommands = (runEvents || [])
@@ -9190,6 +9231,7 @@ export function App() {
     return [
       ...projectCommands,
       ...threadCommands,
+      ...threadActionCommands,
       ...automationCommands,
       ...subagentCommands,
       ...installedPluginCommands,
