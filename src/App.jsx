@@ -3280,6 +3280,7 @@ function Conversation({
   onRetryCapabilityCommand,
   onConfirmCapabilityCommand,
   onOpenRunTimeline,
+  onOpenWorkspaceFile,
   runTimelineFocus,
   gitPanelFocus,
   sourcePanelFocus,
@@ -3657,6 +3658,15 @@ function Conversation({
     }
     if (action.startsWith("automation:")) {
       onOpenAutomation?.();
+      return;
+    }
+    if (action.startsWith("workspace:file:")) {
+      const encodedPath = action.slice("workspace:file:".length);
+      try {
+        onOpenWorkspaceFile?.(decodeURIComponent(encodedPath), { force: true });
+      } catch {
+        onOpenWorkspaceFile?.(encodedPath, { force: true });
+      }
     }
   }
 
@@ -5625,6 +5635,7 @@ function ToolsPanel({
   browserVisits = [],
   onBrowserVisits,
   browserOpenRequest,
+  workspaceOpenRequest,
   onClose,
   t,
 }) {
@@ -6021,6 +6032,8 @@ function ToolsPanel({
         title: `${t.saveFile}: ${file.path}`,
         detail: error.message || String(error),
         cwd: activeProject?.path || "",
+        path: file.path,
+        action: `workspace:file:${encodeURIComponent(file.path)}`,
       });
     } finally {
       setWorkspaceBusy(false);
@@ -6347,6 +6360,12 @@ function ToolsPanel({
     if (selectedTool === "workspace") loadTree();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedTool, activeProject?.path]);
+  useEffect(() => {
+    const focusedPath = String(workspaceOpenRequest?.path || "").trim();
+    if (selectedTool !== "workspace" || !focusedPath) return;
+    openFile({ type: "file", path: focusedPath }, { force: workspaceOpenRequest?.force !== false });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedTool, workspaceOpenRequest?.nonce]);
 
   useEffect(() => {
     loadClaudeStatus();
@@ -9894,23 +9913,28 @@ export function App() {
       ...entry,
     };
     setRunEvents((current) => prependRunEvent(current, optimisticEvent));
+    let persistedRunEvent = Promise.resolve(null);
     if (desktopApi?.recordRunEvent) {
-      void desktopApi.recordRunEvent({
+      persistedRunEvent = desktopApi.recordRunEvent({
         projectPath: activeProject?.path || "",
         sessionId: activeSession?.id || "",
         ...optimisticEvent,
       }).then((next) => {
         if (Array.isArray(next?.runEvents)) setRunEvents((current) => mergeRunEvents(current, next.runEvents));
-      }).catch(() => {});
+        return next;
+      }).catch(() => null);
     }
     if (entry?.status === "error" && !entry.suppressNotice) {
-      void recordNotice({
+      const noticeAction = entry?.action
+        || (entry?.type === "file-save" && entry?.path ? `workspace:file:${encodeURIComponent(entry.path)}` : "");
+      void persistedRunEvent.then(() => recordNotice({
         level: "error",
         source: entry.type || "run",
         title: entry.title || t.requestError,
         detail: entry.detail || "",
+        action: noticeAction,
         key: `run:${entry.type || "unknown"}:${entry.title || ""}`,
-      });
+      }));
     }
   }
 
@@ -11061,6 +11085,7 @@ export function App() {
   const [taskCenterFocus, setTaskCenterFocus] = useState({ type: "", id: "", nonce: 0 });
   const [composerFocusToken, setComposerFocusToken] = useState(0);
   const [browserOpenRequest, setBrowserOpenRequest] = useState({ url: "", id: "", nonce: 0 });
+  const [workspaceOpenRequest, setWorkspaceOpenRequest] = useState({ path: "", force: false, nonce: 0 });
 
   function openSettingsSurface(initialSection = "general") {
     const nextSection = settingsSectionCommandSpecs(t).some((section) => section.id === initialSection) ? initialSection : "general";
@@ -11152,6 +11177,20 @@ export function App() {
       nonce: Date.now(),
     });
     openBottomPanel("browser");
+  }
+
+  function openWorkspaceFile(pathValue = "", options = {}) {
+    const focusedPath = String(pathValue || "").trim();
+    if (!focusedPath) {
+      activateTool("workspace");
+      return;
+    }
+    setWorkspaceOpenRequest({
+      path: focusedPath,
+      force: options.force !== false,
+      nonce: Date.now(),
+    });
+    activateTool("workspace");
   }
 
   function openTaskCenterFocus(type, id = "") {
@@ -11449,6 +11488,7 @@ export function App() {
           onRetryCapabilityCommand={runPersistedCapabilityCommand}
           onConfirmCapabilityCommand={openCapabilityRetryConfirmation}
           onOpenRunTimeline={openRunTimeline}
+          onOpenWorkspaceFile={openWorkspaceFile}
           runTimelineFocus={runTimelineFocus}
           gitPanelFocus={gitPanelFocus}
           sourcePanelFocus={sourcePanelFocus}
@@ -11506,6 +11546,7 @@ export function App() {
           browserVisits={state.browserVisits}
           onBrowserVisits={(browserVisits) => setState((current) => ({ ...current, browserVisits }))}
           browserOpenRequest={browserOpenRequest}
+          workspaceOpenRequest={workspaceOpenRequest}
           onClose={() => setRightPanelVisible(false)}
           t={t}
         />
