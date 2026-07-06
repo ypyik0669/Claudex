@@ -1990,6 +1990,14 @@ function browserVisitFinalUrl(visit = {}) {
   return visit.finalUrl || visit.validatedUrl || visit.url || "";
 }
 
+function sourceRefKey(source = {}) {
+  return source.id || [source.project?.path, source.project?.name, source.path].filter(Boolean).join(":") || source.path || "";
+}
+
+function browserVisitKey(visit = {}) {
+  return visit.id || visit.url || browserVisitFinalUrl(visit);
+}
+
 function browserVisitCapturedAt(visit = {}) {
   return visit.snapshotCapturedAt || visit.endedAt || visit.lastEventAt || visit.startedAt || "";
 }
@@ -3202,6 +3210,8 @@ function Conversation({
   onOpenRunTimeline,
   runTimelineFocus,
   gitPanelFocus,
+  sourcePanelFocus,
+  browserPanelFocus,
   taskCenterFocus,
   draft,
   setDraft,
@@ -3459,6 +3469,8 @@ function Conversation({
   const workspaceCommandRuns = useMemo(() => commandRunsToHistory(commandRuns, "workspace"), [commandRuns]);
   const claudeCommandRuns = useMemo(() => commandRunsToHistory(commandRuns, "claude"), [commandRuns]);
   const capabilityCommandRuns = useMemo(() => commandRunsToHistory(commandRuns, "capability"), [commandRuns]);
+  const focusedSourceKey = String(sourcePanelFocus?.id || sourcePanelFocus?.path || "").trim();
+  const focusedBrowserVisitKey = String(browserPanelFocus?.id || browserPanelFocus?.url || "").trim();
   const [bottomWorkspaceRetryingId, setBottomWorkspaceRetryingId] = useState("");
   const [bottomClaudeRetryingId, setBottomClaudeRetryingId] = useState("");
   const [bottomCapabilityRetryingId, setBottomCapabilityRetryingId] = useState("");
@@ -4203,15 +4215,19 @@ function Conversation({
                 </div>
                 {sourceRefs?.length ? (
                   <div className="source-ref-list">
-                    {sourceRefs.slice(0, 12).map((source) => (
-                      <article className="source-ref-card" key={source.id}>
-                        <FileText size={14} />
-                        <div>
-                          <strong title={source.path}>{source.path}</strong>
-                          <span title={source.project?.path || ""}>{projectLabel(source.project, t)} · {formatBytes(source.size)} · {t.sourceLastOpened} {formatDate(source.lastOpenedAt)}</span>
-                        </div>
-                      </article>
-                    ))}
+                    {sourceRefs.slice(0, 12).map((source) => {
+                      const sourceKey = sourceRefKey(source);
+                      const selected = focusedSourceKey && [sourceKey, source.id, source.path].filter(Boolean).includes(focusedSourceKey);
+                      return (
+                        <article className={cx("source-ref-card", selected && "selected")} key={sourceKey || source.id || source.path}>
+                          <FileText size={14} />
+                          <div>
+                            <strong title={source.path}>{source.path}</strong>
+                            <span title={source.project?.path || ""}>{projectLabel(source.project, t)} · {formatBytes(source.size)} · {t.sourceLastOpened} {formatDate(source.lastOpenedAt)}</span>
+                          </div>
+                        </article>
+                      );
+                    })}
                   </div>
                 ) : (
                   <div className="empty-panel compact-empty-panel">
@@ -4286,7 +4302,7 @@ function Conversation({
                     </button>
                   </div>
                 </div>
-                <BrowserEvidenceList visits={browserVisits} onOpenVisit={onOpenBrowserVisit} t={t} />
+                <BrowserEvidenceList visits={browserVisits} focusedVisitKey={focusedBrowserVisitKey} onOpenVisit={onOpenBrowserVisit} t={t} />
               </div>
             )}
           </div>
@@ -4962,7 +4978,7 @@ function SubagentWorkbench({
   );
 }
 
-function BrowserEvidenceList({ visits = [], onOpenVisit, t }) {
+function BrowserEvidenceList({ visits = [], focusedVisitKey = "", onOpenVisit, t }) {
   const [copiedVisitId, setCopiedVisitId] = useState("");
 
   async function copyVisitEvidence(visit) {
@@ -4989,9 +5005,10 @@ function BrowserEvidenceList({ visits = [], onOpenVisit, t }) {
     <div className="browser-evidence-list" aria-label={t.browserEvidence}>
       {visits.slice(0, 10).map((visit) => {
         const visitKey = visit.id || visit.url;
+        const selected = focusedVisitKey && [browserVisitKey(visit), visit.id, visit.url, browserVisitFinalUrl(visit)].filter(Boolean).includes(focusedVisitKey);
         const metadataRows = browserVisitMetadataRows(visit, t);
         return (
-          <article className={cx("browser-evidence-card", visit.status)} key={visitKey}>
+          <article className={cx("browser-evidence-card", visit.status, selected && "selected")} key={visitKey}>
             <Globe2 size={14} />
             <div>
               <strong title={browserVisitFinalUrl(visit)}>{browserVisitFinalUrl(visit) || visit.url}</strong>
@@ -10172,6 +10189,67 @@ export function App() {
         };
       });
 
+    const sourceRefCommands = (Array.isArray(state.sourceRefs) ? state.sourceRefs : [])
+      .filter((source) => source?.path || source?.name || source?.id)
+      .slice(0, 24)
+      .map((source) => {
+        const sourceKey = sourceRefKey(source);
+        const sourcePath = source.path || source.name || sourceKey;
+        return {
+          id: `source-ref:${commandIdSegment(sourceKey || sourcePath)}`,
+          title: `${t.sources}: ${sourcePath}`,
+          subtitle: [
+            projectLabel(source.project, t),
+            typeof source.size === "number" ? formatBytes(source.size) : "",
+            source.lastOpenedAt ? `${t.sourceLastOpened} ${formatDate(source.lastOpenedAt)}` : "",
+          ].filter(Boolean).join(" Â· "),
+          group: t.sources,
+          keywords: [
+            "source reference evidence workspace file opened read",
+            source.id,
+            source.name,
+            source.path,
+            source.type,
+            source.project?.name,
+            source.project?.path,
+          ].filter(Boolean).join(" "),
+          action: () => openSourceEvidence(source),
+        };
+      });
+
+    const browserEvidenceCommands = (Array.isArray(state.browserVisits) ? state.browserVisits : [])
+      .filter((visit) => visit?.id || visit?.url || browserVisitFinalUrl(visit))
+      .slice(0, 24)
+      .map((visit) => {
+        const visitKey = browserVisitKey(visit);
+        const finalUrl = browserVisitFinalUrl(visit);
+        return {
+          id: `browser-visit:${commandIdSegment(visitKey || finalUrl)}`,
+          title: `${t.browserEvidence}: ${visit.title || finalUrl || visit.url}`,
+          subtitle: [
+            browserStatusLabel(visit.status, t),
+            finalUrl,
+            visit.error,
+            visit.lastEventAt ? formatDate(visit.lastEventAt) : "",
+          ].filter(Boolean).join(" Â· "),
+          group: t.browser,
+          keywords: [
+            "browser evidence visit webview url snapshot excerpt",
+            visit.id,
+            visit.url,
+            visit.finalUrl,
+            visit.validatedUrl,
+            visit.title,
+            visit.excerpt,
+            visit.status,
+            visit.error,
+            visit.project?.name,
+            visit.project?.path,
+          ].filter(Boolean).join(" "),
+          action: () => openBrowserEvidence(visit),
+        };
+      });
+
     const automationCommands = (state.automations || [])
       .filter((automation) => automation?.id)
       .slice(0, 16)
@@ -10377,6 +10455,8 @@ export function App() {
       ...threadActionCommands,
       ...runEvidenceCommands,
       ...gitFileCommands,
+      ...sourceRefCommands,
+      ...browserEvidenceCommands,
       ...automationCommands,
       ...subagentCommands,
       ...installedPluginCommands,
@@ -10384,7 +10464,7 @@ export function App() {
       ...marketplaceSourceCommands,
       ...marketplacePluginCommands,
     ];
-  }, [state.projects, state.sessions, state.automations, state.subagentRuns, state.commandRuns, capabilityCommandStatus, runEvents, environment, t, activeProject?.path, activeProject?.name]);
+  }, [state.projects, state.sessions, state.sourceRefs, state.browserVisits, state.automations, state.subagentRuns, state.commandRuns, capabilityCommandStatus, runEvents, environment, t, activeProject?.path, activeProject?.name]);
 
   async function createAutomation(payload) {
     if (!desktopApi?.createAutomation) return;
@@ -10680,6 +10760,8 @@ export function App() {
   const [bottomPanel, setBottomPanel] = useState("");
   const [runTimelineFocus, setRunTimelineFocus] = useState({ id: "", nonce: 0 });
   const [gitPanelFocus, setGitPanelFocus] = useState({ path: "", nonce: 0 });
+  const [sourcePanelFocus, setSourcePanelFocus] = useState({ id: "", path: "", nonce: 0 });
+  const [browserPanelFocus, setBrowserPanelFocus] = useState({ id: "", url: "", nonce: 0 });
   const [taskCenterFocus, setTaskCenterFocus] = useState({ type: "", id: "", nonce: 0 });
   const [composerFocusToken, setComposerFocusToken] = useState(0);
   const [browserOpenRequest, setBrowserOpenRequest] = useState({ url: "", id: "", nonce: 0 });
@@ -10756,6 +10838,24 @@ export function App() {
     const focusedPath = String(pathValue || "").trim();
     setGitPanelFocus({ path: focusedPath, nonce: Date.now() });
     openBottomPanel("changes");
+  }
+
+  function openSourceEvidence(source = {}) {
+    setSourcePanelFocus({
+      id: sourceRefKey(source),
+      path: source.path || "",
+      nonce: Date.now(),
+    });
+    openBottomPanel("sources");
+  }
+
+  function openBrowserEvidence(visit = {}) {
+    setBrowserPanelFocus({
+      id: browserVisitKey(visit),
+      url: visit.url || browserVisitFinalUrl(visit),
+      nonce: Date.now(),
+    });
+    openBottomPanel("browser");
   }
 
   function openTaskCenterFocus(type, id = "") {
@@ -11055,6 +11155,8 @@ export function App() {
           onOpenRunTimeline={openRunTimeline}
           runTimelineFocus={runTimelineFocus}
           gitPanelFocus={gitPanelFocus}
+          sourcePanelFocus={sourcePanelFocus}
+          browserPanelFocus={browserPanelFocus}
           taskCenterFocus={taskCenterFocus}
           draft={draft}
           setDraft={setDraft}

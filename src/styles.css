@@ -6452,6 +6452,11 @@ button.runtime-health-row {
   padding: 9px 10px;
 }
 
+.source-ref-card.selected {
+  border-color: rgba(155, 179, 108, 0.45);
+  background: rgba(155, 179, 108, 0.08);
+}
+
 .source-ref-card svg {
   color: var(--muted);
 }
@@ -6526,6 +6531,15 @@ button.runtime-health-row {
 
 .browser-evidence-card.external {
   border-color: rgba(110, 151, 207, 0.24);
+}
+
+.browser-evidence-card.selected,
+.browser-evidence-card.ready.selected,
+.browser-evidence-card.error.selected,
+.browser-evidence-card.loading.selected,
+.browser-evidence-card.external.selected {
+  border-color: rgba(155, 179, 108, 0.45);
+  background: rgba(155, 179, 108, 0.08);
 }
 
 .browser-evidence-card svg {
