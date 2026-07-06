@@ -400,6 +400,39 @@ function upsertAutomationRunEvent(store, automation, entry, status) {
   });
 }
 
+function upsertAutomationActionRunEvent(store, automation, action, detail = "") {
+  const labels = {
+    create: "创建",
+    pause: "暂停",
+    resume: "恢复",
+    delete: "删除",
+  };
+  const actionLabel = labels[action] || action || "更新";
+  const eventId = `automation:${automation.id}:${action}:${Date.now()}`;
+  const project = automation?.project || store.activeProject || localWorkspaceProject();
+  const actionDetail = detail || [
+    project?.name || project?.path || "本地工作区",
+    automation?.schedule?.runAt ? `下次运行: ${automation.schedule.runAt}` : "",
+    automation?.threadId ? `线程: ${automation.threadId}` : "",
+  ].filter(Boolean).join(" · ");
+  return upsertRunEvent(store, {
+    id: eventId,
+    type: "automation-action",
+    status: "ok",
+    title: `自动化：${actionLabel} · ${titleFromUserContent(automation?.prompt || "计划任务")}`,
+    detail: actionDetail,
+    commandLine: "",
+    cwd: project?.path || "",
+    code: null,
+    durationMs: 0,
+    stdout: automation?.prompt || "",
+    stderr: "",
+    project,
+    sessionId: automation?.threadId || "",
+    createdAt: now(),
+  });
+}
+
 function normalizeSubagentRun(item, store) {
   const startedAt = isoOrEmpty(item?.startedAt) || now();
   const status = ["running", "done", "error", "cancelled"].includes(item?.status) ? item.status : "done";
@@ -3094,8 +3127,13 @@ ipcMain.handle("automation:create", (_event, payload = {}) => {
     history: [],
   }, store);
   store.automations = [automation, ...(store.automations || [])].slice(0, AUTOMATION_LIMIT);
+  const runEvent = upsertAutomationActionRunEvent(store, automation, "create");
   writeStore(store);
-  return sanitizeStore(store);
+  return {
+    ...sanitizeStore(store),
+    automation,
+    runEvent,
+  };
 });
 
 ipcMain.handle("automation:set-enabled", (_event, { automationId, enabled } = {}) => {
@@ -3104,17 +3142,26 @@ ipcMain.handle("automation:set-enabled", (_event, { automationId, enabled } = {}
   automation.enabled = Boolean(enabled);
   automation.status = automation.enabled ? "scheduled" : "paused";
   updateAutomationAfterMutation(automation);
+  const runEvent = upsertAutomationActionRunEvent(store, automation, automation.enabled ? "resume" : "pause");
   writeStore(store);
-  return sanitizeStore(store);
+  return {
+    ...sanitizeStore(store),
+    automation,
+    runEvent,
+  };
 });
 
 ipcMain.handle("automation:delete", (_event, { automationId } = {}) => {
   const store = readStore();
-  const before = (store.automations || []).length;
+  const automation = findAutomationOrThrow(store, automationId);
+  const runEvent = upsertAutomationActionRunEvent(store, automation, "delete");
   store.automations = (store.automations || []).filter((automation) => automation.id !== automationId);
-  if (store.automations.length === before) throw new Error("没有找到这个自动化任务。");
   writeStore(store);
-  return sanitizeStore(store);
+  return {
+    ...sanitizeStore(store),
+    automation,
+    runEvent,
+  };
 });
 
 ipcMain.handle("automation:run-now", async (_event, { automationId, requestId } = {}) => {

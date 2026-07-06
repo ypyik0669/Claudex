@@ -10962,6 +10962,7 @@ export function App() {
     try {
       const next = await desktopApi.createAutomation(payload);
       setState(next);
+      if (Array.isArray(next?.runEvents)) setRunEvents((current) => mergeRunEvents(current, next.runEvents));
       showToast(t.automationCreated);
     } catch (error) {
       showToast(error.message || String(error));
@@ -10974,6 +10975,7 @@ export function App() {
     try {
       const next = await desktopApi.deleteAutomation({ automationId: automation.id });
       setState(next);
+      if (Array.isArray(next?.runEvents)) setRunEvents((current) => mergeRunEvents(current, next.runEvents));
       showToast(t.automationDeleted);
     } catch (error) {
       showToast(error.message || String(error));
@@ -10986,6 +10988,7 @@ export function App() {
     try {
       const next = await desktopApi.setAutomationEnabled({ automationId: automation.id, enabled });
       setState(next);
+      if (Array.isArray(next?.runEvents)) setRunEvents((current) => mergeRunEvents(current, next.runEvents));
       showToast(enabled ? t.automationResumed : t.automationPaused);
     } catch (error) {
       showToast(error.message || String(error));
