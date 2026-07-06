@@ -574,14 +574,24 @@ function upsertSubagentRunEvent(store, run, status) {
 }
 
 function upsertSubagentActionRunEvent(store, run, action) {
-  const actionLabel = action === "restore" ? "恢复记录" : "关闭记录";
+  const labels = {
+    archive: "关闭记录",
+    restore: "恢复记录",
+    continue: "续写到聊天",
+  };
+  const actionLabel = labels[action] || action || "更新";
   const eventId = `${run.requestId || run.id}:${action}`;
+  const targetSessionId = action === "continue" && run.continuedSessionId ? run.continuedSessionId : run.sessionId || "";
   return upsertRunEvent(store, {
     id: eventId,
     type: "subagent-action",
     status: "ok",
     title: `子代理：${actionLabel} · ${titleFromUserContent(run?.nickname || "Subagent")}`,
-    detail: [run?.project?.name || run?.project?.path || "本地工作区", run?.summary || run?.stderr || run?.task || ""].filter(Boolean).join(" · "),
+    detail: [
+      run?.project?.name || run?.project?.path || "本地工作区",
+      targetSessionId ? `聊天: ${targetSessionId}` : "",
+      run?.summary || run?.stderr || run?.task || "",
+    ].filter(Boolean).join(" · "),
     commandLine: [run.command, ...(run.args || [])].filter(Boolean).join(" "),
     cwd: run.cwd || run.project?.path || "",
     code: typeof run.code === "number" ? run.code : null,
@@ -589,7 +599,7 @@ function upsertSubagentActionRunEvent(store, run, action) {
     stdout: run.stdout || "",
     stderr: run.stderr || "",
     project: run.project,
-    sessionId: run.sessionId || "",
+    sessionId: targetSessionId,
     createdAt: now(),
   });
 }
@@ -3519,11 +3529,13 @@ ipcMain.handle("subagent:continue", (_event, { runId, requestId, sessionId, proj
     continuedSessionId: session.id,
   }, store);
   upsertSubagentRun(store, continuedRun);
+  const runEvent = upsertSubagentActionRunEvent(store, continuedRun, "continue");
   writeStore(store);
   return {
     ...sanitizeStore(store),
     selectedSessionId: session.id,
     subagentRun: continuedRun,
+    runEvent,
   };
 });
 

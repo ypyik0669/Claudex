@@ -10633,6 +10633,11 @@ export function App() {
   const [runEvents, setRunEvents] = useState(() => state.runEvents || []);
 
   useEffect(() => {
+    if (!Array.isArray(state.runEvents)) return;
+    setRunEvents((current) => mergeRunEvents(current, state.runEvents));
+  }, [state.runEvents]);
+
+  useEffect(() => {
     let cancelled = false;
     async function load() {
       if (!desktopApi) {
@@ -11297,7 +11302,8 @@ export function App() {
         }));
       });
 
-    const runEvidenceCommands = (runEvents || [])
+    const commandRunEvents = mergeRunEvents(runEvents || [], state.runEvents || []);
+    const runEvidenceCommands = (commandRunEvents || [])
       .filter((event) => event?.id)
       .slice(0, 16)
       .map((event) => {
@@ -11328,7 +11334,7 @@ export function App() {
           keywords: [
             "run timeline evidence output command stdout stderr artifact",
             event.type === "automation-action" ? "automation action create pause resume delete schedule task center 自动化 创建 暂停 恢复 删除 证据" : "",
-            event.type === "subagent-action" ? "subagent action archive restore task center 子代理 关闭 恢复 证据" : "",
+            event.type === "subagent-action" ? "subagent action archive restore continue task center 子代理 关闭 恢复 续写 证据" : "",
             event.type === "thread-action" ? "thread action rename pin unpin archive restore fork delete resume chat history 聊天 操作 重命名 置顶 归档 恢复 Fork 删除 继续 证据" : "",
             event.id,
             event.type,
@@ -11353,7 +11359,7 @@ export function App() {
         };
       });
 
-    const runEventIds = new Set((runEvents || []).flatMap((event) => [
+    const runEventIds = new Set((commandRunEvents || []).flatMap((event) => [
       event?.id,
       event?.requestId,
     ].filter(Boolean)));
@@ -12046,7 +12052,7 @@ export function App() {
       ...customMarketplaceCommands,
       ...marketplacePluginCommands,
     ];
-  }, [state.projects, state.sessions, state.notices, state.sourceRefs, state.browserVisits, state.automations, state.subagentRuns, state.commandRuns, state.settings?.customMarketplaces, capabilityCommandStatus, runEvents, environment, t, activeProject?.path, activeProject?.name]);
+  }, [state.projects, state.sessions, state.notices, state.sourceRefs, state.browserVisits, state.automations, state.subagentRuns, state.commandRuns, state.runEvents, state.settings?.customMarketplaces, capabilityCommandStatus, runEvents, environment, t, activeProject?.path, activeProject?.name]);
 
   async function createAutomation(payload) {
     if (!desktopApi?.createAutomation) return;
@@ -12191,13 +12197,31 @@ export function App() {
   async function continueSubagent(run) {
     if (!desktopApi?.continueSubagent || !run) return;
     const projectPath = run.project?.path || run.cwd || "";
-    const next = await desktopApi.continueSubagent({
+    let next = await desktopApi.continueSubagent({
       runId: run.id,
       requestId: run.requestId,
       sessionId: run.sessionId || "",
       projectPath,
     });
+    if (desktopApi?.getState) {
+      const fresh = await desktopApi.getState();
+      if (fresh?.settings) {
+        next = {
+          ...fresh,
+          selectedSessionId: next?.selectedSessionId,
+          subagentRun: next?.subagentRun,
+          runEvent: next?.runEvent,
+        };
+      }
+    }
     setState(next);
+    const continueRunEvent = next?.runEvent || (Array.isArray(next?.runEvents)
+      ? next.runEvents.find((event) => event?.id === `${run.requestId || run.id}:continue`)
+      : null);
+    if (continueRunEvent?.id) {
+      setRunEvents((current) => prependRunEvent(current, continueRunEvent));
+    }
+    if (Array.isArray(next?.runEvents)) setRunEvents((current) => mergeRunEvents(current, next.runEvents));
     if (next?.selectedSessionId) setActiveSessionId(next.selectedSessionId);
     setProjectScope("current");
     showToast(t.subagentContinued);
