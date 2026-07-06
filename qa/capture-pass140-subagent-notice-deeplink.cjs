@@ -198,13 +198,22 @@ async function clickNoticeCommand(win) {
 
 async function assertFocusedSubagent(win, stepName) {
   assertStep(stepName, await waitFor(win, `
-    Boolean(
-      document.querySelector('.bottom-work-panel .subagent-workbench') &&
-      document.querySelector('.subagent-run-card.error.focused-task-card[data-subagent-request-id="' + window.__pass140SubagentRequestId + '"]') &&
-      /Notice Failure Agent/.test(document.querySelector('.subagent-run-card.focused-task-card')?.textContent || '') &&
-      /pass140 subagent failure notice evidence/.test(document.querySelector('.subagent-run-card.focused-task-card')?.textContent || '') &&
-      /pass140 subagent stderr failure evidence/.test(document.querySelector('.subagent-run-card.focused-task-card')?.textContent || '')
-    )
+    (function() {
+      const card = document.querySelector('.subagent-run-card.error.focused-task-card[data-subagent-request-id="' + window.__pass140SubagentRequestId + '"]');
+      const evidenceOpen = Array.from(card?.querySelectorAll('.subagent-evidence-details[open]') || [])
+        .some((details) => /证据/.test(details.querySelector('summary')?.textContent || ''));
+      const artifactsOpen = Array.from(card?.querySelectorAll('.subagent-evidence-details[open]') || [])
+        .some((details) => /产物/.test(details.querySelector('summary')?.textContent || ''));
+      return Boolean(
+        document.querySelector('.bottom-work-panel .subagent-workbench') &&
+        card &&
+        evidenceOpen &&
+        artifactsOpen &&
+        /Notice Failure Agent/.test(card.textContent || '') &&
+        /pass140 subagent failure notice evidence/.test(card.textContent || '') &&
+        /pass140 subagent stderr failure evidence/.test(card.textContent || '')
+      );
+    })()
   `, 10000));
 }
 

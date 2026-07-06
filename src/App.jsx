@@ -3822,7 +3822,10 @@ function Conversation({
     if (action.startsWith("subagent:")) {
       const subagentId = decodeActionSuffix(action, "subagent:");
       if (subagentId && onOpenTaskCenterFocus) {
-        onOpenTaskCenterFocus("subagent", subagentId);
+        onOpenTaskCenterFocus("subagent", subagentId, {
+          expandEvidence: true,
+          expandArtifacts: true,
+        });
         return;
       }
     }
@@ -11838,7 +11841,10 @@ export function App() {
     if (action.startsWith("subagent:")) {
       const subagentId = decodeActionSuffix(action, "subagent:");
       if (subagentId) {
-        openTaskCenterFocus("subagent", subagentId);
+        openTaskCenterFocus("subagent", subagentId, {
+          expandEvidence: true,
+          expandArtifacts: true,
+        });
         return;
       }
     }
