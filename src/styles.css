@@ -6034,6 +6034,20 @@ button.runtime-health-row {
   white-space: nowrap;
 }
 
+.automation-history-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+}
+
+.automation-history-actions button,
+.automation-history-actions .plain-action {
+  min-height: 23px;
+  padding: 3px 6px;
+  font-size: 10.5px;
+}
+
 .automation-run-evidence-details {
   grid-column: 1 / -1;
   border: 1px solid #252525;

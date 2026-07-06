@@ -1864,6 +1864,57 @@ function findSubagentRunForEvent(event, runs = []) {
   return (runs || []).find((run) => run?.id === eventId || run?.requestId === eventId) || null;
 }
 
+function automationRunTimelineStatus(entry = {}) {
+  if (entry.status === "failed") return "error";
+  if (entry.status === "running") return "running";
+  if (entry.status === "cancelled") return "cancelled";
+  return "ok";
+}
+
+function subagentRunTimelineStatus(run = {}) {
+  if (run.status === "done") return "ok";
+  if (run.status === "cancelled") return "cancelled";
+  if (run.status === "running") return "running";
+  return "error";
+}
+
+function fallbackRunEventForId(eventId, { automations = [], subagentRuns = [], t } = {}) {
+  const id = String(eventId || "").trim();
+  if (!id) return null;
+  const automationMatch = findAutomationRunForEvent({ id }, automations);
+  if (automationMatch) {
+    const { automation, entry } = automationMatch;
+    return {
+      id,
+      type: "automation",
+      status: automationRunTimelineStatus(entry),
+      title: `${t.scheduled}: ${messageExcerpt(automation?.prompt || t.automationTasks, 60)}`,
+      detail: entry.error || entry.detail || entry.summary || automationProjectLabel(automation, t),
+      createdAt: entry.endedAt || entry.startedAt || automation?.updatedAt || automation?.createdAt || new Date().toISOString(),
+      project: automation?.project,
+      sessionId: entry.sessionId || automation?.threadId || "",
+      code: typeof entry.code === "number" ? entry.code : null,
+      durationMs: typeof entry.durationMs === "number" ? entry.durationMs : null,
+    };
+  }
+  const subagentRun = findSubagentRunForEvent({ id }, subagentRuns);
+  if (subagentRun) {
+    return {
+      id,
+      type: "subagent",
+      status: subagentRunTimelineStatus(subagentRun),
+      title: `${t.subagents}: ${subagentRun.nickname || "Subagent"}`,
+      detail: subagentRun.summary || subagentRun.stderr || messageExcerpt(subagentRun.task, 120),
+      createdAt: subagentRun.endedAt || subagentRun.startedAt || new Date().toISOString(),
+      project: subagentRun.project,
+      sessionId: subagentRun.sessionId || "",
+      code: typeof subagentRun.code === "number" ? subagentRun.code : null,
+      durationMs: typeof subagentRun.durationMs === "number" ? subagentRun.durationMs : null,
+    };
+  }
+  return null;
+}
+
 function runTimelineStatusLabel(status, t) {
   if (status === "running") return t.commandRunning;
   if (status === "cancelled") return t.commandCancelled;
@@ -1900,7 +1951,7 @@ function runTimelineEvidenceForEvent(event, { commandRuns = [], automations = []
       title: event?.title || automation?.prompt || "",
       detail: entry.error || entry.detail || entry.summary || event?.detail || "",
       type: event?.type || "automation",
-      status: entry.status === "failed" ? "error" : entry.status === "running" ? "running" : "ok",
+      status: automationRunTimelineStatus(entry),
       project: automationProjectLabel(automation, t),
       sessionId: entry.sessionId || automation?.threadId || "",
       thread: automationThreadLabel(automation, sessions, t),
@@ -1921,7 +1972,7 @@ function runTimelineEvidenceForEvent(event, { commandRuns = [], automations = []
       title: event?.title || subagentRun.nickname || "Subagent",
       detail: subagentRun.summary || subagentRun.stderr || event?.detail || subagentRun.task || "",
       type: event?.type || "subagent",
-      status: subagentRun.status === "done" ? "ok" : subagentRun.status === "cancelled" ? "cancelled" : subagentRun.status === "running" ? "running" : "error",
+      status: subagentRunTimelineStatus(subagentRun),
       project: projectLabel(subagentRun.project, t),
       sessionId: subagentRun.sessionId || event?.sessionId || "",
       commandLine: subagentCommandLine(subagentRun),
@@ -3036,10 +3087,19 @@ function Conversation({
   ), [runEvents]);
   const latestGitActionRun = latestGitActionEvent ? findCommandRunForEvent(latestGitActionEvent, commandRuns) : null;
   const [selectedRunEventId, setSelectedRunEventId] = useState("");
+  const fallbackSelectedRunEvent = useMemo(() => fallbackRunEventForId(selectedRunEventId, {
+    automations: automationItemsForUi,
+    subagentRuns,
+    t,
+  }), [selectedRunEventId, automationItemsForUi, subagentRuns, t]);
   const selectedRunEvent = useMemo(() => {
+    const existing = runEvents?.find((event) => event.id === selectedRunEventId);
+    if (existing) return existing;
+    if (fallbackSelectedRunEvent) return fallbackSelectedRunEvent;
     if (!runEvents?.length) return null;
-    return runEvents.find((event) => event.id === selectedRunEventId) || runEvents[0];
-  }, [runEvents, selectedRunEventId]);
+    if (selectedRunEventId) return null;
+    return runEvents[0];
+  }, [runEvents, selectedRunEventId, fallbackSelectedRunEvent]);
   const selectedRunEvidence = useMemo(() => (
     selectedRunEvent
       ? runTimelineEvidenceForEvent(selectedRunEvent, {
@@ -3052,13 +3112,11 @@ function Conversation({
       : null
   ), [selectedRunEvent, commandRuns, automationItemsForUi, subagentRuns, sessions, t]);
   useEffect(() => {
-    if (!runEvents?.length) {
-      if (selectedRunEventId) setSelectedRunEventId("");
-      return;
-    }
+    if (!runEvents?.length) return;
     if (selectedRunEventId && runEvents.some((event) => event.id === selectedRunEventId)) return;
+    if (fallbackRunEventForId(selectedRunEventId, { automations: automationItemsForUi, subagentRuns, t })) return;
     setSelectedRunEventId(runEvents[0].id);
-  }, [runEvents, selectedRunEventId]);
+  }, [runEvents, selectedRunEventId, automationItemsForUi, subagentRuns, t]);
   useEffect(() => {
     const focusedId = String(runTimelineFocus?.id || "").trim();
     if (focusedId) setSelectedRunEventId(focusedId);
@@ -3327,7 +3385,7 @@ function Conversation({
                     <div><dt>{t.changes}</dt><dd>{environment?.git?.available ? environment.git.changes || 0 : t.gitUnavailable}</dd></div>
                   </dl>
                 </div>
-                {runEvents.length > 0 && (
+                {(runEvents.length > 0 || selectedRunEvent) && (
                   <div className="run-evidence-layout">
                     <RunTimeline
                       events={runEvents}
@@ -4077,6 +4135,30 @@ function SubagentWorkbench({
                               <time>{formatDate(entry.endedAt || entry.startedAt)}</time>
                               <em>{automationTriggerLabel(entry.trigger, t)}</em>
                               <em>{typeof entry.code === "number" ? `${t.commandExit}: ${entry.code}` : t.commandExit}</em>
+                              <div className="automation-history-actions">
+                                <button
+                                  type="button"
+                                  className="plain-action subtle-action"
+                                  data-automation-history-action="copy"
+                                  onClick={() => copyAutomationEvidence(item, entry)}
+                                  title={t.copyAutomationEvidence}
+                                >
+                                  <Copy size={12} />
+                                  {t.copyAutomationEvidence}
+                                </button>
+                                {entry.id && (
+                                  <button
+                                    type="button"
+                                    className="plain-action subtle-action"
+                                    data-automation-history-action="timeline"
+                                    onClick={() => onOpenRunTimeline?.(entry.id)}
+                                    title={t.openRunTimeline}
+                                  >
+                                    <FileText size={12} />
+                                    {t.openRunTimeline}
+                                  </button>
+                                )}
+                              </div>
                               {(entry.detail || entry.error || entry.summary) && <p>{messageExcerpt(entry.detail || entry.error || entry.summary, 110)}</p>}
                               {(entry.stdout || entry.stderr || entry.sessionId || typeof entry.code === "number") && (
                                 <details className="automation-run-evidence-details">
@@ -8175,6 +8257,28 @@ function ScheduledModal({
                             <em>{automationTriggerLabel(entry.trigger, t)}</em>
                             <em>{typeof entry.code === "number" ? `${t.commandExit}: ${entry.code}` : t.commandExit}</em>
                             {typeof entry.durationMs === "number" && entry.durationMs > 0 && <em>{formatDurationMs(entry.durationMs)}</em>}
+                            <div className="automation-history-actions">
+                              <button
+                                type="button"
+                                data-automation-history-action="copy"
+                                onClick={() => copyAutomationEvidence(item, entry)}
+                                title={t.copyAutomationEvidence}
+                              >
+                                <Copy size={12} />
+                                {t.copyAutomationEvidence}
+                              </button>
+                              {entry.id && (
+                                <button
+                                  type="button"
+                                  data-automation-history-action="timeline"
+                                  onClick={() => onOpenRunTimeline?.(entry.id)}
+                                  title={t.openRunTimeline}
+                                >
+                                  <FileText size={12} />
+                                  {t.openRunTimeline}
+                                </button>
+                              )}
+                            </div>
                             {(entry.detail || entry.error || entry.summary) && <p>{entry.detail || entry.error || entry.summary}</p>}
                             {(entry.stdout || entry.stderr || entry.sessionId || typeof entry.code === "number") && (
                               <details className="automation-run-evidence-details">
