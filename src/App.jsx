@@ -2340,6 +2340,48 @@ function findCommandRunForEvent(event, commandRuns = []) {
       : null);
 }
 
+function commandRunTimelineStatus(run = {}) {
+  if (run.cancelled) return "cancelled";
+  return run.code === 0 ? "ok" : "error";
+}
+
+function commandRunTimelineType(run = {}) {
+  if ((run.requestId || run.id || "").startsWith("git_command_")) return "git-command";
+  if (run.kind === "claude") return "claude-command";
+  if (run.kind === "capability") return "capability-command";
+  return "workspace-command";
+}
+
+function commandRunTimelineEvent(run = {}, t) {
+  const eventId = String(run.requestId || run.id || "").trim();
+  const commandLine = String(run.command || run.commandLine || "").trim();
+  if (!eventId || !commandLine) return null;
+  const type = commandRunTimelineType(run);
+  const titlePrefix = type === "git-command"
+    ? "Git"
+    : run.kind === "claude"
+      ? "Claude"
+      : run.kind === "capability"
+        ? t.capabilities
+        : "Workspace";
+  return {
+    id: eventId,
+    type,
+    status: commandRunTimelineStatus(run),
+    title: `${titlePrefix}: ${messageExcerpt(commandLine, 88)}`,
+    detail: run.cancelled ? t.commandCancelled : `${t.commandExit}: ${typeof run.code === "number" ? run.code : "-"}`,
+    createdAt: run.endedAt || run.startedAt || new Date().toISOString(),
+    project: run.project,
+    sessionId: run.requestId || run.id || "",
+    commandLine,
+    cwd: run.cwd || run.project?.path || "",
+    code: typeof run.code === "number" ? run.code : null,
+    durationMs: typeof run.durationMs === "number" ? run.durationMs : null,
+    stdout: run.stdout || "",
+    stderr: run.stderr || "",
+  };
+}
+
 function findAutomationRunForEvent(event, automations = []) {
   const eventId = String(event?.id || "");
   if (!eventId) return null;
@@ -2413,9 +2455,11 @@ function browserVisitRunEvent(visit = {}, t) {
   };
 }
 
-function fallbackRunEventForId(eventId, { automations = [], subagentRuns = [], browserVisits = [], t } = {}) {
+function fallbackRunEventForId(eventId, { commandRuns = [], automations = [], subagentRuns = [], browserVisits = [], t } = {}) {
   const id = String(eventId || "").trim();
   if (!id) return null;
+  const commandRun = findCommandRunForEvent({ id }, commandRuns);
+  if (commandRun) return commandRunTimelineEvent(commandRun, t);
   const automationMatch = findAutomationRunForEvent({ id }, automations);
   if (automationMatch) {
     const { automation, entry } = automationMatch;
@@ -2458,17 +2502,21 @@ function runEventTimestamp(event = {}) {
   return Number.isFinite(time) ? time : 0;
 }
 
-function localEvidenceRunEvents({ automations = [], subagentRuns = [], browserVisits = [], t } = {}) {
+function localEvidenceRunEvents({ commandRuns = [], automations = [], subagentRuns = [], browserVisits = [], t } = {}) {
   const events = [];
+  for (const run of commandRuns || []) {
+    const event = commandRunTimelineEvent(run, t);
+    if (event) events.push(event);
+  }
   for (const automation of automations || []) {
     for (const entry of automationRunEntries(automation)) {
-      const event = fallbackRunEventForId(entry.id, { automations, subagentRuns, t });
+      const event = fallbackRunEventForId(entry.id, { commandRuns, automations, subagentRuns, browserVisits, t });
       if (event) events.push(event);
     }
   }
   for (const run of subagentRuns || []) {
     const id = String(run?.requestId || run?.id || "").trim();
-    const event = fallbackRunEventForId(id, { automations, subagentRuns, browserVisits, t });
+    const event = fallbackRunEventForId(id, { commandRuns, automations, subagentRuns, browserVisits, t });
     if (event) events.push(event);
   }
   for (const visit of browserVisits || []) {
@@ -2478,7 +2526,7 @@ function localEvidenceRunEvents({ automations = [], subagentRuns = [], browserVi
   return events;
 }
 
-function timelineEventsForUi(runEvents = [], { automations = [], subagentRuns = [], browserVisits = [], t } = {}) {
+function timelineEventsForUi(runEvents = [], { commandRuns = [], automations = [], subagentRuns = [], browserVisits = [], t } = {}) {
   const byId = new Map();
   const add = (event) => {
     const id = String(event?.id || "").trim();
@@ -2486,7 +2534,7 @@ function timelineEventsForUi(runEvents = [], { automations = [], subagentRuns = 
     byId.set(id, event);
   };
   (runEvents || []).forEach(add);
-  localEvidenceRunEvents({ automations, subagentRuns, browserVisits, t }).forEach(add);
+  localEvidenceRunEvents({ commandRuns, automations, subagentRuns, browserVisits, t }).forEach(add);
   return [...byId.values()]
     .sort((a, b) => runEventTimestamp(b) - runEventTimestamp(a))
     .slice(0, 14);
@@ -3767,17 +3815,19 @@ function Conversation({
   const latestGitActionRun = latestGitActionEvent ? findCommandRunForEvent(latestGitActionEvent, commandRuns) : null;
   const [selectedRunEventId, setSelectedRunEventId] = useState("");
   const fallbackSelectedRunEvent = useMemo(() => fallbackRunEventForId(selectedRunEventId, {
+    commandRuns,
     automations: automationItemsForUi,
     subagentRuns,
     browserVisits,
     t,
-  }), [selectedRunEventId, automationItemsForUi, subagentRuns, browserVisits, t]);
+  }), [selectedRunEventId, commandRuns, automationItemsForUi, subagentRuns, browserVisits, t]);
   const runTimelineEvents = useMemo(() => timelineEventsForUi(runEvents, {
+    commandRuns,
     automations: automationItemsForUi,
     subagentRuns,
     browserVisits,
     t,
-  }), [runEvents, automationItemsForUi, subagentRuns, browserVisits, t]);
+  }), [runEvents, commandRuns, automationItemsForUi, subagentRuns, browserVisits, t]);
   const selectedRunEvent = useMemo(() => {
     const existing = runTimelineEvents.find((event) => event.id === selectedRunEventId);
     if (existing) return existing;
@@ -3958,10 +4008,10 @@ function Conversation({
   useEffect(() => {
     if (!runTimelineEvents.length) return;
     if (selectedRunEventId && runTimelineEvents.some((event) => event.id === selectedRunEventId)) return;
-    if (fallbackRunEventForId(selectedRunEventId, { automations: automationItemsForUi, subagentRuns, browserVisits, t })) return;
+    if (fallbackRunEventForId(selectedRunEventId, { commandRuns, automations: automationItemsForUi, subagentRuns, browserVisits, t })) return;
     if (selectedRunEventId) return;
     setSelectedRunEventId(runTimelineEvents[0].id);
-  }, [runTimelineEvents, selectedRunEventId, automationItemsForUi, subagentRuns, browserVisits, t]);
+  }, [runTimelineEvents, selectedRunEventId, commandRuns, automationItemsForUi, subagentRuns, browserVisits, t]);
   useEffect(() => {
     const focusedId = String(runTimelineFocus?.id || "").trim();
     if (focusedId) setSelectedRunEventId(focusedId);
@@ -11154,6 +11204,46 @@ export function App() {
         };
       });
 
+    const runEventIds = new Set((runEvents || []).flatMap((event) => [
+      event?.id,
+      event?.requestId,
+    ].filter(Boolean)));
+    const commandRunCommands = (Array.isArray(state.commandRuns) ? state.commandRuns : [])
+      .filter((run) => {
+        const event = commandRunTimelineEvent(run, t);
+        return event && !runEventIds.has(event.id);
+      })
+      .slice(0, 16)
+      .map((run) => {
+        const event = commandRunTimelineEvent(run, t);
+        const commandLine = event.commandLine || run.command || run.commandLine || "";
+        return {
+          id: `command-run:${commandIdSegment(event.id)}`,
+          title: `${t.openRunTimeline}: ${messageExcerpt(commandLine, 72)}`,
+          subtitle: [
+            runTimelineStatusLabel(event.status, t),
+            run.kind || "workspace",
+            event.cwd,
+            typeof event.code === "number" ? `${t.commandExit}: ${event.code}` : "",
+          ].filter(Boolean).join(" · "),
+          group: t.bottomPanel,
+          keywords: [
+            "command run timeline evidence output selected stdout stderr workspace claude capability",
+            event.id,
+            run.id,
+            run.requestId,
+            run.kind,
+            commandLine,
+            run.stdout,
+            run.stderr,
+            run.cwd,
+            run.project?.name,
+            run.project?.path,
+          ].filter(Boolean).join(" "),
+          action: () => openRunTimeline(event.id),
+        };
+      });
+
     const noticeCommands = (state.notices || [])
       .filter((notice) => notice?.id && notice?.title && !notice.dismissedAt)
       .slice(0, 16)
@@ -11715,6 +11805,7 @@ export function App() {
       ...threadCommands,
       ...threadActionCommands,
       ...runEvidenceCommands,
+      ...commandRunCommands,
       ...noticeCommands,
       ...gitFileCommands,
       ...gitHunkCommands,
