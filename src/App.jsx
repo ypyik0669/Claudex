@@ -5210,8 +5210,22 @@ function NoticeCenter({ notices = [], onDismiss, onClear, onAction, t }) {
 
 function RunEvidenceDetails({ event, evidence, onCopy, t, pinned = false }) {
   const hasRawEvidence = runTimelineHasEvidence(evidence);
+  const [copiedRunEvidence, setCopiedRunEvidence] = useState(false);
+  const copiedRunEvidenceTimer = useRef(null);
+  useEffect(() => () => {
+    if (copiedRunEvidenceTimer.current) window.clearTimeout(copiedRunEvidenceTimer.current);
+  }, []);
+  useEffect(() => {
+    setCopiedRunEvidence(false);
+  }, [event?.id]);
   async function copyRunArtifact(artifact, index) {
     await onCopy?.(subagentArtifactEvidenceText(artifact, index, t));
+  }
+  async function copyRunEvidence() {
+    await onCopy?.(runTimelineEvidenceText(event, evidence, t));
+    setCopiedRunEvidence(true);
+    if (copiedRunEvidenceTimer.current) window.clearTimeout(copiedRunEvidenceTimer.current);
+    copiedRunEvidenceTimer.current = window.setTimeout(() => setCopiedRunEvidence(false), 1200);
   }
 
   return (
@@ -5284,9 +5298,15 @@ function RunEvidenceDetails({ event, evidence, onCopy, t, pinned = false }) {
             </div>
           )}
           <div className="run-timeline-actions">
-            <button type="button" className="plain-action subtle-action" onClick={() => onCopy?.(runTimelineEvidenceText(event, evidence, t))}>
-              <Copy size={13} />
-              {t.copyAutomationEvidence}
+            <button
+              type="button"
+              className="plain-action subtle-action"
+              data-run-timeline-action="copy-evidence"
+              onClick={copyRunEvidence}
+              title={copiedRunEvidence ? t.copied : t.copyAutomationEvidence}
+            >
+              {copiedRunEvidence ? <Check size={13} /> : <Copy size={13} />}
+              {copiedRunEvidence ? t.copied : t.copyAutomationEvidence}
             </button>
           </div>
         </>
