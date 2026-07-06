@@ -257,12 +257,44 @@ async function runTest() {
     })();
   `, 10000));
 
-  const beforeRetry = readCommandLog();
-  assertStep("PASS112_CLICK_BOTTOM_RETRY", await win.webContents.executeJavaScript(`
+  assertStep("PASS112_SELECTED_FAILURE_RECOVERY_VISIBLE", await waitFor(win, `
+    (async function() {
+      const row = [...document.querySelectorAll('.run-timeline-row.error')]
+        .find((candidate) => /mcp list/.test(candidate.textContent || ''));
+      if (!row) return false;
+      row.querySelector('summary')?.click();
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      const panel = document.querySelector('.selected-run-evidence-panel.error');
+      return Boolean(
+        panel &&
+        /mcp list/.test(panel.textContent || '') &&
+        /pass112 mcp list failed/.test(panel.textContent || '') &&
+        panel.querySelector('[data-run-recovery-action="retry-capability"]') &&
+        panel.querySelector('[data-run-recovery-action="open-claude-panel"]')
+      );
+    })()
+  `, 10000));
+
+  assertStep("PASS112_CLICK_SELECTED_OPEN_CLAUDE_PANEL", await win.webContents.executeJavaScript(`
     (function() {
-      const card = document.querySelector('.capability-command-evidence-stack .command-output-card.error');
-      const retry = [...(card?.querySelectorAll('button') || [])]
-        .find((button) => /\\u91cd\\u8bd5/.test(button.textContent || ''));
+      const button = document.querySelector('.selected-run-evidence-panel [data-run-recovery-action="open-claude-panel"]');
+      if (!button) return false;
+      button.click();
+      return true;
+    })();
+  `));
+  assertStep("PASS112_SELECTED_OPEN_CLAUDE_PANEL_VISIBLE", await waitFor(win, `
+    Boolean(
+      document.querySelector('#claude-tool-detail') &&
+      document.querySelector('.selected-run-evidence-panel.error') &&
+      /pass112 mcp list failed/.test(document.querySelector('.selected-run-evidence-panel.error')?.textContent || '')
+    )
+  `, 10000));
+
+  const beforeRetry = readCommandLog();
+  assertStep("PASS112_CLICK_SELECTED_RETRY", await win.webContents.executeJavaScript(`
+    (function() {
+      const retry = document.querySelector('.selected-run-evidence-panel [data-run-recovery-action="retry-capability"]');
       if (!retry || retry.disabled) return false;
       retry.click();
       return true;

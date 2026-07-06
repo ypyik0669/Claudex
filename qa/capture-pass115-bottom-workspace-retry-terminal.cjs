@@ -249,11 +249,27 @@ async function runTest() {
     })();
   `, 10000));
 
-  assertStep("PASS115_CLICK_OPEN_TERMINAL_TOOL", await win.webContents.executeJavaScript(`
+  assertStep("PASS115_SELECTED_FAILURE_RECOVERY_VISIBLE", await waitFor(win, `
+    (async function() {
+      const row = [...document.querySelectorAll('.run-timeline-row.error')]
+        .find((candidate) => /pass115-command/.test(candidate.textContent || ''));
+      if (!row) return false;
+      row.querySelector('summary')?.click();
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      const panel = document.querySelector('.selected-run-evidence-panel.error');
+      return Boolean(
+        panel &&
+        /pass115-command/.test(panel.textContent || '') &&
+        /pass115 workspace failed/.test(panel.textContent || '') &&
+        panel.querySelector('[data-run-recovery-action="retry-workspace"]') &&
+        panel.querySelector('[data-run-recovery-action="terminal"]')
+      );
+    })()
+  `, 10000));
+
+  assertStep("PASS115_CLICK_SELECTED_TERMINAL_ACTION", await win.webContents.executeJavaScript(`
     (function() {
-      const card = document.querySelector('.workspace-command-evidence-stack .command-output-card.error');
-      const button = [...(card?.querySelectorAll('button') || [])]
-        .find((candidate) => /\\u6253\\u5f00\\u7ec8\\u7aef\\u5de5\\u5177/.test(candidate.textContent || ''));
+      const button = document.querySelector('.selected-run-evidence-panel [data-run-recovery-action="terminal"]');
       if (!button) return false;
       button.click();
       return true;
@@ -268,11 +284,9 @@ async function runTest() {
   `, 10000));
 
   const beforeRetry = readCommandLog();
-  assertStep("PASS115_CLICK_BOTTOM_RETRY", await win.webContents.executeJavaScript(`
+  assertStep("PASS115_CLICK_SELECTED_RETRY", await win.webContents.executeJavaScript(`
     (function() {
-      const card = document.querySelector('.workspace-command-evidence-stack .command-output-card.error');
-      const button = [...(card?.querySelectorAll('button') || [])]
-        .find((candidate) => /\\u91cd\\u8bd5/.test(candidate.textContent || ''));
+      const button = document.querySelector('.selected-run-evidence-panel [data-run-recovery-action="retry-workspace"]');
       if (!button) return false;
       button.click();
       return true;

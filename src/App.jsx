@@ -2470,6 +2470,8 @@ function runTimelineEvidenceForEvent(event, { commandRuns = [], automations = []
   if (commandRun) {
     return {
       source: "command",
+      commandRunId: commandRun.id || event?.id || "",
+      commandKind: commandRun.kind || event?.type || "command",
       title: event?.title || commandRun.command || commandRun.commandLine || "",
       detail: event?.detail || "",
       type: event?.type || commandRun.kind || "command",
@@ -3728,6 +3730,9 @@ function Conversation({
         || run?.requestId === selectedRunEvidence.subagentRequestId
       ))
     : null;
+  const selectedRunCommand = selectedRunEvent
+    ? findCommandRunForEvent(selectedRunEvent, commandRuns)
+    : null;
   const selectedRunRecoveryActions = [];
   if (selectedRunAutomation) {
     selectedRunRecoveryActions.push({
@@ -3791,6 +3796,64 @@ function Conversation({
         projectPath: selectedRunEvidence?.cwd || "",
       }),
     });
+  }
+  if (selectedRunCommand) {
+    const commandKind = selectedRunCommand.kind || selectedRunEvidence?.commandKind || "";
+    const canRetryCommand = selectedRunCommand.code !== 0 && !selectedRunCommand.cancelled;
+    if (commandKind === "workspace") {
+      if (canRetryCommand) {
+        selectedRunRecoveryActions.push({
+          key: "retry-workspace",
+          label: bottomWorkspaceRetryingId ? t.commandRunning : t.retry,
+          icon: RefreshCw,
+          disabled: Boolean(bottomWorkspaceRetryingId),
+          onClick: () => retryBottomWorkspaceEntry(selectedRunCommand),
+        });
+      }
+      selectedRunRecoveryActions.push({
+        key: "terminal",
+        label: t.openTerminalTool,
+        icon: SquareTerminal,
+        onClick: () => onActivateTool?.("terminal"),
+      });
+    }
+    if (commandKind === "claude") {
+      if (canRetryCommand && claudeArgsFromRun(selectedRunCommand)) {
+        selectedRunRecoveryActions.push({
+          key: "retry-claude",
+          label: bottomClaudeRetryingId ? t.commandRunning : t.retry,
+          icon: RefreshCw,
+          disabled: Boolean(bottomClaudeRetryingId),
+          onClick: () => retryBottomClaudeEntry(selectedRunCommand),
+        });
+      }
+      selectedRunRecoveryActions.push({
+        key: "interactive-claude",
+        label: t.openInteractiveClaude,
+        icon: Bot,
+        onClick: () => onOpenInteractiveClaude?.({
+          projectPath: selectedRunCommand.cwd || selectedRunEvidence?.cwd || "",
+        }),
+      });
+    }
+    if (commandKind === "capability") {
+      const retryArgs = capabilityRetryArgsFromRun(selectedRunCommand);
+      if (canRetryCommand && retryArgs) {
+        selectedRunRecoveryActions.push({
+          key: "retry-capability",
+          label: bottomCapabilityRetryingId ? t.commandRunning : t.retry,
+          icon: RefreshCw,
+          disabled: Boolean(bottomCapabilityRetryingId),
+          onClick: () => retryBottomCapabilityEntry(selectedRunCommand),
+        });
+      }
+      selectedRunRecoveryActions.push({
+        key: "open-claude-panel",
+        label: t.openClaudePanel,
+        icon: Bot,
+        onClick: () => onActivateTool?.("claude"),
+      });
+    }
   }
   useEffect(() => {
     if (!runTimelineEvents.length) return;
