@@ -1931,13 +1931,17 @@ function structuredQueryMatch(item, query) {
   return tokens.every((token) => haystack.includes(token));
 }
 
-function summarizePanelPluginField(value) {
-  if (Array.isArray(value)) return value.map((item) => String(item || "").trim()).filter(Boolean).join(", ");
+function summarizePanelPluginField(value, separator = ", ") {
+  if (Array.isArray(value)) return value
+    .map((item) => summarizePanelPluginField(item, separator))
+    .map((item) => String(item || "").trim())
+    .filter(Boolean)
+    .join(", ");
   if (value && typeof value === "object") {
     return Object.entries(value)
       .filter(([, itemValue]) => itemValue !== false && itemValue !== null && itemValue !== undefined && itemValue !== "")
-      .map(([key, itemValue]) => itemValue === true ? key : `${key}:${itemValue}`)
-      .join(", ");
+      .map(([key, itemValue]) => itemValue === true ? key : `${key}:${summarizePanelPluginField(itemValue, separator)}`)
+      .join(separator);
   }
   return String(value || "").trim();
 }

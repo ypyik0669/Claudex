@@ -1468,13 +1468,17 @@ function parseClaudePluginText(rawOutput) {
   return items;
 }
 
-function summarizeStructuredList(value) {
-  if (Array.isArray(value)) return value.map((item) => String(item || "").trim()).filter(Boolean).join(", ");
+function summarizeStructuredList(value, separator = ", ") {
+  if (Array.isArray(value)) return value
+    .map((item) => summarizeStructuredList(item, separator))
+    .map((item) => String(item || "").trim())
+    .filter(Boolean)
+    .join(", ");
   if (value && typeof value === "object") {
     return Object.entries(value)
       .filter(([, itemValue]) => itemValue !== false && itemValue !== null && itemValue !== undefined && itemValue !== "")
-      .map(([key, itemValue]) => itemValue === true ? key : `${key}:${itemValue}`)
-      .join(", ");
+      .map(([key, itemValue]) => itemValue === true ? key : `${key}:${summarizeStructuredList(itemValue, separator)}`)
+      .join(separator);
   }
   return String(value || "").trim();
 }
@@ -1489,9 +1493,7 @@ function pluginPermissionsSummary(plugin) {
 
 function pluginErrorSummary(plugin) {
   const error = plugin?.error || plugin?.lastError || plugin?.errors || plugin?.diagnostics;
-  if (Array.isArray(error)) return error.map((item) => String(item || "").trim()).filter(Boolean).join(" · ");
-  if (error && typeof error === "object") return Object.entries(error).map(([key, value]) => `${key}:${value}`).join(" · ");
-  return String(error || "").trim();
+  return summarizeStructuredList(error, " · ");
 }
 
 function normalizeClaudePluginItems(jsonOutput, rawOutput) {
@@ -1596,21 +1598,12 @@ function marketplacePluginSourceSummary(source) {
 
 function marketplacePluginPermissionsSummary(plugin) {
   const permissions = plugin?.permissions || plugin?.allowedTools || plugin?.tools || plugin?.capabilities;
-  if (Array.isArray(permissions)) return permissions.map((item) => String(item || "").trim()).filter(Boolean).join(", ");
-  if (permissions && typeof permissions === "object") return Object.entries(permissions)
-    .filter(([, value]) => value !== false && value !== null && value !== undefined)
-    .map(([key, value]) => value === true ? key : `${key}:${value}`)
-    .join(", ");
-  return String(permissions || "").trim();
+  return summarizeStructuredList(permissions);
 }
 
 function marketplacePluginRiskSummary(plugin) {
   const explicit = plugin?.risk || plugin?.risks || plugin?.security || plugin?.warning;
-  if (Array.isArray(explicit)) return explicit.map((item) => String(item || "").trim()).filter(Boolean).join(" · ");
-  if (explicit && typeof explicit === "object") return Object.entries(explicit)
-    .map(([key, value]) => `${key}:${value}`)
-    .join(" · ");
-  return String(explicit || "").trim();
+  return summarizeStructuredList(explicit, " · ");
 }
 
 function marketplaceManifestRootCandidates(marketplace) {

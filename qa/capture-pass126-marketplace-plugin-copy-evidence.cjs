@@ -108,8 +108,15 @@ function writeInitialStore() {
         author: { name: "PASS126 QA" },
         homepage: "https://example.invalid/pass126",
         source: { source: "git-subdir", url: "https://example.invalid/pass126.git", path: "plugins/pass126", ref: "v12.6.0" },
-        permissions: ["Read", "Bash"],
-        risk: "pass126 risk fixture",
+        permissions: {
+          filesystem: ["Read", "Bash"],
+          network: { http: true, websocket: false },
+          env: { PASS126_TOKEN: "required" },
+        },
+        risk: {
+          localCode: "pass126 risk fixture",
+          permissions: { filesystem: "read workspace", shell: true },
+        },
       },
     ],
   });
@@ -218,9 +225,15 @@ async function runTest() {
         /qa/.test(text) &&
         /https:\\/\\/example\\.invalid\\/pass126\\.git/.test(text) &&
         /plugins\\/pass126/.test(text) &&
+        !/\\[object Object\\]/.test(text) &&
+        /filesystem:Read, Bash/.test(text) &&
+        /network:http/.test(text) &&
+        /env:PASS126_TOKEN:required/.test(text) &&
         /Read/.test(text) &&
         /Bash/.test(text) &&
-        /pass126 risk fixture/.test(text);
+        /localCode:pass126 risk fixture/.test(text) &&
+        /permissions:filesystem:read workspace/.test(text) &&
+        /shell/.test(text);
     })();
   `, 5000));
 
