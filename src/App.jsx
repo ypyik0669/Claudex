@@ -842,6 +842,10 @@ const copy = {
     gitPushHint: "推送当前分支到已配置的 upstream/remote。",
     gitPushUnavailableNoUpstream: "无 upstream，先在终端设置远端。",
     gitActionRunning: "Git 操作中",
+    recentGitAction: "最近 Git 操作",
+    gitActionEvidenceHint: "来自 run timeline / workspace command 的本地证据",
+    gitCommitHash: "Commit",
+    gitPushResult: "Push",
     confirmGitActionTitle: "确认执行 Git 操作",
     confirmGitStageWarning: "这会在当前项目暂存文件：{path}",
     confirmGitUnstageWarning: "这会从 index 取消暂存文件，但保留工作区内容：{path}",
@@ -1870,6 +1874,36 @@ function gitAheadBehindLabel(git, t) {
   return git?.upstream ? t.gitSynced : t.noGitUpstream;
 }
 
+function gitCommandOutput(result = {}) {
+  return [result.stdout, result.stderr].filter(Boolean).join("\n").trim();
+}
+
+function gitCommitHashFromOutput(output = "") {
+  const text = String(output || "");
+  return (text.match(/\[[^\]]+\s+([0-9a-f]{7,40})\]/i) || text.match(/\b([0-9a-f]{7,40})\b/i) || [])[1] || "";
+}
+
+function gitPushSummaryFromOutput(output = "") {
+  const lines = String(output || "").split(/\r?\n/).map((line) => line.trim()).filter(Boolean);
+  const summary = lines.find((line) => /\s->\s/.test(line) || /^To\s+/.test(line)) || lines[0] || "";
+  return summary.replace(/\s+/g, " ");
+}
+
+function gitActionHandoffDetail({ action, result, message = "", branchLabel = "", beforeSync = "", afterSync = "", t }) {
+  const code = typeof result?.code === "number" ? result.code : "-";
+  const output = gitCommandOutput(result);
+  const parts = [`${t.commandExit}: ${code}`];
+  if (action === "commit") {
+    const hash = gitCommitHashFromOutput(output);
+    parts.push(hash ? `${t.gitCommitHash}: ${hash}` : message);
+  } else {
+    const pushSummary = gitPushSummaryFromOutput(output);
+    parts.push(pushSummary ? `${t.gitPushResult}: ${pushSummary}` : branchLabel);
+  }
+  if (beforeSync || afterSync) parts.push(`${t.gitSyncStatus}: ${beforeSync || "-"} → ${afterSync || "-"}`);
+  return parts.filter(Boolean).join(" · ");
+}
+
 function gitEvidenceText({
   t,
   activeProject,
@@ -2577,18 +2611,28 @@ function Conversation({
       if (Array.isArray(result?.commandRuns)) onCommandRuns?.(result.commandRuns);
       const code = typeof result?.code === "number" ? result.code : null;
       if (isCommit && code === 0) setGitCommitMessage("");
+      const nextEnvironment = await onRefreshEnvironment?.();
+      const afterSync = gitAheadBehindLabel(nextEnvironment?.git, t);
+      const handoffDetail = gitActionHandoffDetail({
+        action,
+        result,
+        message,
+        branchLabel,
+        beforeSync: aheadBehindLabel,
+        afterSync,
+        t,
+      });
       onRunEvent?.({
         id: requestId,
         type: "git-command",
         status: result?.cancelled ? "cancelled" : code === 0 ? "ok" : "error",
         title: `Git: ${actionLabel}`,
-        detail: `${t.commandExit}: ${code ?? "-"}`,
+        detail: handoffDetail,
         commandLine: result?.command || command,
         cwd: result?.cwd || activeProject.path,
         code,
         durationMs: typeof result?.durationMs === "number" ? result.durationMs : null,
       });
-      await onRefreshEnvironment?.();
     } catch (error) {
       onRunEvent?.({
         id: requestId,
@@ -2608,6 +2652,10 @@ function Conversation({
   const workspaceCommandRuns = useMemo(() => commandRunsToHistory(commandRuns, "workspace"), [commandRuns]);
   const claudeCommandRuns = useMemo(() => commandRunsToHistory(commandRuns, "claude"), [commandRuns]);
   const capabilityCommandRuns = useMemo(() => commandRunsToHistory(commandRuns, "capability"), [commandRuns]);
+  const latestGitActionEvent = useMemo(() => (
+    (runEvents || []).find((event) => event.type === "git-command" && event.status !== "running") || null
+  ), [runEvents]);
+  const latestGitActionRun = latestGitActionEvent ? findCommandRunForEvent(latestGitActionEvent, commandRuns) : null;
   const [selectedRunEventId, setSelectedRunEventId] = useState("");
   const selectedRunEvent = useMemo(() => {
     if (!runEvents?.length) return null;
@@ -2996,6 +3044,23 @@ function Conversation({
                     )}
                   </div>
                 </section>
+                {latestGitActionEvent && (
+                  <section className={cx("git-latest-action", latestGitActionEvent.status)} aria-label={t.recentGitAction}>
+                    <div>
+                      <span>{t.recentGitAction}</span>
+                      <strong>{latestGitActionEvent.title || "Git"}</strong>
+                      <p>{latestGitActionEvent.detail || t.gitActionEvidenceHint}</p>
+                    </div>
+                    <dl>
+                      <div><dt>{t.scheduleStatus}</dt><dd>{runTimelineStatusLabel(latestGitActionEvent.status, t)}</dd></div>
+                      <div><dt>{t.commandExit}</dt><dd>{typeof latestGitActionEvent.code === "number" ? latestGitActionEvent.code : typeof latestGitActionRun?.code === "number" ? latestGitActionRun.code : "-"}</dd></div>
+                      <div><dt>{t.commandDuration}</dt><dd>{formatDurationMs(latestGitActionEvent.durationMs || latestGitActionRun?.durationMs)}</dd></div>
+                    </dl>
+                    {latestGitActionRun && (
+                      <pre>{messageExcerpt(gitCommandOutput(latestGitActionRun) || latestGitActionRun.commandLine, 220)}</pre>
+                    )}
+                  </section>
+                )}
                 <div className="git-evidence-layout">
                   <div className="git-evidence-main">
                     {gitFiles.length > 0 && (
@@ -7629,15 +7694,17 @@ export function App() {
   }, [state, activeProject, activeSessionId, projectScope, t]);
 
   async function refreshEnvironment() {
-    if (!desktopApi?.getEnvironment) return;
+    if (!desktopApi?.getEnvironment) return null;
     try {
       const next = await desktopApi.getEnvironment({ projectPath: activeProject?.path });
       setEnvironment(next);
       const nextIdeOptions = Array.isArray(next?.ideOptions) ? next.ideOptions : [];
       setIdeOptions(nextIdeOptions);
       setSelectedIdeId((current) => current || nextIdeOptions[0]?.id || "");
+      return next;
     } catch {
       setEnvironment(null);
+      return null;
     }
   }
 

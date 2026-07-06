@@ -354,11 +354,16 @@ app.whenReady().then(async () => {
       const events = state.runEvents || [];
       const summary = document.querySelector('.git-change-summary')?.textContent || '';
       const panel = document.querySelector('.git-selected-evidence-panel')?.textContent || '';
+      const latest = document.querySelector('.git-latest-action')?.textContent || '';
       const input = document.querySelector('.git-repo-actions input');
+      const commitEvent = events.find((event) => event.type === 'git-command' && event.status === 'ok' && /提交已暂存/.test(event.title || ''));
       return runs.some((run) => /git commit -m/.test(run.command || '') && /pass37 commit evidence/.test(run.command || '') && run.code === 0) &&
-        events.some((event) => event.type === 'git-command' && event.status === 'ok' && /提交已暂存/.test(event.title || '')) &&
+        /Commit:\\s*[0-9a-f]{7,40}/i.test(commitEvent?.detail || '') &&
+        /未推送\\s*1/.test(commitEvent?.detail || '') &&
         /未暂存\\s*2/.test(summary) &&
         /未推送\\s*1/.test(panel) &&
+        /最近 Git 操作/.test(latest) &&
+        /Commit:\\s*[0-9a-f]{7,40}/i.test(latest) &&
         !/已暂存\\s*1/.test(summary) &&
         !/未跟踪\\s*1/.test(summary) &&
         /全部变更/.test(panel) &&
@@ -380,9 +385,36 @@ app.whenReady().then(async () => {
       const runs = state.commandRuns || [];
       const events = state.runEvents || [];
       const panel = document.querySelector('.git-selected-evidence-panel')?.textContent || '';
+      const latest = document.querySelector('.git-latest-action')?.textContent || '';
+      const pushEvent = events.find((event) => event.type === 'git-command' && event.status === 'ok' && /推送分支/.test(event.title || ''));
       return runs.some((run) => /^git push$/.test(run.command || '') && run.code === 0) &&
-        events.some((event) => event.type === 'git-command' && event.status === 'ok' && /推送分支/.test(event.title || '')) &&
+        /Push:/.test(pushEvent?.detail || '') &&
+        /已同步/.test(pushEvent?.detail || '') &&
+        /最近 Git 操作/.test(latest) &&
+        /Push:/.test(latest) &&
         /已同步/.test(panel);
+    })()
+  `, 10000));
+  assertStep("PASS37_TIMELINE_GIT_HANDOFF", await waitFor(win, `
+    (async function() {
+      if (!window.__pass37OpenedOutputs) {
+        window.__pass37OpenedOutputs = true;
+        const button = Array.from(document.querySelectorAll('.bottom-panel-tabs button, .workspace-context-button'))
+          .find((item) => /输出/.test(item.textContent || '') || (item.getAttribute('aria-label') || '').includes('输出'));
+        if (!button) return false;
+        button.click();
+      }
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      const row = Array.from(document.querySelectorAll('.run-timeline-row'))
+        .find((item) => /Git: 推送分支/.test(item.textContent || ''));
+      if (!row) return false;
+      row.querySelector('summary')?.click();
+      await new Promise((resolve) => setTimeout(resolve, 150));
+      const selected = document.querySelector('.selected-run-evidence-panel')?.textContent || '';
+      return /Git: 推送分支/.test(selected) &&
+        /Push:/.test(selected) &&
+        /git push/.test(selected) &&
+        /已同步/.test(selected);
     })()
   `, 10000));
   const remoteCommitCount = spawnSync("git", ["rev-list", "--count", "master"], {
