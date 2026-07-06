@@ -1096,6 +1096,10 @@ function claudeArgsFromRun(run) {
     .trim();
 }
 
+function workspaceCommandFromRun(run) {
+  return String(run?.commandLine || run?.command || "").trim();
+}
+
 function safeCapabilityRetryArgsFromRun(run) {
   const args = claudeArgsFromRun(run);
   if (!args) return "";
@@ -3146,6 +3150,7 @@ function Conversation({
   onCancelSubagent,
   onArchiveSubagent,
   onContinueSubagent,
+  onRetryWorkspaceCommand,
   onRetryClaudeCommand,
   onRetryCapabilityCommand,
   onConfirmCapabilityCommand,
@@ -3402,6 +3407,7 @@ function Conversation({
   const workspaceCommandRuns = useMemo(() => commandRunsToHistory(commandRuns, "workspace"), [commandRuns]);
   const claudeCommandRuns = useMemo(() => commandRunsToHistory(commandRuns, "claude"), [commandRuns]);
   const capabilityCommandRuns = useMemo(() => commandRunsToHistory(commandRuns, "capability"), [commandRuns]);
+  const [bottomWorkspaceRetryingId, setBottomWorkspaceRetryingId] = useState("");
   const [bottomClaudeRetryingId, setBottomClaudeRetryingId] = useState("");
   const [bottomCapabilityRetryingId, setBottomCapabilityRetryingId] = useState("");
   const latestGitActionEvent = useMemo(() => (
@@ -3458,6 +3464,16 @@ function Conversation({
     { id: "browser", label: t.browser, icon: Globe2 },
   ];
   const toggleBottomPanel = (id) => setBottomPanel(bottomPanel === id ? "" : id);
+  async function retryBottomWorkspaceEntry(entry) {
+    const command = workspaceCommandFromRun(entry);
+    if (!command || !onRetryWorkspaceCommand || bottomWorkspaceRetryingId) return;
+    setBottomWorkspaceRetryingId(entry.id || command);
+    try {
+      await onRetryWorkspaceCommand({ command, projectPath: entry.cwd || activeProject?.path || "" });
+    } finally {
+      setBottomWorkspaceRetryingId("");
+    }
+  }
   async function retryBottomClaudeEntry(entry) {
     const args = claudeArgsFromRun(entry);
     if (!args || !onRetryClaudeCommand || bottomClaudeRetryingId) return;
@@ -3755,12 +3771,18 @@ function Conversation({
                   </div>
                 )}
                 {workspaceCommandRuns.length > 0 && (
-                  <div className="bottom-panel-stack command-evidence-stack">
+                  <div className="bottom-panel-stack command-evidence-stack workspace-command-evidence-stack">
                     <div className="command-evidence-note">{t.workspaceCommandBackedByStore}</div>
                     <CommandHistory
                       title={t.workspaceCommandEvidence}
                       entries={workspaceCommandRuns}
                       liveEntry={null}
+                      onRetryEntry={onRetryWorkspaceCommand ? retryBottomWorkspaceEntry : null}
+                      canRetryEntry={(entry) => Boolean(workspaceCommandFromRun(entry))}
+                      retryDisabled={Boolean(bottomWorkspaceRetryingId)}
+                      onOpenContextEntry={() => onActivateTool("terminal")}
+                      canOpenContextEntry={(entry) => entry?.code !== 0 && !entry?.cancelled}
+                      openContextLabel={t.openTerminalTool}
                       onClear={null}
                       t={t}
                     />
@@ -9625,6 +9647,58 @@ export function App() {
     }
   }
 
+  async function runPersistedWorkspaceCommand({ command, projectPath } = {}) {
+    const nextCommand = String(command || "").trim();
+    const targetProjectPath = String(projectPath || activeProject?.path || "").trim();
+    if (!nextCommand || !targetProjectPath || !desktopApi?.runWorkspaceCommand) return null;
+    const requestId = `workspace_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+    setBottomPanel("outputs");
+    recordRunEvent({
+      id: requestId,
+      type: "workspace-command",
+      status: "running",
+      title: `${t.runCommand}: ${nextCommand}`,
+      detail: targetProjectPath,
+      commandLine: nextCommand,
+      cwd: targetProjectPath,
+    });
+    try {
+      const result = await desktopApi.runWorkspaceCommand({
+        projectPath: targetProjectPath,
+        command: nextCommand,
+        requestId,
+      });
+      if (Array.isArray(result.commandRuns)) {
+        setState((current) => ({ ...current, commandRuns: result.commandRuns }));
+      }
+      const code = typeof result.code === "number" ? result.code : null;
+      recordRunEvent({
+        id: requestId,
+        type: "workspace-command",
+        status: result.cancelled ? "cancelled" : code === 0 ? "ok" : "error",
+        title: `${t.runCommand}: ${result.command || nextCommand}`,
+        detail: result.cancelled ? t.commandCancelled : `${t.commandExit}: ${code ?? "-"}`,
+        commandLine: result.command || nextCommand,
+        cwd: result.cwd || targetProjectPath,
+        code,
+        durationMs: result.durationMs,
+      });
+      await refreshEnvironment();
+      return result;
+    } catch (error) {
+      recordRunEvent({
+        id: requestId,
+        type: "workspace-command",
+        status: "error",
+        title: `${t.runCommand}: ${nextCommand}`,
+        detail: error.message || String(error),
+        commandLine: nextCommand,
+        cwd: targetProjectPath,
+      });
+      throw error;
+    }
+  }
+
   async function runPersistedCapabilityCommand(args) {
     const nextArgs = String(args || "").trim();
     if (!nextArgs || !desktopApi?.runClaudeCommand) return null;
@@ -10826,6 +10900,7 @@ export function App() {
           onCancelSubagent={cancelSubagent}
           onArchiveSubagent={archiveSubagent}
           onContinueSubagent={continueSubagent}
+          onRetryWorkspaceCommand={runPersistedWorkspaceCommand}
           onRetryClaudeCommand={runPersistedClaudeCommand}
           onRetryCapabilityCommand={runPersistedCapabilityCommand}
           onConfirmCapabilityCommand={openCapabilityRetryConfirmation}
