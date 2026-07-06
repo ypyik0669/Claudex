@@ -10465,10 +10465,13 @@ export function App() {
           group: t.bottomPanel,
           keywords: [
             "run timeline evidence output command stdout stderr artifact",
+            event.type === "automation-action" ? "automation action create pause resume delete schedule task center 自动化 创建 暂停 恢复 删除 证据" : "",
             event.id,
             event.type,
             event.title,
             event.detail,
+            event.stdout,
+            event.stderr,
             event.commandLine,
             event.cwd,
             event.project?.name,
