@@ -592,6 +592,7 @@ const copy = {
     installFromMarketplace: "从市场安装",
     openHomepage: "主页",
     source: "来源",
+    status: "状态",
     category: "分类",
     author: "作者",
     scope: "范围",
@@ -1589,6 +1590,7 @@ function structuredQueryMatch(item, query) {
     item?.scope,
     item?.status,
     item?.installPath,
+    item?.installLocation,
     item?.detail,
     item?.tools,
     item?.transport,
@@ -6787,6 +6789,8 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
   const marketplaceRows = (Array.isArray(cliStatus?.marketplaces) ? cliStatus.marketplaces : []).filter((item) => structuredQueryMatch(item, normalizedQuery));
   const marketplacePluginRows = (Array.isArray(cliStatus?.marketplacePlugins) ? cliStatus.marketplacePlugins : []).filter((item) => structuredQueryMatch(item, normalizedQuery));
   const mcpServerRows = (Array.isArray(cliStatus?.mcpServers) ? cliStatus.mcpServers : []).filter((item) => structuredQueryMatch(item, normalizedQuery));
+  const customMarketplaceRows = customMarketplaces.filter((item) => structuredQueryMatch({ name: item, repo: item, source: item }, normalizedQuery));
+  const marketplaceTabCount = marketplacePluginRows.length + marketplaceRows.length + customMarketplaceRows.length;
   const recentCapabilityRuns = useMemo(() => capabilityRunsNewestFirst(state.commandRuns), [state.commandRuns]);
   const recentMarketplaceActionRun = findRecentMarketplaceActionRun(recentCapabilityRuns);
   const recentMcpActionRun = findRecentMcpActionRun(recentCapabilityRuns);
@@ -7246,7 +7250,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
           const count = id === "plugins" ? installedPluginRows.length || capabilityRows.filter((item) => item.type === "plugin").length
             : id === "skills" ? capabilityRows.filter((item) => item.type === "skill").length
               : id === "mcp" ? mcpServerRows.length || tabRows.mcp.length
-                : marketplacePluginRows.length || marketplaceRows.length || 1;
+                : marketplaceTabCount;
           const issue = cliStatusIssueByTab[id];
           return (
             <button type="button" key={id} className={cx(activeTab === id && "active", issue && "status-error")} onClick={() => setActiveTab(id)} role="tab" aria-selected={activeTab === id}>
@@ -7292,15 +7296,35 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
               <p>{t.marketplaceHint}</p>
               <div className="marketplace-source-list structured-source-list">
                 {marketplaceRows.length === 0 && <p className="empty-list">{t.noCliOutputYet}</p>}
-                {marketplaceRows.map((item) => (
-                  <article className="marketplace-source-row structured-source-row" key={item.name}>
-                    <div>
-                      <strong>{item.name}</strong>
-                      <span title={item.repo || item.source}>{item.repo || item.source || t.marketplaceSourceClaude}</span>
-                    </div>
-                    <em>{item.source || t.source}</em>
-                  </article>
-                ))}
+                {marketplaceRows.map((item) => {
+                  const sourceMeta = [
+                    item.version ? [t.version, item.version] : null,
+                    item.status ? [t.status, item.status] : null,
+                    item.installLocation ? [t.installPath, compactPath(item.installLocation, 72), item.installLocation] : null,
+                    item.permissions ? [t.allowedTools, messageExcerpt(item.permissions, 72), item.permissions] : null,
+                    item.tools ? [t.tools, messageExcerpt(item.tools, 72), item.tools] : null,
+                    item.error ? [t.mcpError, messageExcerpt(item.error, 72), item.error] : null,
+                  ].filter(Boolean);
+                  return (
+                    <article className="marketplace-source-row structured-source-row" key={item.name}>
+                      <div>
+                        <strong>{item.name}</strong>
+                        <span title={item.repo || item.source}>{item.repo || item.source || t.marketplaceSourceClaude}</span>
+                        {sourceMeta.length > 0 && (
+                          <dl className="structured-row-meta marketplace-source-meta" aria-label={`${item.name} marketplace metadata`}>
+                            {sourceMeta.map(([label, value, title]) => (
+                              <div key={`${label}:${value}`}>
+                                <dt>{label}</dt>
+                                <dd title={title || value}>{value}</dd>
+                              </div>
+                            ))}
+                          </dl>
+                        )}
+                      </div>
+                      <em>{item.status || item.source || t.source}</em>
+                    </article>
+                  );
+                })}
               </div>
               <details className="raw-output-details">
                 <summary>{t.rawOutput}</summary>
@@ -7360,7 +7384,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                   <span>{t.marketplaceSourceCustom}</span>
                   <strong>{t.customMarketplaces}</strong>
                 </div>
-                <em className="settings-badge">{customMarketplaces.length}</em>
+                <em className="settings-badge">{customMarketplaceRows.length}</em>
               </div>
               <p className="marketplace-local-note">{t.customMarketplaceLocalOnly} · {t.customMarketplaceNotInjected} · {t.customMarketplaceLocalHint}</p>
               <p className="marketplace-local-note subtle">{t.customMarketplaceCliHelpHint}</p>
@@ -7375,8 +7399,8 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                 </button>
               </form>
               <div className="marketplace-source-list">
-                {customMarketplaces.length === 0 && <p className="empty-list">{t.noCustomMarketplaces}</p>}
-                {customMarketplaces.map((item) => (
+                {customMarketplaceRows.length === 0 && <p className="empty-list">{t.noCustomMarketplaces}</p>}
+                {customMarketplaceRows.map((item) => (
                   <div className="marketplace-source-row" key={item}>
                     <div>
                       <strong title={item}>{compactPath(item, 76)}</strong>

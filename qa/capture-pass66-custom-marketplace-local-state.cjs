@@ -81,7 +81,7 @@ writeJson(path.join(USER_DATA_DIR, "desktop-data.json"), {
   version: 1,
   settings: {
     provider: "anthropic",
-    model: "claude-sonnet-4-5-20250929",
+    model: "claude-haiku-4-5-20251001",
     baseUrl: "https://api.example.invalid",
     temperature: 0.2,
     timeoutMs: 600000,
@@ -148,6 +148,13 @@ async function runTest() {
       return Boolean(card && /本地记录/.test(text) && /未注入 Claude CLI/.test(text));
     })();
   `, 10000));
+  assertStep("PASS66_MARKETPLACE_TAB_COUNT_EMPTY_REAL", await win.webContents.executeJavaScript(`
+    (function() {
+      const tab = [...document.querySelectorAll('.plugin-manager-tabs button')]
+        .find((candidate) => /市场/.test(candidate.textContent || ''));
+      return tab?.querySelector('em')?.textContent?.trim() === '0';
+    })();
+  `));
 
   const beforeAdd = readCommandLog();
   assertStep("PASS66_ADD_CUSTOM_MARKETPLACE", await win.webContents.executeJavaScript(`
@@ -172,6 +179,13 @@ async function runTest() {
       return Boolean(row && /本地记录/.test(text) && /未注入 Claude CLI/.test(text) && /设置/.test(text));
     })();
   `, 10000));
+  assertStep("PASS66_MARKETPLACE_TAB_COUNT_CUSTOM_REAL", await win.webContents.executeJavaScript(`
+    (function() {
+      const tab = [...document.querySelectorAll('.plugin-manager-tabs button')]
+        .find((candidate) => /市场/.test(candidate.textContent || ''));
+      return tab?.querySelector('em')?.textContent?.trim() === '1';
+    })();
+  `));
   assertStep("PASS66_CUSTOM_STATE_PERSISTED", await win.webContents.executeJavaScript(`
     (async function() {
       const state = await window.claudexDesktop.getState();

@@ -93,7 +93,7 @@ else if (args[0] === 'auth' && args[1] === 'status') out({ loggedIn: true, apiPr
 else if (args[0] === 'plugin' && args[1] === 'list' && args.includes('--json')) out([]);
 else if (args[0] === 'plugin' && args[1] === 'list') out('Installed plugins: none');
 else if (args[0] === 'mcp' && args[1] === 'list') out('✓ pass65-mcp: connected');
-else if (args[0] === 'plugin' && args[1] === 'marketplace' && args[2] === 'list' && args.includes('--json')) out([{ name: 'pass65-market', source: 'path', repo: marketplaceDir, installLocation: marketplaceDir }]);
+else if (args[0] === 'plugin' && args[1] === 'marketplace' && args[2] === 'list' && args.includes('--json')) out([{ name: 'pass65-market', source: 'path', repo: marketplaceDir, installLocation: marketplaceDir, version: '2026.7.6', status: 'ready', permissions: ['Read', 'Bash'] }]);
 else if (args[0] === 'plugin' && args[1] === 'marketplace' && args[2] === 'list') out('Configured marketplaces:\\n\\n  > pass65-market\\n    Source: Path (' + marketplaceDir + ')');
 else if (args[0] === 'plugin' && args[1] === 'install') out('ok ' + args.join(' '));
 else out('fake claude command: ' + args.join(' '));
@@ -112,7 +112,7 @@ writeJson(path.join(USER_DATA_DIR, "desktop-data.json"), {
   version: 1,
   settings: {
     provider: "anthropic",
-    model: "claude-sonnet-4-5-20250929",
+    model: "claude-haiku-4-5-20251001",
     baseUrl: "https://api.example.invalid",
     temperature: 0.2,
     timeoutMs: 600000,
@@ -178,6 +178,15 @@ async function runTest() {
       return Boolean(card && /9\.8\.7/.test(text) && /PASS65 QA/.test(text) && text.includes('https://example.invalid/pass65.git'));
     })();
   `, 15000));
+  assertStep("PASS65_MARKETPLACE_SOURCE_META", await win.webContents.executeJavaScript(`
+    (function() {
+      const row = [...document.querySelectorAll('.marketplace-source-row')]
+        .find((item) => /pass65-market/.test(item.textContent || ''));
+      const text = row?.textContent || '';
+      return Boolean(row && /2026\.7\.6/.test(text) && /ready/.test(text) && /安装路径/.test(text) &&
+        text.includes('pass65-market') && /Read/.test(text) && /Bash/.test(text));
+    })();
+  `));
 
   const beforeInstall = readCommandLog();
   assertStep("PASS65_CLICK_INSTALL", await win.webContents.executeJavaScript(`

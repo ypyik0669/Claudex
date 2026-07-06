@@ -1314,6 +1314,12 @@ function normalizeMarketplaceItems(jsonOutput, rawOutput) {
       source: String(item.source || ""),
       repo: String(item.repo || item.url || item.path || ""),
       installLocation: String(item.installLocation || item.path || ""),
+      version: String(item.version || item.release || item.revision || ""),
+      status: String(item.status || item.state || (item.enabled === true ? "enabled" : item.enabled === false ? "disabled" : "")),
+      description: String(item.description || item.summary || ""),
+      tools: summarizeStructuredList(item.tools || item.toolNames || item.commands || item.capabilities),
+      permissions: summarizeStructuredList(item.permissions || item.allowedTools || item.permissionSummary),
+      error: pluginErrorSummary(item),
       raw: item,
     })).filter((item) => item.name);
   }
@@ -1336,6 +1342,18 @@ function normalizeMarketplaceItems(jsonOutput, rawOutput) {
       current.source = source;
       current.repo = source;
     }
+    const pair = line.match(/^([^:]+):\s*(.+)$/);
+    if (!current || !pair) continue;
+    const key = pair[1].trim().toLowerCase();
+    const value = pair[2].trim();
+    if (key === "version") current.version = value;
+    if (key === "status" || key === "state") current.status = value;
+    if (key === "description" || key === "summary") current.description = value;
+    if (key === "repo" || key === "repository" || key === "url") current.repo = value;
+    if (key === "install location" || key === "install path" || key === "location" || key === "path") current.installLocation = value;
+    if (key === "tools" || key === "commands") current.tools = value;
+    if (key === "permissions" || key === "allowed tools") current.permissions = value;
+    if (key === "error" || key === "last error") current.error = value;
   }
   if (current?.name) items.push(current);
   return items;
