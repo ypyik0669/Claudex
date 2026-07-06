@@ -264,6 +264,28 @@ async function runTest() {
         /\\u6700\\u7ec8 URL/.test(selected);
     })()
   `, 10000));
+  assertStep("PASS121_OPEN_PALETTE_QUERY_BROWSER_TIMELINE", await openPaletteAndQuery(win, "timeline pass121 browser target"));
+  assertStep("PASS121_BROWSER_TIMELINE_COMMAND_VISIBLE", await waitFor(win, `
+    Boolean([...document.querySelectorAll('.command-modal .command-list button')].some((button) =>
+      (button.getAttribute('data-command-id') || '').startsWith('browser-run:') &&
+      /pass121 browser target title/.test(button.textContent || '') &&
+      /timeline/i.test(button.textContent || '')
+    ))
+  `, 5000));
+  assertStep("PASS121_CLICK_BROWSER_TIMELINE_COMMAND", await clickCommand(win, "browser-run:", "pass121 browser target title"));
+  assertStep("PASS121_BROWSER_TIMELINE_FOCUSED_FROM_PALETTE", await waitFor(win, `
+    (function() {
+      const active = document.querySelector('.bottom-panel-tabs button.active')?.textContent || '';
+      const panel = document.querySelector('.selected-run-evidence-panel.ok');
+      const text = panel?.textContent || '';
+      return /\\u8f93\\u51fa/.test(active) &&
+        /pass121 browser target title/.test(text) &&
+        /pass121 target browser excerpt/.test(text) &&
+        /http:\\/\\/127\\.0\\.0\\.1\\/pass121-browser-target\\/final/.test(text) &&
+        panel.querySelector('[data-run-recovery-action="retry-browser"]') &&
+        panel.querySelector('[data-run-recovery-action="external-browser"]');
+    })()
+  `, 10000));
 
   console.log("PASS121_COMMAND_PALETTE_EVIDENCE_DEEPLINKS_DONE");
   cleanup();

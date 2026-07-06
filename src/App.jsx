@@ -11304,6 +11304,41 @@ export function App() {
         };
       });
 
+    const browserTimelineCommands = (Array.isArray(state.browserVisits) ? state.browserVisits : [])
+      .filter((visit) => visit?.id || visit?.url || browserVisitFinalUrl(visit))
+      .slice(0, 24)
+      .map((visit) => {
+        const visitKey = browserVisitKey(visit);
+        const finalUrl = browserVisitFinalUrl(visit);
+        const label = visit.title || finalUrl || visit.url;
+        return {
+          id: `browser-run:${commandIdSegment(visitKey || finalUrl)}`,
+          title: `${t.openRunTimeline}: ${label}`,
+          subtitle: [
+            t.browserEvidence,
+            browserStatusLabel(visit.status, t),
+            finalUrl,
+            visit.error,
+            visit.lastEventAt ? formatDate(visit.lastEventAt) : "",
+          ].filter(Boolean).join(" · "),
+          group: t.bottomPanel,
+          keywords: [
+            "browser run timeline evidence output selected recovery webview url snapshot excerpt",
+            visit.id,
+            visit.url,
+            visit.finalUrl,
+            visit.validatedUrl,
+            visit.title,
+            visit.excerpt,
+            visit.status,
+            visit.error,
+            visit.project?.name,
+            visit.project?.path,
+          ].filter(Boolean).join(" "),
+          action: () => openRunTimeline(visitKey || finalUrl),
+        };
+      });
+
     const automationCommands = (state.automations || [])
       .filter((automation) => automation?.id)
       .slice(0, 16)
@@ -11685,6 +11720,7 @@ export function App() {
       ...gitHunkCommands,
       ...sourceRefCommands,
       ...browserEvidenceCommands,
+      ...browserTimelineCommands,
       ...automationCommands,
       ...automationRunCommands,
       ...subagentCommands,
