@@ -7436,6 +7436,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
   const [marketplaceBusy, setMarketplaceBusy] = useState(false);
   const [customMarketplaceUrl, setCustomMarketplaceUrl] = useState("");
   const [capabilityActionFocus, setCapabilityActionFocus] = useState({ tab: "", kind: "", id: "", query: "", nonce: 0 });
+  const manualCapabilityTabSwitchRef = useRef(0);
   const activeProject = state.activeProject || { name: t.localWorkspace, path: "" };
   const customMarketplaces = Array.isArray(state.settings.customMarketplaces) ? state.settings.customMarketplaces : [];
   const capabilityRows = capabilityCatalog.map((item) => ({
@@ -7499,6 +7500,21 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
       Boolean(focusId) &&
       normalizedIds.includes(String(focusId || "").trim())
     ));
+  }
+
+  function selectCapabilityTab(id) {
+    if (id !== activeTab) {
+      manualCapabilityTabSwitchRef.current += 1;
+      if (capabilityActionFocus?.nonce) {
+        const actionQuery = String(capabilityActionFocus.query || capabilityActionFocus.id || "").trim();
+        if (!actionQuery || query.trim() === actionQuery) {
+          setQuery("");
+          setFilter("all");
+          setCapabilityActionFocus({ tab: "", kind: "", id: "", query: "", nonce: 0 });
+        }
+      }
+    }
+    setActiveTab(id);
   }
 
   function recordCapabilityNotice(title, detail, key = "") {
@@ -7618,6 +7634,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
     const nextActionFocus = capabilityActionFocusForCommand(nextArgs, {
       marketplaces: Array.isArray(cliStatus?.marketplaces) ? cliStatus.marketplaces : marketplaceRows,
     });
+    const actionTabSwitchGeneration = manualCapabilityTabSwitchRef.current;
     setCliAction(nextArgs);
     setCliError("");
     onRunEvent?.({
@@ -7659,7 +7676,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
       if (result.code !== 0) throw new Error(result.stderr || result.stdout || t.pluginsLoadError);
       if (/plugin marketplace/i.test(nextArgs)) setMarketplaceOutput(result.stdout || result.stderr || "");
       await refreshCliStatus();
-      if (nextActionFocus) {
+      if (nextActionFocus && manualCapabilityTabSwitchRef.current === actionTabSwitchGeneration) {
         setActiveTab(nextActionFocus.tab);
         setFilter("all");
         setQuery(nextActionFocus.query || nextActionFocus.id || "");
@@ -7687,7 +7704,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
       }
       setCliError(message);
       recordCapabilityNotice(`${t.pluginActions}: ${nextArgs}`, message, `capability:action:${nextArgs}`);
-      if (nextActionFocus) {
+      if (nextActionFocus && manualCapabilityTabSwitchRef.current === actionTabSwitchGeneration) {
         setActiveTab(nextActionFocus.tab);
         setFilter("all");
         setQuery(nextActionFocus.query || nextActionFocus.id || "");
@@ -7833,6 +7850,13 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
     if (tabs.some(([id]) => id === initialTab)) setActiveTab(initialTab);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [initialTab]);
+  useEffect(() => {
+    if (!capabilityActionFocus?.nonce || activeTab === capabilityActionFocus.tab) return;
+    setQuery("");
+    setFilter("all");
+    setCapabilityActionFocus({ tab: "", kind: "", id: "", query: "", nonce: 0 });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab]);
   useEffect(() => {
     if (!focus?.nonce) return;
     if (tabs.some(([id]) => id === focus.tab)) setActiveTab(focus.tab);
@@ -8007,7 +8031,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                 : marketplaceTabCount;
           const issue = cliStatusIssueByTab[id];
           return (
-            <button type="button" key={id} className={cx(activeTab === id && "active", issue && "status-error")} onClick={() => setActiveTab(id)} role="tab" aria-selected={activeTab === id}>
+            <button type="button" key={id} className={cx(activeTab === id && "active", issue && "status-error")} onClick={() => selectCapabilityTab(id)} role="tab" aria-selected={activeTab === id}>
               <span>{label}</span>
               <em>{count}</em>
               {issue && <em className="plugin-tab-status-badge" title={`${issue.commandLine}: ${issue.error || issue.code}`}>!</em>}
@@ -8107,9 +8131,13 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                 {marketplacePluginRows.length === 0 && <p className="empty-list">{t.noMarketplacePlugins}</p>}
                 {marketplacePluginRows.slice(0, 80).map((item) => {
                   const recentRun = findRecentPluginActionRun(recentCapabilityRuns, [item.id, item.name], ["install", "update"]);
+                  const pluginFocused = capabilityFocusMatches("marketplace-plugin", item.id, item.name);
+                  const pluginRetry = pluginFocused && recentRun && recentRun.code !== 0
+                    ? () => requestCapabilityClaude(`plugin install ${item.id}`, `${t.installFromMarketplace}: ${item.name || item.id}`, marketplaceInstallReviewRows(item))
+                    : null;
                   return (
                     <article
-                      className={cx("marketplace-plugin-card", item.installed && "installed", capabilityFocusMatches("marketplace-plugin", item.id, item.name) && "focused-capability-row")}
+                      className={cx("marketplace-plugin-card", item.installed && "installed", pluginFocused && "focused-capability-row")}
                       key={item.id}
                       data-marketplace-plugin-id={item.id}
                     >
@@ -8139,7 +8167,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                         </button>
                       )}
                     </div>
-                    <RowCliActionEvidence run={recentRun} t={t} onOpenOutputs={openCapabilityOutputs} />
+                    <RowCliActionEvidence run={recentRun} t={t} onOpenOutputs={openCapabilityOutputs} onRetry={pluginRetry} />
                   </article>
                   );
                 })}
