@@ -12177,11 +12177,13 @@ export function App() {
   }
 
   async function continueSubagent(run) {
-    if (!desktopApi?.continueSubagent || !run || !activeSession) return;
+    if (!desktopApi?.continueSubagent || !run) return;
+    const projectPath = run.project?.path || run.cwd || "";
     const next = await desktopApi.continueSubagent({
       runId: run.id,
       requestId: run.requestId,
-      sessionId: activeSession.id,
+      sessionId: run.sessionId || "",
+      projectPath,
     });
     setState(next);
     if (next?.selectedSessionId) setActiveSessionId(next.selectedSessionId);

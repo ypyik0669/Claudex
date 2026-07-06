@@ -199,13 +199,19 @@ function projectKeyForStore(project) {
   return String(project?.path || project?.name || "").trim().toLowerCase();
 }
 
+function sessionMatchesProject(session, project) {
+  const key = projectKeyForStore(project);
+  if (!key) return true;
+  return sessionProjectKey(session) === key;
+}
+
 function visibleProjectSessions(store, project = store?.activeProject) {
   const key = projectKeyForStore(project);
   return (store?.sessions || []).filter((session) => !session.archived && (!key || sessionProjectKey(session) === key));
 }
 
-function ensureActiveProjectDraftSession(store) {
-  const project = store.activeProject || localWorkspaceProject();
+function ensureProjectDraftSession(store, project = store.activeProject || localWorkspaceProject()) {
+  project = project || localWorkspaceProject();
   if (visibleProjectSessions(store, project).length) return null;
   const createdAt = now();
   const session = {
@@ -229,6 +235,10 @@ function ensureActiveProjectDraftSession(store) {
   };
   store.sessions = [session, ...(store.sessions || [])];
   return session;
+}
+
+function ensureActiveProjectDraftSession(store) {
+  return ensureProjectDraftSession(store, store.activeProject || localWorkspaceProject());
 }
 
 function titleFromUserContent(content) {
@@ -3433,16 +3443,30 @@ ipcMain.handle("subagent:archive", (_event, { runId, requestId, archived = true 
   };
 });
 
-ipcMain.handle("subagent:continue", (_event, { runId, requestId, sessionId } = {}) => {
+ipcMain.handle("subagent:continue", (_event, { runId, requestId, sessionId, projectPath } = {}) => {
   const store = readStore();
   const run = findSubagentRun(store, { runId, requestId });
   if (!run) throw new Error("没有找到这个子代理记录。");
   const normalized = normalizeSubagentRun(run, store);
-  const session = store.sessions.find((item) => item.id === sessionId)
-    || store.sessions.find((item) => item.id === normalized.sessionId)
-    || ensureActiveProjectDraftSession(store)
+  const requestedProjectPath = String(projectPath || "").trim();
+  const runProject = requestedProjectPath && fs.existsSync(requestedProjectPath)
+    ? projectFromPath(requestedProjectPath)
+    : normalized.cwd && fs.existsSync(normalized.cwd)
+      ? projectFromPath(normalized.cwd)
+      : normalized.project || store.activeProject || localWorkspaceProject();
+  const originalSession = store.sessions.find((item) => item.id === normalized.sessionId && sessionMatchesProject(item, runProject));
+  const requestedSession = store.sessions.find((item) => item.id === sessionId && sessionMatchesProject(item, runProject));
+  const session = originalSession
+    || requestedSession
+    || visibleProjectSessions(store, runProject)[0]
+    || ensureProjectDraftSession(store, runProject)
     || store.sessions[0];
   if (!session) throw new Error("没有可用的聊天会话。");
+  const targetProject = {
+    name: session.project || runProject?.name || localWorkspaceProject().name,
+    path: session.projectPath || runProject?.path || "",
+  };
+  if (projectKeyForStore(targetProject)) addProject(store, targetProject);
   const continuedAt = now();
   if (!(normalized.continuedAt && normalized.continuedSessionId === session.id)) {
     session.messages = sessionMessages(session);
@@ -3460,6 +3484,8 @@ ipcMain.handle("subagent:continue", (_event, { runId, requestId, sessionId } = {
   session.updatedAt = continuedAt;
   const continuedRun = normalizeSubagentRun({
     ...normalized,
+    project: runProject,
+    cwd: normalized.cwd || runProject?.path || "",
     continuedAt,
     continuedSessionId: session.id,
   }, store);
