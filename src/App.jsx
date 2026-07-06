@@ -3727,7 +3727,14 @@ function Conversation({
     { id: "terminal", label: t.terminal, icon: SquareTerminal },
     { id: "browser", label: t.browser, icon: Globe2 },
   ];
-  const toggleBottomPanel = (id) => setBottomPanel(bottomPanel === id ? "" : id);
+  function openConversationBottomPanel(id, options = {}) {
+    if (id === "changes" && options.resetGitFocus !== false) {
+      setSelectedGitDiffPath("");
+      setSelectedGitHunkId("");
+    }
+    setBottomPanel(id);
+  }
+  const toggleBottomPanel = (id) => (bottomPanel === id ? setBottomPanel("") : openConversationBottomPanel(id));
   async function retryBottomWorkspaceEntry(entry) {
     const command = workspaceCommandFromRun(entry);
     if (!command || !onRetryWorkspaceCommand || bottomWorkspaceRetryingId) return;
@@ -3769,7 +3776,7 @@ function Conversation({
     if (action.startsWith("git-run:")) {
       const eventId = decodeActionSuffix(action, "git-run:");
       if (eventId) setSelectedRunEventId(eventId);
-      setBottomPanel("changes");
+      openConversationBottomPanel("changes");
       return;
     }
     if (action.startsWith("run:")) {
@@ -4016,7 +4023,7 @@ function Conversation({
                 type="button"
                 key={id}
                 className={cx(bottomPanel === id && "active")}
-                onClick={() => setBottomPanel(id)}
+                onClick={() => openConversationBottomPanel(id)}
                 role="tab"
                 aria-selected={bottomPanel === id}
               >
@@ -11652,12 +11659,15 @@ export function App() {
     setActiveSessionId(nextSessionId);
   }
 
-  function openBottomPanel(id) {
+  function openBottomPanel(id, options = {}) {
     setSettingsOpen(false);
     setCapabilitiesOpen(false);
     setProjectsOpen(false);
     setScheduledOpen(false);
     setCommandsOpen(false);
+    if (id === "changes" && options.resetGitFocus !== false) {
+      setGitPanelFocus({ path: "", hunkId: "", all: true, nonce: Date.now() });
+    }
     setBottomPanel(id);
   }
 
@@ -11675,7 +11685,7 @@ export function App() {
       all: Boolean(options.all),
       nonce: Date.now(),
     });
-    openBottomPanel("changes");
+    openBottomPanel("changes", { resetGitFocus: false });
   }
 
   function openSourceEvidence(source = {}) {

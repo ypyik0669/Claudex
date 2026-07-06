@@ -72,6 +72,7 @@ function writeInitialStore() {
   fs.writeFileSync(path.join(PROJECT_DIR, "package.json"), JSON.stringify({ name: "pass118-project" }), "utf8");
   execFileSync("git", ["init"], { cwd: PROJECT_DIR, stdio: "ignore" });
   fs.writeFileSync(path.join(PROJECT_DIR, "pass118-change.txt"), "pass118 git evidence\n", "utf8");
+  fs.writeFileSync(path.join(PROJECT_DIR, "pass118-other-change.txt"), "pass118 other git evidence\n", "utf8");
   writeJson(DATA_FILE, {
     version: 1,
     settings: {
@@ -142,7 +143,12 @@ async function runTest() {
   assertStep("PASS118_ENVIRONMENT_GIT_READY", await waitFor(win, `
     (async function() {
       const state = await window.claudexDesktop.getEnvironment({ projectPath: ${JSON.stringify(PROJECT_DIR)} });
-      return Boolean(state?.git?.available && state.git.changes >= 1 && /pass118-change/.test(state.git.raw || ''));
+      return Boolean(
+        state?.git?.available &&
+        state.git.changes >= 2 &&
+        /pass118-change/.test(state.git.raw || '') &&
+        /pass118-other-change/.test(state.git.raw || '')
+      );
     })();
   `, 10000));
   assertStep("PASS118_OPEN_ENVIRONMENT_CARD", await openWorkspaceToolAndEnvironment(win));
@@ -160,8 +166,48 @@ async function runTest() {
       document.querySelector('.workspace-context-button.active')?.textContent?.includes('\\u53d8\\u66f4') &&
       document.querySelector('.bottom-work-panel') &&
       /pass118-change\\.txt/.test(document.querySelector('.bottom-work-panel')?.textContent || '') &&
+      /pass118-other-change\\.txt/.test(document.querySelector('.bottom-work-panel')?.textContent || '') &&
+      /\\u5168\\u90e8\\u53d8\\u66f4/.test(document.querySelector('.git-change-item.selected')?.textContent || '') &&
       document.querySelector('.git-selected-evidence-panel')
     )
+  `, 10000));
+  assertStep("PASS118_FOCUS_SINGLE_GIT_FILE", await win.webContents.executeJavaScript(`
+    (function() {
+      const file = [...document.querySelectorAll('.git-change-item')]
+        .find((candidate) => /pass118-change\\.txt/.test(candidate.textContent || ''));
+      if (!file) return false;
+      file.click();
+      return true;
+    })();
+  `));
+  assertStep("PASS118_SINGLE_GIT_FILE_FOCUSED", await waitFor(win, `
+    (function() {
+      const selected = document.querySelector('.git-change-item.selected')?.textContent || '';
+      const preview = document.querySelector('.git-diff-preview')?.textContent || '';
+      return /pass118-change\\.txt/.test(selected) &&
+        /pass118 git evidence/.test(preview) &&
+        !/pass118 other git evidence/.test(preview);
+    })();
+  `, 10000));
+  assertStep("PASS118_RECLICK_ENVIRONMENT_CHANGES_ROW", await win.webContents.executeJavaScript(`
+    (function() {
+      const row = [...document.querySelectorAll('.environment-card .environment-row')]
+        .find((candidate) => /\\u53d8\\u66f4/.test(candidate.textContent || ''));
+      if (!row) return false;
+      row.click();
+      return true;
+    })();
+  `));
+  assertStep("PASS118_ENVIRONMENT_CHANGES_RESETS_TO_ALL", await waitFor(win, `
+    (function() {
+      const selected = document.querySelector('.git-change-item.selected')?.textContent || '';
+      const preview = document.querySelector('.git-diff-preview')?.textContent || '';
+      const panel = document.querySelector('.git-selected-evidence-panel')?.textContent || '';
+      return /\\u5168\\u90e8\\u53d8\\u66f4/.test(selected) &&
+        /pass118 git evidence/.test(preview) &&
+        /pass118 other git evidence/.test(preview) &&
+        /\\u5168\\u90e8\\u53d8\\u66f4/.test(panel);
+    })();
   `, 10000));
 
   console.log("PASS118_ENVIRONMENT_CHANGES_DEEPLINK_DONE");
