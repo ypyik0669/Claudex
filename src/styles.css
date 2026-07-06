@@ -3574,7 +3574,8 @@ select:focus-visible,
   gap: 6px;
 }
 
-.command-output-retry {
+.command-output-retry,
+.command-output-context-action {
   min-height: 26px;
   padding: 4px 7px;
 }

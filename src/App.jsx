@@ -3790,6 +3790,9 @@ function Conversation({
                       onRetryEntry={onRetryCapabilityCommand ? retryBottomCapabilityEntry : null}
                       canRetryEntry={(entry) => Boolean(capabilityRetryArgsFromRun(entry))}
                       retryDisabled={Boolean(bottomCapabilityRetryingId)}
+                      onOpenContextEntry={() => onActivateTool("claude")}
+                      canOpenContextEntry={(entry) => entry?.code !== 0 && !entry?.cancelled}
+                      openContextLabel={t.openClaudePanel}
                       onClear={null}
                       t={t}
                     />
@@ -4212,7 +4215,22 @@ function Conversation({
   );
 }
 
-function CommandOutputCard({ commandLine, cwd, code, durationMs, stdout = "", stderr = "", live = false, cancelled = false, onRetry, retryDisabled = false, t }) {
+function CommandOutputCard({
+  commandLine,
+  cwd,
+  code,
+  durationMs,
+  stdout = "",
+  stderr = "",
+  live = false,
+  cancelled = false,
+  onRetry,
+  retryDisabled = false,
+  onOpenContext,
+  openContextLabel = "",
+  openContextDisabled = false,
+  t,
+}) {
   const [copied, setCopied] = useState(false);
   const statusClass = live ? "live" : cancelled ? "cancelled" : code === 0 ? "ok" : "error";
   const statusLabel = live ? t.commandRunning : cancelled ? t.commandCancelled : code === 0 ? t.commandSucceeded : t.commandFailed;
@@ -4248,6 +4266,12 @@ function CommandOutputCard({ commandLine, cwd, code, durationMs, stdout = "", st
               {t.retry}
             </button>
           )}
+          {onOpenContext && openContextLabel && (
+            <button type="button" className="plain-action subtle-action command-output-context-action" onClick={onOpenContext} disabled={openContextDisabled} title={openContextDisabled ? t.workingHint : openContextLabel}>
+              <PanelRight size={12} />
+              {openContextLabel}
+            </button>
+          )}
           <button type="button" className="icon-only mini-icon" onClick={copyOutput} title={copied ? t.outputCopied : t.copyOutput} aria-label={copied ? t.outputCopied : t.copyOutput}>
             {copied ? <Check size={13} /> : <Copy size={13} />}
           </button>
@@ -4276,11 +4300,27 @@ function CommandOutputCard({ commandLine, cwd, code, durationMs, stdout = "", st
   );
 }
 
-function CommandHistory({ title, liveEntry, entries, onClear, onRetryEntry, canRetryEntry, retryDisabled = false, t }) {
+function CommandHistory({
+  title,
+  liveEntry,
+  entries,
+  onClear,
+  onRetryEntry,
+  canRetryEntry,
+  retryDisabled = false,
+  onOpenContextEntry,
+  canOpenContextEntry,
+  openContextLabel = "",
+  openContextDisabled = false,
+  t,
+}) {
   if (!liveEntry && !entries.length) return null;
   const summary = liveEntry ? t.runningNow : t.completedRuns.replace("{count}", entries.length);
   const retryPropsFor = (entry) => (onRetryEntry && entry?.code !== 0 && !entry?.cancelled && (!canRetryEntry || canRetryEntry(entry))
     ? { onRetry: () => onRetryEntry(entry), retryDisabled }
+    : {});
+  const openContextPropsFor = (entry) => (onOpenContextEntry && openContextLabel && (!canOpenContextEntry || canOpenContextEntry(entry))
+    ? { onOpenContext: () => onOpenContextEntry(entry), openContextLabel, openContextDisabled }
     : {});
 
   return (
@@ -4301,7 +4341,7 @@ function CommandHistory({ title, liveEntry, entries, onClear, onRetryEntry, canR
         {liveEntry && <CommandOutputCard {...liveEntry} live t={t} />}
         {entries.map((entry, index) => (
           !liveEntry && index === 0 ? (
-            <CommandOutputCard key={entry.id} {...entry} {...retryPropsFor(entry)} t={t} />
+            <CommandOutputCard key={entry.id} {...entry} {...retryPropsFor(entry)} {...openContextPropsFor(entry)} t={t} />
           ) : (
             <details className={cx("command-history-item", entry.cancelled ? "cancelled" : entry.code === 0 ? "ok" : "error")} key={entry.id}>
               <summary>
@@ -4312,7 +4352,7 @@ function CommandHistory({ title, liveEntry, entries, onClear, onRetryEntry, canR
                   {typeof entry.durationMs === "number" ? ` · ${entry.durationMs}ms` : ""}
                 </em>
               </summary>
-              <CommandOutputCard {...entry} {...retryPropsFor(entry)} t={t} />
+              <CommandOutputCard {...entry} {...retryPropsFor(entry)} {...openContextPropsFor(entry)} t={t} />
             </details>
           )
         ))}
