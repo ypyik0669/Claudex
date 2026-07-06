@@ -8889,8 +8889,13 @@ export function App() {
       // Cmd/Ctrl+T：打开/关闭浏览器
       if (isPrimaryShortcut(event, "t")) {
         event.preventDefault();
-        setRightPanelVisible(true);
-        setSelectedTool((current) => (current === "browser" ? "" : "browser"));
+        if (rightPanelVisible && selectedTool === "browser") {
+          setSelectedTool("");
+          setRightPanelVisible(false);
+        } else {
+          setRightPanelVisible(true);
+          setSelectedTool("browser");
+        }
       }
       // Escape：关闭弹窗
       if (event.key === "Escape") {
