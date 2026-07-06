@@ -637,6 +637,15 @@ const copy = {
     capabilityStatusIssueCount: "{count} 个后台状态命令失败",
     capabilityStatusBackedByStatus: "来自 Claude Code 状态刷新；只展示真实 CLI 失败，不写入 commandRuns。",
     retryCliStatus: "重试状态",
+    runtimeHealth: "运行健康",
+    runtimeHealthOk: "本地运行时正常",
+    runtimeHealthUnknown: "等待状态刷新",
+    runtimeHealthIssueCount: "{count} 项需要处理",
+    runtimeHealthBackedByCli: "来自 Claude Code CLI 状态刷新 + Claudex 本地设置；不写入 commandRuns。",
+    runtimeHealthLocalSetting: "来自 Claudex 本地设置",
+    runtimeHealthPluginCount: "{count} 个插件",
+    runtimeHealthMcpCount: "{count} 个 MCP",
+    runtimeHealthMarketplaceCount: "{count} 个市场",
     noCapabilities: "没有匹配的能力。",
     enabled: "已启用",
     disabled: "已关闭",
@@ -1060,7 +1069,191 @@ function cliStatusIssue(label, commandLine, commandState, t, jsonCommandLine = "
     commandLine: command,
     code,
     error,
+    stdout: String(commandState.stdout || commandState.jsonStdout || ""),
+    stderr: String(commandState.stderr || commandState.jsonStderr || error || ""),
   };
+}
+
+function commandIssueForHealth(label, commandLine, commandState, t, jsonCommandLine = "") {
+  const issue = cliStatusIssue(label, commandLine, commandState, t, jsonCommandLine);
+  return issue ? { ...issue, kind: "command" } : null;
+}
+
+function authNeedsAttention(claudeStatus, settings) {
+  if (!claudeStatus) return false;
+  if (settings?.env?.anthropicApiKey || settings?.env?.anthropicAuthToken) return false;
+  if (!claudeStatus.auth) return true;
+  return claudeStatus.auth.loggedIn === false;
+}
+
+function runtimeHealthSummary(claudeStatus, settings, activeProject, t) {
+  const known = Boolean(claudeStatus);
+  const commandIssues = [
+    commandIssueForHealth("CLI", "--version", claudeStatus?.versionCommand, t),
+    commandIssueForHealth(t.auth, "auth status", claudeStatus?.authCommand, t),
+    commandIssueForHealth(t.plugins, "plugin list", claudeStatus?.pluginCommand, t, "plugin list --json"),
+    commandIssueForHealth(t.mcps, "mcp list", claudeStatus?.mcpCommand, t),
+    commandIssueForHealth(t.marketplace, "plugin marketplace list", claudeStatus?.marketplaceCommand, t, "plugin marketplace list --json"),
+  ].filter(Boolean);
+  const authIssue = authNeedsAttention(claudeStatus, settings)
+    ? {
+      id: "auth:login",
+      label: t.auth,
+      commandLine: "auth status",
+      code: claudeStatus?.auth?.code ?? 0,
+      error: claudeStatus?.auth?.raw || t.needsKey,
+      kind: "auth",
+    }
+    : null;
+  const issues = [...commandIssues, authIssue].filter(Boolean);
+  const pluginIssue = cliStatusIssue(t.plugins, "plugin list", claudeStatus?.pluginCommand, t, "plugin list --json");
+  const mcpIssue = cliStatusIssue(t.mcps, "mcp list", claudeStatus?.mcpCommand, t);
+  const marketplaceIssue = cliStatusIssue(t.marketplace, "plugin marketplace list", claudeStatus?.marketplaceCommand, t, "plugin marketplace list --json");
+  const runtimeIssue = cliStatusIssue("CLI", "--version", claudeStatus?.versionCommand, t);
+  const authCommandIssue = cliStatusIssue(t.auth, "auth status", claudeStatus?.authCommand, t);
+  const stateStatus = !known ? "pending" : issues.length ? "error" : "ok";
+  const headline = !known
+    ? t.runtimeHealthUnknown
+    : issues.length
+      ? t.runtimeHealthIssueCount.replace("{count}", issues.length)
+      : t.runtimeHealthOk;
+  const rows = [
+    {
+      id: "runtime",
+      label: t.localRuntime,
+      value: known ? claudeStatus.version || "Claude Code" : t.runtimeHealthUnknown,
+      detail: "claude --version",
+      status: runtimeIssue ? "error" : known ? "ok" : "pending",
+      issue: runtimeIssue,
+    },
+    {
+      id: "auth",
+      label: t.auth,
+      value: authLabel(claudeStatus?.auth, settings),
+      detail: "claude auth status",
+      status: authCommandIssue || authIssue ? "error" : known ? "ok" : "pending",
+      issue: authCommandIssue || authIssue,
+    },
+    {
+      id: "model",
+      label: t.model,
+      value: displayModelLabel(settings?.model),
+      detail: t.runtimeHealthLocalSetting,
+      status: "ok",
+    },
+    {
+      id: "permission",
+      label: t.permissionMode,
+      value: permissionModeLabel(settings?.claudeCode?.permissionMode, t),
+      detail: t.runtimeHealthLocalSetting,
+      status: "ok",
+    },
+    {
+      id: "plugins",
+      label: t.plugins,
+      value: known ? t.runtimeHealthPluginCount.replace("{count}", Array.isArray(claudeStatus.pluginItems) ? claudeStatus.pluginItems.length : 0) : t.runtimeHealthUnknown,
+      detail: "claude plugin list --json",
+      status: pluginIssue ? "error" : known ? "ok" : "pending",
+      issue: pluginIssue,
+    },
+    {
+      id: "mcp",
+      label: t.mcps,
+      value: known ? t.runtimeHealthMcpCount.replace("{count}", Array.isArray(claudeStatus.mcpServers) ? claudeStatus.mcpServers.length : 0) : t.runtimeHealthUnknown,
+      detail: "claude mcp list",
+      status: mcpIssue ? "error" : known ? "ok" : "pending",
+      issue: mcpIssue,
+    },
+    {
+      id: "marketplace",
+      label: t.marketplace,
+      value: known ? t.runtimeHealthMarketplaceCount.replace("{count}", Array.isArray(claudeStatus.marketplaces) ? claudeStatus.marketplaces.length : 0) : t.runtimeHealthUnknown,
+      detail: "claude plugin marketplace list --json",
+      status: marketplaceIssue ? "error" : known ? "ok" : "pending",
+      issue: marketplaceIssue,
+    },
+    {
+      id: "project",
+      label: t.activeProject,
+      value: projectLabel(activeProject, t),
+      detail: activeProject?.path || t.noProjectPath,
+      status: activeProject?.path ? "ok" : "pending",
+    },
+  ];
+  return { known, status: stateStatus, headline, issues, rows };
+}
+
+function RuntimeHealthCard({
+  claudeStatus,
+  settings,
+  activeProject,
+  t,
+  onRetry,
+  onOpenClaudePanel,
+  busy = false,
+  compact = false,
+}) {
+  const summary = runtimeHealthSummary(claudeStatus, settings, activeProject, t);
+  const HeadIcon = summary.status === "error" ? AlertTriangle : summary.status === "pending" ? Clock3 : Shield;
+  return (
+    <section className={cx("runtime-health-card", summary.status, compact && "compact")} aria-label={t.runtimeHealth}>
+      <div className="runtime-health-head">
+        <HeadIcon size={15} />
+        <div>
+          <span>{t.runtimeHealth}</span>
+          <strong>{summary.headline}</strong>
+          <small>{t.runtimeHealthBackedByCli}</small>
+        </div>
+        {(onRetry || onOpenClaudePanel) && (
+          <div className="runtime-health-actions">
+            {onRetry && (
+              <button type="button" className="plain-action subtle-action" onClick={onRetry} disabled={busy} title={busy ? t.workingHint : t.refreshCliStatus}>
+                <RefreshCw size={13} className={busy ? "spin" : undefined} />
+                {t.retryCliStatus}
+              </button>
+            )}
+            {onOpenClaudePanel && (
+              <button type="button" className="plain-action subtle-action" onClick={onOpenClaudePanel}>
+                <Bot size={13} />
+                {t.openClaudePanel}
+              </button>
+            )}
+          </div>
+        )}
+      </div>
+      <div className="runtime-health-grid">
+        {summary.rows.map((row) => {
+          const RowIcon = row.status === "error" ? AlertTriangle : row.status === "pending" ? Clock3 : Check;
+          return (
+            <article className={cx("runtime-health-row", row.status)} key={row.id} title={[row.detail, row.issue?.error].filter(Boolean).join("\n")}>
+              <RowIcon size={12} />
+              <div>
+                <span>{row.label}</span>
+                <strong>{messageExcerpt(row.value, compact ? 36 : 64)}</strong>
+              </div>
+            </article>
+          );
+        })}
+      </div>
+      {summary.issues.length > 0 && (
+        <details className="runtime-health-issues" open={!compact}>
+          <summary>{t.capabilityStatusIssueCount.replace("{count}", summary.issues.length)}</summary>
+          <div className="runtime-health-issue-list">
+            {summary.issues.map((issue) => (
+              <article className="runtime-health-issue" key={issue.id}>
+                <div>
+                  <strong>{issue.label}</strong>
+                  <span>claude {issue.commandLine}</span>
+                </div>
+                <em>{issue.kind === "auth" ? t.needsKey : `${t.commandExit}: ${issue.code}`}</em>
+                {issue.error && <code title={issue.error}>{messageExcerpt(issue.error, 220)}</code>}
+              </article>
+            ))}
+          </div>
+        </details>
+      )}
+    </section>
+  );
 }
 
 function CliStatusDetail({ issue, t, onRetry, onOpenClaudePanel, disabled, spinning }) {
@@ -5365,6 +5558,16 @@ function ToolsPanel({
               </div>
               <p className="tool-hint">{t.interactiveClaudeHelp}</p>
             </section>
+            <RuntimeHealthCard
+              claudeStatus={claudeStatus}
+              settings={settings}
+              activeProject={activeProject}
+              t={t}
+              onRetry={loadClaudeStatus}
+              onOpenClaudePanel={openInteractiveClaude}
+              busy={statusBusy}
+              compact
+            />
             <dl className="tool-runtime-list">
               <div><dt>{t.auth}</dt><dd>{statusText}</dd></div>
               <div><dt>{t.model}</dt><dd>{settings?.model || "claude-sonnet-4-5-20250929"}</dd></div>
@@ -5646,6 +5849,14 @@ function SettingsModal({
   const runtimeEnvLabel = directApiActive
     ? form.baseUrl || activeProvider.baseUrl
     : cliBaseUrl(state.settings) || t.claudeCodeDefaultEnv;
+  const runtimeHealthSettings = {
+    ...state.settings,
+    model: form.model,
+    claudeCode: {
+      ...state.settings.claudeCode,
+      ...form.claudeCode,
+    },
+  };
   const saving = saveStatus === "saving";
   const isDirty = JSON.stringify(form) !== initialSnapshotRef.current;
   const modalRef = useRef(null);
@@ -5828,6 +6039,17 @@ function SettingsModal({
                 <div><dt>{directApiActive ? t.baseUrl : t.cliEnvSource}</dt><dd title={runtimeEnvLabel}>{runtimeEnvLabel}</dd></div>
               </dl>
             </div>
+            {!directApiActive && (
+              <RuntimeHealthCard
+                claudeStatus={settingsClaudeStatus}
+                settings={runtimeHealthSettings}
+                activeProject={state.activeProject}
+                t={t}
+                onRetry={refreshSettingsStatus}
+                onOpenClaudePanel={() => requestDeepLink(() => onOpenTool?.("claude"))}
+                busy={settingsStatusBusy}
+              />
+            )}
             <div className="settings-grid runtime-control-grid">
               <label>
                 <span>{t.language}</span>
@@ -6570,6 +6792,15 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
           {t.refresh}
         </button>
       </section>
+      <RuntimeHealthCard
+        claudeStatus={cliStatus}
+        settings={state.settings}
+        activeProject={activeProject}
+        t={t}
+        onRetry={refreshCliStatus}
+        onOpenClaudePanel={onOpenClaudePanel}
+        busy={cliWorking}
+      />
       {cliStatusIssues.length > 0 && (
         <section className="plugin-status-issues" aria-label={t.capabilityStatusIssues}>
           <div className="plugin-status-issues-head">
@@ -7107,6 +7338,15 @@ function SettingsBackedStatus({
   const ideNames = (environment?.ideOptions || []).map((item) => item.label).join(", ") || t.ideUnavailable;
   const customMarketplaces = Array.isArray(form.customMarketplaces) ? form.customMarketplaces : [];
   const env = state.settings.env || {};
+  const runtimeHealthSettings = {
+    ...state.settings,
+    model: form.model,
+    claudeCode: {
+      ...state.settings.claudeCode,
+      ...form.claudeCode,
+    },
+  };
+  const showRuntimeHealth = ["profile", "mcp", "connections", "hooks", "computer"].includes(activeSection);
   const rowsBySection = {
     profile: [
       [t.localRuntime, t.claudeCodeMode],
@@ -7251,6 +7491,18 @@ function SettingsBackedStatus({
             </div>
           ))}
         </dl>
+        {showRuntimeHealth && (
+          <RuntimeHealthCard
+            claudeStatus={claudeStatus}
+            settings={runtimeHealthSettings}
+            activeProject={activeProject}
+            t={t}
+            onRetry={onRefresh}
+            onOpenClaudePanel={() => onOpenTool?.("claude")}
+            busy={busy}
+            compact
+          />
+        )}
         {quickActions.length > 0 && (
           <div className="settings-quick-actions" aria-label={t.settingsQuickLinks}>
             <span>{t.settingsQuickLinks}</span>

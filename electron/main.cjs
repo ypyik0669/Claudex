@@ -1133,6 +1133,26 @@ function stripAnsi(value) {
   return String(value || "").replace(/\u001b\[[0-9;?]*[ -/]*[@-~]/g, "");
 }
 
+function commandOutputExcerpt(result) {
+  return stripAnsi([result?.stderr, result?.stdout].filter(Boolean).join("\n")).trim();
+}
+
+function statusCommandState(result, jsonResult = null) {
+  const plain = result || {};
+  const json = jsonResult || null;
+  const plainError = commandOutputExcerpt(plain);
+  const jsonError = json ? commandOutputExcerpt(json) : "";
+  return {
+    code: typeof plain.code === "number" ? plain.code : null,
+    jsonCode: json && typeof json.code === "number" ? json.code : undefined,
+    stdout: stripAnsi(plain.stdout || "").trim(),
+    stderr: stripAnsi(plain.stderr || "").trim(),
+    jsonStdout: json ? stripAnsi(json.stdout || "").trim() : undefined,
+    jsonStderr: json ? stripAnsi(json.stderr || "").trim() : undefined,
+    error: jsonError || plainError,
+  };
+}
+
 function pluginNameFromId(idValue) {
   const idText = String(idValue || "").trim();
   return idText.split("@")[0] || idText;
@@ -3294,17 +3314,19 @@ ipcMain.handle("claude:status", async (_event, { projectPath } = {}) => {
   return {
     available: version.code === 0,
     version: stripAnsi(version.stdout || version.stderr).trim(),
+    versionCommand: statusCommandState(version),
     auth: parseJsonOutput(auth.stdout) || { raw: stripAnsi(auth.stdout || auth.stderr).trim(), code: auth.code },
+    authCommand: statusCommandState(auth),
     plugins: stripAnsi(plugins.stdout || plugins.stderr).trim(),
     pluginItems,
-    pluginCommand: { code: plugins.code, jsonCode: pluginsJson.code, error: stripAnsi(pluginsJson.stderr || plugins.stderr).trim() },
+    pluginCommand: statusCommandState(plugins, pluginsJson),
     mcp: mcpRaw,
     mcpServers: parseMcpServers(mcpRaw),
-    mcpCommand: { code: mcp.code, error: stripAnsi(mcp.stderr).trim() },
+    mcpCommand: statusCommandState(mcp),
     marketplaces: marketplaceItems,
     marketplacePlugins: loadMarketplacePluginCatalog(marketplaceItems, pluginItems),
     marketplaceOutput: stripAnsi(marketplaces.stdout || marketplaces.stderr).trim(),
-    marketplaceCommand: { code: marketplaces.code, jsonCode: marketplacesJson.code, error: stripAnsi(marketplacesJson.stderr || marketplaces.stderr).trim() },
+    marketplaceCommand: statusCommandState(marketplaces, marketplacesJson),
   };
 });
 
