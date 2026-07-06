@@ -3566,6 +3566,19 @@ select:focus-visible,
   gap: 3px;
 }
 
+.command-output-head > .command-output-actions {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
+.command-output-retry {
+  min-height: 26px;
+  padding: 4px 7px;
+}
+
 .command-output-head span {
   color: #8f8f8f;
   font-size: 11px;

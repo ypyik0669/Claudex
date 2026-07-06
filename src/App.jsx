@@ -4125,12 +4125,13 @@ function Conversation({
   );
 }
 
-function CommandOutputCard({ commandLine, cwd, code, durationMs, stdout = "", stderr = "", live = false, cancelled = false, t }) {
+function CommandOutputCard({ commandLine, cwd, code, durationMs, stdout = "", stderr = "", live = false, cancelled = false, onRetry, retryDisabled = false, t }) {
   const [copied, setCopied] = useState(false);
   const statusClass = live ? "live" : cancelled ? "cancelled" : code === 0 ? "ok" : "error";
   const statusLabel = live ? t.commandRunning : cancelled ? t.commandCancelled : code === 0 ? t.commandSucceeded : t.commandFailed;
   const hasStdout = Boolean(String(stdout || "").trim());
   const hasStderr = Boolean(String(stderr || "").trim());
+  const canRetry = Boolean(onRetry && !live && !cancelled && code !== 0);
   const clipboardText = [
     `$ ${commandLine || ""}`,
     cwd ? `${t.commandCwd}: ${cwd}` : "",
@@ -4153,9 +4154,17 @@ function CommandOutputCard({ commandLine, cwd, code, durationMs, stdout = "", st
           <span>{live ? t.liveOutput : statusLabel}</span>
           <strong>{commandLine}</strong>
         </div>
-        <button type="button" className="icon-only mini-icon" onClick={copyOutput} title={copied ? t.outputCopied : t.copyOutput} aria-label={copied ? t.outputCopied : t.copyOutput}>
-          {copied ? <Check size={13} /> : <Copy size={13} />}
-        </button>
+        <div className="command-output-actions">
+          {canRetry && (
+            <button type="button" className="plain-action subtle-action command-output-retry" onClick={onRetry} disabled={retryDisabled} title={retryDisabled ? t.workingHint : t.retry}>
+              <RefreshCw size={12} />
+              {t.retry}
+            </button>
+          )}
+          <button type="button" className="icon-only mini-icon" onClick={copyOutput} title={copied ? t.outputCopied : t.copyOutput} aria-label={copied ? t.outputCopied : t.copyOutput}>
+            {copied ? <Check size={13} /> : <Copy size={13} />}
+          </button>
+        </div>
       </div>
       <dl className="command-output-meta">
         <div><dt>{t.commandCwd}</dt><dd title={cwd || ""}>{cwd ? compactPath(cwd, 48) : "-"}</dd></div>
@@ -4180,9 +4189,12 @@ function CommandOutputCard({ commandLine, cwd, code, durationMs, stdout = "", st
   );
 }
 
-function CommandHistory({ title, liveEntry, entries, onClear, t }) {
+function CommandHistory({ title, liveEntry, entries, onClear, onRetryEntry, retryDisabled = false, t }) {
   if (!liveEntry && !entries.length) return null;
   const summary = liveEntry ? t.runningNow : t.completedRuns.replace("{count}", entries.length);
+  const retryPropsFor = (entry) => (onRetryEntry && entry?.code !== 0 && !entry?.cancelled
+    ? { onRetry: () => onRetryEntry(entry), retryDisabled }
+    : {});
 
   return (
     <section className="command-history" aria-label={title}>
@@ -4202,7 +4214,7 @@ function CommandHistory({ title, liveEntry, entries, onClear, t }) {
         {liveEntry && <CommandOutputCard {...liveEntry} live t={t} />}
         {entries.map((entry, index) => (
           !liveEntry && index === 0 ? (
-            <CommandOutputCard key={entry.id} {...entry} t={t} />
+            <CommandOutputCard key={entry.id} {...entry} {...retryPropsFor(entry)} t={t} />
           ) : (
             <details className={cx("command-history-item", entry.cancelled ? "cancelled" : entry.code === 0 ? "ok" : "error")} key={entry.id}>
               <summary>
@@ -4213,7 +4225,7 @@ function CommandHistory({ title, liveEntry, entries, onClear, t }) {
                   {typeof entry.durationMs === "number" ? ` · ${entry.durationMs}ms` : ""}
                 </em>
               </summary>
-              <CommandOutputCard {...entry} t={t} />
+              <CommandOutputCard {...entry} {...retryPropsFor(entry)} t={t} />
             </details>
           )
         ))}
@@ -6628,6 +6640,11 @@ function ToolsPanel({
                 title={t.commandHistory}
                 liveEntry={claudeLiveEntry}
                 entries={claudeHistory}
+                onRetryEntry={(entry) => {
+                  const args = String(entry?.commandLine || "").replace(/^claude\s+/i, "").trim();
+                  if (args) runClaude(args);
+                }}
+                retryDisabled={claudeBusy}
                 onClear={() => {
                   setClaudeHistory([]);
                   setClaudeResult(null);
