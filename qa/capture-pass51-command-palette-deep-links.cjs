@@ -3,7 +3,30 @@ const os = require("os");
 const path = require("path");
 const { app, BrowserWindow } = require("electron");
 
-const REPO_DIR = path.join(__dirname, "..");
+function findRepoDir() {
+  const candidates = [
+    process.env.CLAUDEX_REPO_DIR,
+    process.cwd(),
+    __dirname,
+    path.join(__dirname, ".."),
+  ].filter(Boolean);
+  for (const candidate of candidates) {
+    let current = path.resolve(candidate);
+    while (current && current !== path.dirname(current)) {
+      if (
+        fs.existsSync(path.join(current, "package.json")) &&
+        fs.existsSync(path.join(current, "electron", "main.cjs"))
+      ) {
+        return current;
+      }
+      current = path.dirname(current);
+    }
+  }
+  throw new Error("Unable to locate Claudex repo root");
+}
+
+const REPO_DIR = findRepoDir();
+process.chdir(REPO_DIR);
 const USER_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "claudex-pass51-data-"));
 const PROJECT_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "claudex-pass51-project-"));
 const PROJECT_B_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "claudex-pass51-project-b-"));
@@ -143,7 +166,7 @@ function writeInitialStore() {
   );
 }
 
-async function runPaletteCommand(win, query) {
+async function runPaletteCommand(win, query, commandId = "") {
   return win.webContents.executeJavaScript(`
     (async function() {
       window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true, bubbles: true }));
@@ -154,7 +177,11 @@ async function runPaletteCommand(win, query) {
       setter.call(input, ${JSON.stringify(query)});
       input.dispatchEvent(new Event('input', { bubbles: true }));
       await new Promise((resolve) => setTimeout(resolve, 120));
-      const button = document.querySelector('.command-modal .command-list button');
+      const commandId = ${JSON.stringify(commandId)};
+      const buttons = [...document.querySelectorAll('.command-modal .command-list button')];
+      const button = commandId
+        ? buttons.find((candidate) => (candidate.getAttribute('data-command-id') || '') === commandId)
+        : buttons[0];
       if (!button) return false;
       button.click();
       return true;
@@ -244,7 +271,7 @@ async function runTest() {
     )
   `, 12000));
 
-  assertStep("PASS51_OPEN_AUTOMATION_FROM_PALETTE", await runPaletteCommand(win, "automation schedule"));
+  assertStep("PASS51_OPEN_AUTOMATION_FROM_PALETTE", await runPaletteCommand(win, "automation schedule", "automation"));
   assertStep("PASS51_AUTOMATION_MODAL_VISIBLE", await waitFor(win, `
     Boolean(
       document.querySelector('.scheduled-modal') &&

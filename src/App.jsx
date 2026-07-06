@@ -2100,6 +2100,15 @@ function noticeLevelLabel(level, t) {
   return t.noticeLevelInfo;
 }
 
+function decodeActionSuffix(action, prefix) {
+  const encoded = String(action || "").slice(prefix.length);
+  try {
+    return decodeURIComponent(encoded);
+  } catch {
+    return encoded;
+  }
+}
+
 function authLabel(auth, settings) {
   if (settings?.env?.anthropicApiKey) return "第一方 / API 密钥";
   if (settings?.env?.anthropicAuthToken) return "第一方 / 授权令牌";
@@ -3661,25 +3670,13 @@ function Conversation({
   function handleNoticeAction(notice) {
     const action = String(notice?.action || "");
     if (action.startsWith("git-run:")) {
-      const encodedId = action.slice("git-run:".length);
-      let eventId = encodedId;
-      try {
-        eventId = decodeURIComponent(encodedId);
-      } catch {
-        eventId = encodedId;
-      }
+      const eventId = decodeActionSuffix(action, "git-run:");
       if (eventId) setSelectedRunEventId(eventId);
       setBottomPanel("changes");
       return;
     }
     if (action.startsWith("run:")) {
-      const encodedId = action.slice("run:".length);
-      let eventId = encodedId;
-      try {
-        eventId = decodeURIComponent(encodedId);
-      } catch {
-        eventId = encodedId;
-      }
+      const eventId = decodeActionSuffix(action, "run:");
       onOpenRunTimeline?.(eventId);
       return;
     }
@@ -10433,6 +10430,34 @@ export function App() {
         };
       });
 
+    const noticeCommands = (state.notices || [])
+      .filter((notice) => notice?.id && notice?.title && !notice.dismissedAt)
+      .slice(0, 16)
+      .map((notice) => ({
+        id: `notice:${commandIdSegment(notice.id)}`,
+        title: `${t.noticeCenter}: ${notice.title}`,
+        subtitle: [
+          noticeLevelLabel(notice.level, t),
+          notice.source || t.noticeSource,
+          notice.detail,
+          projectLabel(notice.project, t),
+        ].filter(Boolean).join(" · "),
+        group: t.notices,
+        keywords: [
+          "notice error warning failure alert status action deep link",
+          notice.id,
+          notice.key,
+          notice.level,
+          notice.source,
+          notice.title,
+          notice.detail,
+          notice.action,
+          notice.project?.name,
+          notice.project?.path,
+        ].filter(Boolean).join(" "),
+        action: () => openNoticeTarget(notice),
+      }));
+
     const gitFileCommands = (Array.isArray(environment?.git?.files) ? environment.git.files : [])
       .filter((file) => file?.path || file?.previousPath)
       .slice(0, 24)
@@ -10859,6 +10884,7 @@ export function App() {
       ...threadCommands,
       ...threadActionCommands,
       ...runEvidenceCommands,
+      ...noticeCommands,
       ...gitFileCommands,
       ...gitHunkCommands,
       ...sourceRefCommands,
@@ -10873,7 +10899,7 @@ export function App() {
       ...customMarketplaceCommands,
       ...marketplacePluginCommands,
     ];
-  }, [state.projects, state.sessions, state.sourceRefs, state.browserVisits, state.automations, state.subagentRuns, state.commandRuns, state.settings?.customMarketplaces, capabilityCommandStatus, runEvents, environment, t, activeProject?.path, activeProject?.name]);
+  }, [state.projects, state.sessions, state.notices, state.sourceRefs, state.browserVisits, state.automations, state.subagentRuns, state.commandRuns, state.settings?.customMarketplaces, capabilityCommandStatus, runEvents, environment, t, activeProject?.path, activeProject?.name]);
 
   async function createAutomation(payload) {
     if (!desktopApi?.createAutomation) return;
@@ -11280,6 +11306,45 @@ export function App() {
       nonce: Date.now(),
     });
     activateTool("workspace");
+  }
+
+  function openNoticeTarget(notice = {}) {
+    const action = String(notice?.action || "");
+    if (action.startsWith("git-run:")) {
+      const eventId = decodeActionSuffix(action, "git-run:");
+      setRunTimelineFocus({ id: eventId, nonce: Date.now() });
+      openBottomPanel("changes");
+      return;
+    }
+    if (action.startsWith("run:")) {
+      openRunTimeline(decodeActionSuffix(action, "run:"));
+      return;
+    }
+    if (action.startsWith("workspace:file:")) {
+      openWorkspaceFile(decodeActionSuffix(action, "workspace:file:"), { force: true });
+      return;
+    }
+    if (action.startsWith("runtime-health:")) {
+      const target = action.split(":")[1] || "";
+      if (["plugins", "mcp", "marketplace"].includes(target)) {
+        openCapabilitiesSurface(target);
+        return;
+      }
+      if (target === "claude") {
+        activateTool("claude");
+        return;
+      }
+    }
+    if (action.startsWith("automation:")) {
+      const automationId = decodeActionSuffix(action, "automation:");
+      if (automationId) {
+        openTaskCenterFocus("automation", automationId);
+        return;
+      }
+      openScheduledSurface();
+      return;
+    }
+    openBottomPanel("notices");
   }
 
   function openTaskCenterFocus(type, id = "") {
