@@ -4555,6 +4555,7 @@ function SubagentWorkbench({
   const [running, setRunning] = useState(false);
   const [automationWorkingId, setAutomationWorkingId] = useState("");
   const [showArchivedRuns, setShowArchivedRuns] = useState(false);
+  const [copiedAutomationRunId, setCopiedAutomationRunId] = useState("");
   const [copiedSubagentRunId, setCopiedSubagentRunId] = useState("");
   const taskInputRef = useRef(null);
   const activeRuns = runs.filter((run) => !run.archivedAt);
@@ -4629,6 +4630,11 @@ function SubagentWorkbench({
   async function copyAutomationEvidence(item, entry = item?.lastRun) {
     if (!entry) return;
     await onCopy?.(automationEvidenceText(item, entry, t, sessions));
+    const runId = String(entry?.id || item?.id || "").trim();
+    if (runId) {
+      setCopiedAutomationRunId(runId);
+      window.setTimeout(() => setCopiedAutomationRunId((current) => (current === runId ? "" : current)), 1200);
+    }
   }
 
   useEffect(() => {
@@ -4756,8 +4762,8 @@ function SubagentWorkbench({
                                   onClick={() => copyAutomationEvidence(item, entry)}
                                   title={t.copyAutomationEvidence}
                                 >
-                                  <Copy size={12} />
-                                  {t.copyAutomationEvidence}
+                                  {copiedAutomationRunId === entry.id ? <Check size={12} /> : <Copy size={12} />}
+                                  {copiedAutomationRunId === entry.id ? t.copied : t.copyAutomationEvidence}
                                 </button>
                                 {entry.id && (
                                   <button
@@ -4815,11 +4821,12 @@ function SubagentWorkbench({
                         <button
                           type="button"
                           className="plain-action subtle-action"
+                          data-automation-task-action="copy-evidence"
                           onClick={() => copyAutomationEvidence(item)}
-                          title={t.copyAutomationEvidence}
+                          title={copiedAutomationRunId === item.lastRun.id ? t.copied : t.copyAutomationEvidence}
                         >
-                          <Copy size={13} />
-                          {t.copyAutomationEvidence}
+                          {copiedAutomationRunId === item.lastRun.id ? <Check size={13} /> : <Copy size={13} />}
+                          {copiedAutomationRunId === item.lastRun.id ? t.copied : t.copyAutomationEvidence}
                         </button>
                       )}
                       {item.lastRun?.id && (
