@@ -7568,6 +7568,82 @@ kbd {
   line-height: 1.35;
 }
 
+.git-hunk-review {
+  display: grid;
+  gap: 7px;
+  border: 1px solid #242424;
+  border-radius: var(--radius-sm);
+  background: rgba(255, 255, 255, 0.02);
+  padding: 8px;
+}
+
+.git-hunk-review-head,
+.git-hunk-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.git-hunk-review-head {
+  color: #8f918f;
+  font-size: 11px;
+  text-transform: uppercase;
+}
+
+.git-hunk-review-head em,
+.git-hunk-item span {
+  color: #a9aaa4;
+  font-family: var(--font-mono);
+  font-style: normal;
+  font-size: 10.5px;
+}
+
+.git-hunk-list {
+  display: grid;
+  gap: 5px;
+  max-height: 156px;
+  overflow: auto;
+}
+
+.git-hunk-item {
+  width: 100%;
+  border: 1px solid #2a2a2a;
+  border-radius: 7px;
+  background: #101010;
+  color: #d8d6cd;
+  padding: 6px 7px;
+  text-align: left;
+}
+
+.git-hunk-item.selected {
+  border-color: rgba(133, 169, 217, 0.45);
+  background: rgba(93, 130, 177, 0.12);
+}
+
+.git-hunk-item strong,
+.git-hunk-item small {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.git-hunk-item strong {
+  flex: 1;
+  color: #e0ddd4;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.git-hunk-item small {
+  flex: 0.8;
+  color: #898b87;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+}
+
 .git-selected-diff {
   display: grid;
   gap: 8px;

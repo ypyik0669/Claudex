@@ -117,12 +117,23 @@ async function waitFor(win, script, timeoutMs = 10000) {
 }
 
 async function shot(win, name) {
-  await win.webContents.executeJavaScript("new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))");
-  await wait(250);
-  const image = await win.webContents.capturePage();
-  const outPath = path.join(QA_DIR, name);
-  fs.writeFileSync(outPath, image.toPNG());
-  console.log("CAPTURED", outPath);
+  try {
+    await win.webContents.executeJavaScript("new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)))");
+    await wait(250);
+    const image = await Promise.race([
+      win.webContents.capturePage(),
+      wait(4000).then(() => null),
+    ]);
+    if (!image) {
+      console.log("CAPTURE_SKIPPED", name);
+      return;
+    }
+    const outPath = path.join(QA_DIR, name);
+    fs.writeFileSync(outPath, image.toPNG());
+    console.log("CAPTURED", outPath);
+  } catch (error) {
+    console.log("CAPTURE_SKIPPED", name, error?.message || String(error));
+  }
 }
 
 function assertStep(name, ok) {

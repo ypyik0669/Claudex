@@ -809,6 +809,11 @@ const copy = {
     gitRawStatus: "Raw Status",
     noGitDiff: "当前没有可显示的 diff 统计。",
     allChanges: "全部变更",
+    allHunks: "全部 hunks",
+    gitHunks: "Diff hunks",
+    gitHunkReview: "Hunk review",
+    selectedHunk: "选中 hunk",
+    focusHunk: "聚焦 hunk",
     gitSummary: "Git 变更摘要",
     stagedChanges: "已暂存",
     unstagedChanges: "未暂存",
@@ -1767,6 +1772,62 @@ function buildGitDiffRows(diffText = "") {
   });
 }
 
+function gitDiffPathFromHeader(line = "") {
+  const match = /^diff --git\s+(.+?)\s+(.+)$/.exec(String(line || ""));
+  if (!match) return "";
+  return String(match[2] || match[1] || "").trim().replace(/^"|"$/g, "").replace(/^[ab]\//, "");
+}
+
+function buildGitHunks(diffText = "") {
+  const hunks = [];
+  const lines = String(diffText || "").split(/\r?\n/).slice(0, 1200);
+  let section = "";
+  let filePath = "";
+  let current = null;
+  const finish = () => {
+    if (!current) return;
+    const text = current.lines.join("\n").trim();
+    if (text) {
+      hunks.push({
+        ...current,
+        text,
+      });
+    }
+    current = null;
+  };
+  for (const [index, line] of lines.entries()) {
+    if (line.startsWith("# ")) {
+      finish();
+      section = line.slice(2).trim();
+      continue;
+    }
+    if (line.startsWith("diff --git")) {
+      finish();
+      filePath = gitDiffPathFromHeader(line) || filePath;
+      continue;
+    }
+    if (line.startsWith("@@")) {
+      finish();
+      current = {
+        id: `${section || "diff"}:${filePath || "repo"}:${index}`,
+        section,
+        filePath,
+        header: line,
+        additions: 0,
+        deletions: 0,
+        lines: [line],
+      };
+      continue;
+    }
+    if (!current) continue;
+    current.lines.push(line);
+    if (line.startsWith("+") && !line.startsWith("+++ ")) current.additions += 1;
+    if (line.startsWith("-") && !line.startsWith("--- ")) current.deletions += 1;
+  }
+  finish();
+  return hunks.slice(0, 80);
+}
+
 function gitChangeKindLabel(kind, t) {
   if (kind === "staged") return t.stagedChanges;
   if (kind === "unstaged") return t.unstagedChanges;
@@ -1824,6 +1885,8 @@ function gitEvidenceText({
   gitRoot,
   gitRelativePath,
   gitSummaryItems = [],
+  selectedHunk,
+  hunkCount = 0,
 }) {
   const summary = gitSummaryItems.length
     ? gitSummaryItems.map(([label, count]) => `${label}: ${count}`).join(" · ")
@@ -1840,6 +1903,8 @@ function gitEvidenceText({
     `${t.gitSyncStatus}: ${aheadBehindLabel || "-"}`,
     `${t.scheduleStatus}: ${selectedFile ? gitChangeKindLabel(selectedFile.kind, t) : t.allChanges}`,
     `${t.gitSummary}: ${summary || "-"}`,
+    `${t.gitHunks}: ${hunkCount || 0}`,
+    selectedHunk ? `${t.selectedHunk}: ${selectedHunk.filePath || "-"} ${selectedHunk.header || ""} +${selectedHunk.additions || 0} -${selectedHunk.deletions || 0}` : "",
     selectedFile ? `${t.changedLines}: +${selectedFile.additions || 0} -${selectedFile.deletions || 0}` : "",
     selectedFile?.status ? `status: ${selectedFile.status}` : "",
     "",
@@ -2351,6 +2416,7 @@ function Conversation({
   const emptyTitle = session ? t.selectedEmptyTitle : t.noSessionTitle;
   const emptyHint = session ? t.selectedEmptyHint : t.noSessionHint;
   const [selectedGitDiffPath, setSelectedGitDiffPath] = useState("");
+  const [selectedGitHunkId, setSelectedGitHunkId] = useState("");
   const [gitActionWorkingPath, setGitActionWorkingPath] = useState("");
   const [gitCommitMessage, setGitCommitMessage] = useState("");
   const git = environment?.git;
@@ -2395,6 +2461,9 @@ function Conversation({
     ? gitFileDiffs.find((item) => item.path === selectedGitDiffPath || item.previousPath === selectedGitDiffPath)
     : null;
   const displayedGitDiffText = selectedGitDiffPath ? selectedGitFileDiff?.text || "" : gitDiffText;
+  const gitHunks = useMemo(() => buildGitHunks(displayedGitDiffText), [displayedGitDiffText]);
+  const selectedGitHunk = selectedGitHunkId ? gitHunks.find((item) => item.id === selectedGitHunkId) : null;
+  const focusedGitDiffText = selectedGitHunk ? selectedGitHunk.text : displayedGitDiffText;
   const gitEvidenceCopyText = useMemo(() => gitEvidenceText({
     t,
     activeProject,
@@ -2404,20 +2473,25 @@ function Conversation({
     aheadBehindLabel,
     selectedFile: selectedGitFile,
     selectedPath: selectedGitDiffPath,
-    selectedDiffText: displayedGitDiffText,
+    selectedDiffText: focusedGitDiffText,
     gitStat,
     rawGitStatus,
     gitRoot: gitRootPath,
     gitRelativePath,
     gitSummaryItems,
-  }), [t, activeProject, branchLabel, upstreamLabel, remoteLabel, aheadBehindLabel, selectedGitFile, selectedGitDiffPath, displayedGitDiffText, gitStat, rawGitStatus, gitRootPath, gitRelativePath, gitSummaryItems]);
-  const gitDiffRows = useMemo(() => buildGitDiffRows(displayedGitDiffText), [displayedGitDiffText]);
+    selectedHunk: selectedGitHunk,
+    hunkCount: gitHunks.length,
+  }), [t, activeProject, branchLabel, upstreamLabel, remoteLabel, aheadBehindLabel, selectedGitFile, selectedGitDiffPath, focusedGitDiffText, gitStat, rawGitStatus, gitRootPath, gitRelativePath, gitSummaryItems, selectedGitHunk, gitHunks.length]);
+  const gitDiffRows = useMemo(() => buildGitDiffRows(focusedGitDiffText), [focusedGitDiffText]);
   useEffect(() => {
     if (!selectedGitDiffPath) return;
     const stillExists = gitFiles.some((item) => item.path === selectedGitDiffPath || item.previousPath === selectedGitDiffPath)
       || gitFileDiffs.some((item) => item.path === selectedGitDiffPath || item.previousPath === selectedGitDiffPath);
     if (!stillExists) setSelectedGitDiffPath("");
   }, [selectedGitDiffPath, gitFiles, gitFileDiffs]);
+  useEffect(() => {
+    if (selectedGitHunkId && !gitHunks.some((item) => item.id === selectedGitHunkId)) setSelectedGitHunkId("");
+  }, [selectedGitHunkId, gitHunks]);
   async function runGitFileAction(action, file = selectedGitFile) {
     if (!file?.path || !activeProject?.path) return;
     if (!desktopApi?.runWorkspaceCommand) {
@@ -2929,7 +3003,10 @@ function Conversation({
                         <button
                           type="button"
                           className={cx("git-change-item", !selectedGitDiffPath && "selected")}
-                          onClick={() => setSelectedGitDiffPath("")}
+                          onClick={() => {
+                            setSelectedGitDiffPath("");
+                            setSelectedGitHunkId("");
+                          }}
                           title={t.allChanges}
                         >
                           <span className="git-change-status">Σ</span>
@@ -2940,7 +3017,10 @@ function Conversation({
                             type="button"
                             className={cx("git-change-item", item.kind && `kind-${item.kind}`, selectedGitDiffPath === item.path && "selected")}
                             key={`${item.status}-${item.path}`}
-                            onClick={() => setSelectedGitDiffPath(item.path)}
+                            onClick={() => {
+                              setSelectedGitDiffPath(item.path);
+                              setSelectedGitHunkId("");
+                            }}
                             title={item.previousPath ? `${item.previousPath} -> ${item.path}` : `${t.focusFileDiff}: ${item.path}`}
                           >
                             <span className="git-change-status">{item.status}</span>
@@ -3022,11 +3102,45 @@ function Conversation({
                       <div><dt>{t.gitSyncStatus}</dt><dd>{aheadBehindLabel}</dd></div>
                       <div><dt>{t.scheduleStatus}</dt><dd>{selectedGitFile ? gitChangeKindLabel(selectedGitFile.kind, t) : t.allChanges}</dd></div>
                       <div><dt>{t.changedLines}</dt><dd>{selectedGitFile ? `+${selectedGitFile.additions || 0} -${selectedGitFile.deletions || 0}` : `${gitFiles.length}`}</dd></div>
+                      <div><dt>{t.gitHunks}</dt><dd>{gitHunks.length}</dd></div>
+                      {selectedGitHunk && <div><dt>{t.selectedHunk}</dt><dd>{`+${selectedGitHunk.additions || 0} -${selectedGitHunk.deletions || 0}`}</dd></div>}
                       <div><dt>{t.gitRawStatus}</dt><dd>{selectedGitFile?.status || "Σ"}</dd></div>
                       <div><dt>{t.gitRoot}</dt><dd title={gitRootPath || ""}>{gitRootPath ? gitRootLabel : t.gitUnavailable}</dd></div>
                       {gitRelativePath && gitRelativePath !== "." && <div><dt>{t.gitRelativePath}</dt><dd>{gitRelativeLabel}</dd></div>}
                       <div className="wide-evidence-row"><dt>{t.path}</dt><dd title={activeProject?.path || ""}>{selectedGitDiffPath || compactPath(activeProject?.path || t.noProjectPath, 88)}</dd></div>
                     </dl>
+                    {gitHunks.length > 0 && (
+                      <section className="git-hunk-review" aria-label={t.gitHunkReview}>
+                        <div className="git-hunk-review-head">
+                          <span>{t.gitHunkReview}</span>
+                          <em>{`${gitHunks.length} ${t.gitHunks}`}</em>
+                        </div>
+                        <div className="git-hunk-list">
+                          <button
+                            type="button"
+                            className={cx("git-hunk-item", !selectedGitHunkId && "selected")}
+                            onClick={() => setSelectedGitHunkId("")}
+                            title={t.allHunks}
+                          >
+                            <strong>{t.allHunks}</strong>
+                            <span>{`+${gitHunks.reduce((sum, item) => sum + (item.additions || 0), 0)} -${gitHunks.reduce((sum, item) => sum + (item.deletions || 0), 0)}`}</span>
+                          </button>
+                          {gitHunks.slice(0, 16).map((hunk, index) => (
+                            <button
+                              type="button"
+                              className={cx("git-hunk-item", selectedGitHunkId === hunk.id && "selected")}
+                              onClick={() => setSelectedGitHunkId(hunk.id)}
+                              title={`${t.focusHunk}: ${hunk.filePath || selectedGitDiffPath || t.allChanges}`}
+                              key={hunk.id}
+                            >
+                              <strong>{`${index + 1}. ${hunk.header}`}</strong>
+                              <small>{hunk.filePath || selectedGitDiffPath || t.allChanges}</small>
+                              <span>{`+${hunk.additions || 0} -${hunk.deletions || 0}`}</span>
+                            </button>
+                          ))}
+                        </div>
+                      </section>
+                    )}
                     {gitAvailable && (
                       <section className="git-repo-actions" aria-label={t.commitOrPush}>
                         <label>
