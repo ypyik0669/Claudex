@@ -547,6 +547,40 @@ function upsertCommandRun(store, run) {
   return normalized;
 }
 
+function commandRunEventType(run, fallbackType = "workspace-command") {
+  const runId = String(run?.requestId || run?.id || "");
+  if (runId.startsWith("git_command_")) return "git-command";
+  return fallbackType;
+}
+
+function upsertCommandRunEvent(store, run, status, fallbackType = "workspace-command") {
+  const normalized = normalizeCommandRun(run, store);
+  const eventType = commandRunEventType(normalized, fallbackType);
+  const commandLine = normalized.commandLine || normalized.command || "";
+  const codeLabel = typeof normalized.code === "number" ? normalized.code : "-";
+  const detail = status === "running"
+    ? normalized.cwd
+    : status === "cancelled" || normalized.cancelled
+      ? "命令已取消。"
+      : `退出码: ${codeLabel}`;
+  return upsertRunEvent(store, {
+    id: normalized.requestId || normalized.id,
+    type: eventType,
+    status,
+    title: `${eventType === "git-command" ? "Git" : "Workspace"}: ${titleFromUserContent(commandLine || "command")}`,
+    detail,
+    commandLine,
+    cwd: normalized.cwd,
+    code: typeof normalized.code === "number" ? normalized.code : null,
+    durationMs: typeof normalized.durationMs === "number" ? normalized.durationMs : null,
+    stdout: normalized.stdout || "",
+    stderr: normalized.stderr || "",
+    project: normalized.project,
+    sessionId: String(run?.sessionId || normalized.requestId || normalized.id || ""),
+    createdAt: normalized.startedAt || now(),
+  });
+}
+
 function normalizeRunEvent(item, store) {
   const project = normalizeAutomationProject(item?.project, store);
   const status = ["running", "ok", "error", "cancelled"].includes(item?.status) ? item.status : "ok";
@@ -3649,10 +3683,32 @@ ipcMain.handle("workspace:save-file", (_event, { projectPath, relativePath, cont
 ipcMain.handle("workspace:cancel-command", (_event, { requestId } = {}) => {
   if (!String(requestId || "").startsWith("workspace_")) return { cancelled: false };
   const request = activeRequests.get(requestId);
+  let snapshot = null;
   if (request) {
-    if (typeof request.abort === "function") request.abort();
+    if (typeof request.cancel === "function") snapshot = request.cancel();
+    else if (typeof request.abort === "function") request.abort();
     else if (typeof request.kill === "function") request.kill();
     activeRequests.delete(requestId);
+    if (snapshot && request.kind === "workspace-command") {
+      const store = readStore();
+      const persisted = upsertCommandRun(store, {
+        ...snapshot,
+        kind: "workspace",
+        project: projectFromPath(snapshot.cwd),
+      });
+      const runEvent = upsertCommandRunEvent(store, persisted, "cancelled");
+      writeStore(store);
+      broadcastStoreUpdate(store);
+      const sanitized = sanitizeStore(store);
+      return {
+        ...snapshot,
+        commandRun: persisted,
+        commandRuns: sanitized.commandRuns,
+        runEvent,
+        runEvents: sanitized.runEvents,
+        cancelled: true,
+      };
+    }
   }
   return { cancelled: Boolean(request) };
 });
@@ -3663,6 +3719,19 @@ ipcMain.handle("workspace:run-command", async (_event, { projectPath, command, r
   if (!cmd) throw new Error("命令为空。");
   const runId = requestId || id("workspace_command");
   const startedAtIso = now();
+  const project = projectFromPath(cwd);
+  const startStore = readStore();
+  upsertCommandRunEvent(startStore, {
+    id: runId,
+    requestId: runId,
+    kind: "workspace",
+    command: cmd,
+    cwd,
+    project,
+    startedAt: startedAtIso,
+  }, "running");
+  writeStore(startStore);
+  broadcastStoreUpdate(startStore);
 
   const result = await new Promise((resolve) => {
     const startedAt = Date.now();
@@ -3675,8 +3744,27 @@ ipcMain.handle("workspace:run-command", async (_event, { projectPath, command, r
     let stdout = "";
     let stderr = "";
     let cancelled = false;
+    const cancelledSnapshot = () => ({
+      id: runId,
+      requestId: runId,
+      command: cmd,
+      cwd,
+      code: 130,
+      stdout,
+      stderr: trimOutput(`${stderr}\n命令已取消。`),
+      durationMs: Date.now() - startedAt,
+      cancelled: true,
+      startedAt: startedAtIso,
+      endedAt: now(),
+    });
     if (requestId) {
       activeRequests.set(requestId, {
+        kind: "workspace-command",
+        cancel: () => {
+          cancelled = true;
+          killChildProcess(child);
+          return cancelledSnapshot();
+        },
         kill: () => {
           cancelled = true;
           killChildProcess(child);
@@ -3739,13 +3827,21 @@ ipcMain.handle("workspace:run-command", async (_event, { projectPath, command, r
     id: runId,
     requestId: runId,
     kind: "workspace",
-    project: projectFromPath(cwd),
+    project,
   });
+  const runEvent = upsertCommandRunEvent(
+    store,
+    persisted,
+    result.cancelled ? "cancelled" : result.code === 0 ? "ok" : "error",
+  );
   writeStore(store);
   broadcastStoreUpdate(store);
+  const sanitized = sanitizeStore(store);
   return {
     ...result,
     commandRun: persisted,
-    commandRuns: sanitizeStore(store).commandRuns,
+    commandRuns: sanitized.commandRuns,
+    runEvent,
+    runEvents: sanitized.runEvents,
   };
 });
