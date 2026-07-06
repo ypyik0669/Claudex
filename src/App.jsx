@@ -638,7 +638,11 @@ const copy = {
     localSkillRegistryHint: "来自本机 SKILL.md 扫描，不是静态演示目录。",
     localSkillRegistryFallback: "未发现本机 SKILL.md，下面仅显示本地能力设置 fallback。",
     skillRegistryEvidence: "Skills registry 证据",
+    skillRegistryRoots: "扫描根目录",
+    skillRegistryComplete: "完整扫描",
+    skillRegistryTruncated: "已截断",
     openSkillFile: "打开 SKILL.md",
+    openSkillFileCommand: "打开技能文件",
     pinSkillEvidence: "固定证据",
     skillPath: "技能路径",
     skillRoot: "技能根目录",
@@ -8061,6 +8065,8 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
   const marketplacePluginRows = (Array.isArray(cliStatus?.marketplacePlugins) ? cliStatus.marketplacePlugins : []).filter((item) => structuredQueryMatch(item, normalizedQuery));
   const mcpServerRows = (Array.isArray(cliStatus?.mcpServers) ? cliStatus.mcpServers : []).filter((item) => structuredQueryMatch(item, normalizedQuery));
   const rawSkillRows = Array.isArray(cliStatus?.skillItems) ? cliStatus.skillItems : Array.isArray(cliStatus?.skills) ? cliStatus.skills : [];
+  const skillRegistryRoots = Array.isArray(cliStatus?.skillRoots) ? cliStatus.skillRoots.filter(Boolean) : [];
+  const skillRegistryTruncated = Boolean(cliStatus?.skillsTruncated);
   const skillRegistryKnown = Boolean(cliStatus);
   const hasRegisteredSkills = rawSkillRows.length > 0;
   const skillRegistryRows = rawSkillRows.filter((item) => structuredQueryMatch(item, normalizedQuery));
@@ -9154,6 +9160,18 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                     {t.refresh}
                   </button>
                 </div>
+                {skillRegistryKnown && (
+                  <dl className="structured-row-meta skill-registry-source-meta" aria-label={`${t.localSkillRegistry} metadata`}>
+                    <div>
+                      <dt>{t.skillRegistryRoots}</dt>
+                      <dd title={skillRegistryRoots.join("\n")}>{skillRegistryRoots.length ? skillRegistryRoots.map((root) => compactPath(root, 54)).join(" · ") : "-"}</dd>
+                    </div>
+                    <div>
+                      <dt>{t.status}</dt>
+                      <dd data-skill-registry-truncated={String(skillRegistryTruncated)}>{skillRegistryTruncated ? t.skillRegistryTruncated : t.skillRegistryComplete}</dd>
+                    </div>
+                  </dl>
+                )}
                 {hasRegisteredSkills && skillRegistryRows.length === 0 && <p className="empty-list">{t.noCapabilities}</p>}
                 {hasRegisteredSkills && skillRegistryRows.map((skill) => {
                   const skillId = String(skill.id || skill.name || skill.path || "").trim();
@@ -11064,9 +11082,10 @@ export function App() {
         };
       });
 
-    const skillRegistryCommands = (Array.isArray(capabilityCommandStatus?.skillItems) ? capabilityCommandStatus.skillItems : Array.isArray(capabilityCommandStatus?.skills) ? capabilityCommandStatus.skills : [])
+    const skillCommandItems = (Array.isArray(capabilityCommandStatus?.skillItems) ? capabilityCommandStatus.skillItems : Array.isArray(capabilityCommandStatus?.skills) ? capabilityCommandStatus.skills : [])
       .filter((skill) => skill?.id || skill?.name || skill?.path)
-      .slice(0, 24)
+      .slice(0, 24);
+    const skillRegistryCommands = skillCommandItems
       .map((skill) => {
         const id = skill.id || skill.name || skill.path;
         const label = skill.name || id;
@@ -11094,6 +11113,35 @@ export function App() {
             kind: "skill",
             id,
             query: label,
+          }),
+        };
+      });
+    const skillOpenFileCommands = skillCommandItems
+      .filter((skill) => skill?.root && skill?.relativePath)
+      .map((skill) => {
+        const id = skill.id || skill.name || skill.path;
+        const label = skill.name || id;
+        return {
+          id: `capability-skill-open:${commandIdSegment(id)}`,
+          title: `${t.openSkillFileCommand}: ${label}`,
+          subtitle: [
+            skill.relativePath,
+            skill.root ? compactPath(skill.root, 70) : "",
+          ].filter(Boolean).join(" · "),
+          group: t.capabilities,
+          keywords: [
+            "open skill file workspace SKILL.md local registry",
+            skill.id,
+            skill.name,
+            skill.description,
+            skill.path,
+            skill.root,
+            skill.relativePath,
+          ].filter(Boolean).join(" "),
+          action: () => openWorkspaceFile(skill.relativePath, {
+            projectPath: skill.root,
+            projectLabel: skill.name || skill.id || t.skills,
+            force: true,
           }),
         };
       });
@@ -11238,6 +11286,7 @@ export function App() {
       ...subagentRunCommands,
       ...installedPluginCommands,
       ...skillRegistryCommands,
+      ...skillOpenFileCommands,
       ...mcpServerCommands,
       ...marketplaceSourceCommands,
       ...customMarketplaceCommands,
