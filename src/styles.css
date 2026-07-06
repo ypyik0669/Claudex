@@ -3499,6 +3499,26 @@ select:focus-visible,
   white-space: nowrap;
 }
 
+.selected-run-evidence-side {
+  display: grid;
+  justify-items: end;
+  gap: 6px;
+}
+
+.selected-run-recovery-actions {
+  display: flex;
+  max-width: 260px;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 5px;
+}
+
+.selected-run-recovery-actions .plain-action {
+  min-height: 24px;
+  padding: 3px 7px;
+  font-size: 10.5px;
+}
+
 .pinned-run-evidence-body {
   border-top: 0;
   padding: 10px;

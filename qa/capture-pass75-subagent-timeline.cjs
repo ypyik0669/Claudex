@@ -345,19 +345,68 @@ app.whenReady().then(async () => {
       })();
     `, 5000));
 
+    assertStep("PASS75_ERROR_RECOVERY_ACTIONS_VISIBLE", await waitFor(win, `
+      (function() {
+        const panel = document.querySelector('.selected-run-evidence-panel.error');
+        return Boolean(
+          panel &&
+          panel.querySelector('[data-run-recovery-action="task-center"]') &&
+          panel.querySelector('[data-run-recovery-action="retry-subagent"]') &&
+          panel.querySelector('[data-run-recovery-action="continue-subagent"]') &&
+          panel.querySelector('[data-run-recovery-action="terminal"]') &&
+          panel.querySelector('[data-run-recovery-action="interactive-claude"]') &&
+          /Failing Timeline QA/.test(panel.textContent || '') &&
+          /pass75 fail timeline artifact evidence/.test(panel.textContent || '')
+        );
+      })()
+    `, 5000));
+
+    assertStep("PASS75_RETRY_SUBAGENT_FROM_SELECTED_EVIDENCE", await win.webContents.executeJavaScript(`
+      (function() {
+        const button = document.querySelector('.selected-run-evidence-panel [data-run-recovery-action="retry-subagent"]');
+        if (!button || button.disabled) return false;
+        button.click();
+        return true;
+      })();
+    `));
+
+    assertStep("PASS75_RETRY_SUBAGENT_FROM_SELECTED_EVIDENCE_PERSISTED", await waitFor(win, `
+      (async function() {
+        const state = await window.claudexDesktop.getState();
+        const failingRuns = state.subagentRuns?.filter((run) =>
+          run.nickname === 'Failing Timeline QA' &&
+          run.status === 'error' &&
+          /pass75 fail timeline artifact evidence/.test(run.task || '') &&
+          /pass75-subagent-failure artifact evidence/.test(run.summary || '') &&
+          /pass75-subagent-error/.test(run.stderr || '')
+        ) || [];
+        return Boolean(
+          failingRuns.length >= 2 &&
+          failingRuns.every((run) => run.project?.path === ${JSON.stringify(PROJECT_DIR)} && run.sessionId === 'default') &&
+          state.runEvents?.some((event) =>
+            failingRuns.some((run) => event.id === run.requestId) &&
+            event.type === 'subagent' &&
+            event.status === 'error'
+          )
+        );
+      })();
+    `, 12000));
+
     assertStep("PASS75_STORE_PERSISTED", (() => {
       const parsed = persistedState();
       const doneRun = parsed.subagentRuns?.find((item) => item.nickname === "Timeline QA");
       const errorRun = parsed.subagentRuns?.find((item) => item.nickname === "Failing Timeline QA");
+      const retryErrorRuns = parsed.subagentRuns?.filter((item) => item.nickname === "Failing Timeline QA" && item.status === "error") || [];
       const doneEvent = parsed.runEvents?.find((item) => item.id === doneRun?.requestId);
       const errorEvent = parsed.runEvents?.find((item) => item.id === errorRun?.requestId);
-      return parsed.subagentRuns?.length >= 2 &&
+      return parsed.subagentRuns?.length >= 3 &&
         doneRun?.status === "done" &&
         doneRun.code === 0 &&
         doneRun.artifacts?.length >= 3 &&
         errorRun?.status === "error" &&
         errorRun.code === 2 &&
         errorRun.artifacts?.length >= 3 &&
+        retryErrorRuns.length >= 2 &&
         doneEvent?.type === "subagent" &&
         doneEvent.status === "ok" &&
         errorEvent?.type === "subagent" &&

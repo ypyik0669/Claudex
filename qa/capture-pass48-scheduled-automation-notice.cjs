@@ -79,6 +79,16 @@ async function waitForLog(pattern, timeoutMs = 12000) {
   return false;
 }
 
+async function waitForLogCount(pattern, expectedCount, timeoutMs = 12000) {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    const matches = readCommandLog().match(pattern) || [];
+    if (matches.length >= expectedCount) return true;
+    await wait(150);
+  }
+  return false;
+}
+
 function assertStep(name, ok) {
   console.log(name, ok);
   if (!ok) throw new Error(`${name} failed`);
@@ -238,6 +248,58 @@ async function runTest() {
       );
     })()
   `, 8000));
+  assertStep("PASS48_OPEN_AUTOMATION_TIMELINE_FROM_TASK_CENTER", await win.webContents.executeJavaScript(`
+    (function() {
+      const card = document.querySelector('.automation-task-card.focused-task-card[data-automation-id="pass48-automation"]');
+      const button = Array.from(card?.querySelectorAll('button') || [])
+        .find((candidate) => /timeline/i.test((candidate.title || '') + (candidate.textContent || '')));
+      if (!button) return false;
+      button.click();
+      return true;
+    })();
+  `));
+  assertStep("PASS48_SELECTED_AUTOMATION_RECOVERY_VISIBLE", await waitFor(win, `
+    (function() {
+      const panel = document.querySelector('.selected-run-evidence-panel.error');
+      return Boolean(
+        panel &&
+        /pass48 scheduled prompt/.test(panel.textContent || '') &&
+        /pass48 scheduled automation failed/.test(panel.textContent || '') &&
+        panel.querySelector('[data-run-recovery-action="task-center"]') &&
+        panel.querySelector('[data-run-recovery-action="run-automation"]') &&
+        panel.querySelector('[data-run-recovery-action="terminal"]') &&
+        panel.querySelector('[data-run-recovery-action="interactive-claude"]')
+      );
+    })()
+  `, 8000));
+  assertStep("PASS48_RUN_AUTOMATION_FROM_SELECTED_EVIDENCE", await win.webContents.executeJavaScript(`
+    (function() {
+      const button = document.querySelector('.selected-run-evidence-panel [data-run-recovery-action="run-automation"]');
+      if (!button || button.disabled) return false;
+      button.click();
+      return true;
+    })();
+  `));
+  assertStep("PASS48_SELECTED_RECOVERY_COMMAND_RAN", await waitForLogCount(/pass48 scheduled prompt/g, 2, 12000));
+  assertStep("PASS48_SELECTED_RECOVERY_STORE_UPDATED", await waitFor(win, `
+    (async function() {
+      const state = await window.claudexDesktop.getState();
+      const automation = state.automations?.find((item) => item.id === 'pass48-automation');
+      const failedRuns = automation?.history?.filter((entry) =>
+        entry.status === 'failed' &&
+        /pass48 scheduled automation failed/.test((entry.error || '') + (entry.stderr || ''))
+      ) || [];
+      return Boolean(
+        failedRuns.length >= 2 &&
+        automation?.lastRun?.status === 'failed' &&
+        state.runEvents?.some((event) =>
+          event.id === automation?.lastRun?.id &&
+          event.type === 'automation' &&
+          event.status === 'error'
+        )
+      );
+    })();
+  `, 12000));
   assertStep("PASS48_STORE_PERSISTED", (() => {
     const parsed = JSON.parse(fs.readFileSync(DATA_FILE, "utf8"));
     const automation = parsed.automations?.find((item) => item.id === "pass48-automation");

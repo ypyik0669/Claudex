@@ -2491,6 +2491,8 @@ function runTimelineEvidenceForEvent(event, { commandRuns = [], automations = []
     const { automation, entry } = automationMatch;
     return {
       source: "automation",
+      automationId: automation?.id || "",
+      automationPrompt: automation?.prompt || "",
       title: event?.title || automation?.prompt || "",
       detail: entry.error || entry.detail || entry.summary || event?.detail || "",
       type: event?.type || "automation",
@@ -2512,6 +2514,11 @@ function runTimelineEvidenceForEvent(event, { commandRuns = [], automations = []
   if (subagentRun) {
     return {
       source: "subagent",
+      subagentRunId: subagentRun.id || "",
+      subagentRequestId: subagentRun.requestId || "",
+      subagentTask: subagentRun.task || "",
+      subagentNickname: subagentRun.nickname || "",
+      subagentContinuedAt: subagentRun.continuedAt || "",
       title: event?.title || subagentRun.nickname || "Subagent",
       detail: subagentRun.summary || subagentRun.stderr || event?.detail || subagentRun.task || "",
       type: event?.type || "subagent",
@@ -3712,6 +3719,79 @@ function Conversation({
         })
       : null
   ), [selectedRunEvent, commandRuns, automationItemsForUi, subagentRuns, sessions, t]);
+  const selectedRunAutomation = selectedRunEvidence?.automationId
+    ? automationItemsForUi.find((automation) => automation?.id === selectedRunEvidence.automationId)
+    : null;
+  const selectedRunSubagent = selectedRunEvidence?.subagentRunId || selectedRunEvidence?.subagentRequestId
+    ? (subagentRuns || []).find((run) => (
+        run?.id === selectedRunEvidence.subagentRunId
+        || run?.requestId === selectedRunEvidence.subagentRequestId
+      ))
+    : null;
+  const selectedRunRecoveryActions = [];
+  if (selectedRunAutomation) {
+    selectedRunRecoveryActions.push({
+      key: "task-center",
+      label: t.taskCenter,
+      icon: FileText,
+      onClick: () => onOpenTaskCenterFocus?.("automation", selectedRunAutomation.id, {
+        expandEvidence: true,
+        expandHistory: true,
+      }),
+    });
+    selectedRunRecoveryActions.push({
+      key: "run-automation",
+      label: selectedRunAutomation.status === "running" ? t.automationRunning : t.runNow,
+      icon: Send,
+      disabled: selectedRunAutomation.status === "running",
+      onClick: () => onRunAutomationNow?.(selectedRunAutomation),
+    });
+  }
+  if (selectedRunSubagent) {
+    selectedRunRecoveryActions.push({
+      key: "task-center",
+      label: t.taskCenter,
+      icon: FileText,
+      onClick: () => onOpenTaskCenterFocus?.("subagent", selectedRunSubagent.id || selectedRunSubagent.requestId, {
+        expandEvidence: true,
+        expandArtifacts: Array.isArray(selectedRunSubagent.artifacts) && selectedRunSubagent.artifacts.length > 0,
+      }),
+    });
+    if (selectedRunSubagent.status !== "running") {
+      selectedRunRecoveryActions.push({
+        key: "retry-subagent",
+        label: t.retrySubagent,
+        icon: RefreshCw,
+        onClick: () => onRunSubagent?.(selectedRunSubagent.task || "", selectedRunSubagent.nickname || "Subagent", {
+          projectPath: selectedRunSubagent.project?.path || selectedRunSubagent.cwd || selectedRunEvidence?.cwd || "",
+          sessionId: selectedRunSubagent.sessionId || selectedRunEvidence?.sessionId || "",
+        }),
+      });
+      selectedRunRecoveryActions.push({
+        key: "continue-subagent",
+        label: selectedRunSubagent.continuedAt ? t.subagentContinuedShort : t.continueSubagent,
+        icon: MessageSquarePlus,
+        disabled: Boolean(selectedRunSubagent.continuedAt),
+        onClick: () => onContinueSubagent?.(selectedRunSubagent),
+      });
+    }
+  }
+  if (selectedRunEvidence?.source === "automation" || selectedRunEvidence?.source === "subagent") {
+    selectedRunRecoveryActions.push({
+      key: "terminal",
+      label: t.openTerminal,
+      icon: SquareTerminal,
+      onClick: () => onOpenTerminal?.(selectedRunEvidence?.cwd || ""),
+    });
+    selectedRunRecoveryActions.push({
+      key: "interactive-claude",
+      label: t.openInteractiveClaude,
+      icon: Bot,
+      onClick: () => onOpenInteractiveClaude?.({
+        projectPath: selectedRunEvidence?.cwd || "",
+      }),
+    });
+  }
   useEffect(() => {
     if (!runTimelineEvents.length) return;
     if (selectedRunEventId && runTimelineEvents.some((event) => event.id === selectedRunEventId)) return;
@@ -4090,6 +4170,7 @@ function Conversation({
                     <SelectedRunEvidencePanel
                       event={selectedRunEvent}
                       evidence={selectedRunEvidence}
+                      recoveryActions={selectedRunRecoveryActions}
                       onCopy={onCopy}
                       onOpenWorkspaceFile={onOpenWorkspaceFile}
                       t={t}
@@ -5586,7 +5667,7 @@ function RunEvidenceDetails({ event, evidence, onCopy, onOpenWorkspaceFile, t, p
   );
 }
 
-function SelectedRunEvidencePanel({ event, evidence, onCopy, onOpenWorkspaceFile, t }) {
+function SelectedRunEvidencePanel({ event, evidence, recoveryActions = [], onCopy, onOpenWorkspaceFile, t }) {
   if (!event || !evidence) return null;
   return (
     <section className={cx("selected-run-evidence-panel", event.status)} aria-label={t.selectedRunEvidence}>
@@ -5596,7 +5677,30 @@ function SelectedRunEvidencePanel({ event, evidence, onCopy, onOpenWorkspaceFile
           <strong>{event.title || evidence.title || t.outputs}</strong>
           <p>{t.selectedRunEvidenceHint}</p>
         </div>
-        <time>{formatDate(event.createdAt)}</time>
+        <div className="selected-run-evidence-side">
+          <time>{formatDate(event.createdAt)}</time>
+          {recoveryActions.length > 0 && (
+            <div className="selected-run-recovery-actions" aria-label={t.errorActions}>
+              {recoveryActions.map((action) => {
+                const Icon = action.icon || FileText;
+                return (
+                  <button
+                    type="button"
+                    className="plain-action subtle-action"
+                    data-run-recovery-action={action.key}
+                    key={action.key}
+                    onClick={action.onClick}
+                    disabled={action.disabled}
+                    title={action.label}
+                  >
+                    <Icon size={12} />
+                    {action.label}
+                  </button>
+                );
+              })}
+            </div>
+          )}
+        </div>
       </div>
       <RunEvidenceDetails event={event} evidence={evidence} onCopy={onCopy} onOpenWorkspaceFile={onOpenWorkspaceFile} t={t} pinned />
     </section>
@@ -11616,8 +11720,9 @@ export function App() {
     await desktopApi?.openProject(activeProject?.path);
   }
 
-  async function openTerminal() {
-    await desktopApi?.openTerminal(activeProject?.path);
+  async function openTerminal(projectPath = "") {
+    const requestedPath = typeof projectPath === "string" ? projectPath : "";
+    await desktopApi?.openTerminal(requestedPath || activeProject?.path);
     showToast(t.terminalOpened);
   }
 
@@ -11629,12 +11734,18 @@ export function App() {
     await desktopApi.openIde({ projectPath: activeProject?.path, ideId: selectedIdeId });
   }
 
-  async function openInteractiveClaudeFromChat() {
+  async function openInteractiveClaudeFromChat(options = {}) {
     if (!desktopApi?.openClaudeTerminal) {
       showToast(t.desktopOnly);
       return;
     }
-    await desktopApi.openClaudeTerminal({ projectPath: activeProject?.path });
+    const payload = options && typeof options === "object" && !("currentTarget" in options)
+      ? options
+      : {};
+    await desktopApi.openClaudeTerminal({
+      projectPath: payload.projectPath || activeProject?.path,
+      prompt: payload.prompt || "",
+    });
   }
 
   async function openBrowserUrl(url) {
