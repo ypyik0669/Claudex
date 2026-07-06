@@ -718,6 +718,9 @@ const copy = {
     timelineEvidence: "Timeline 证据",
     timelineEvidenceEmpty: "这个事件只有状态摘要，还没有关联到原始输出。",
     timelineEventType: "事件类型",
+    timelineEventRawType: "Raw 类型",
+    timelineAutomationAction: "自动化操作",
+    timelineSubagentAction: "子代理操作",
     selectedRunEvidence: "选中证据",
     selectedRunEvidenceHint: "点击 timeline 行后，这里固定显示关联到本地 store/CLI 的完整证据。",
     automationRunHistoryShort: "最近 3 次",
@@ -2398,6 +2401,17 @@ function runTimelineStatusLabel(status, t) {
   return t.commandSucceeded;
 }
 
+function runTimelineTypeRaw(event, evidence) {
+  return String(evidence?.type || event?.type || "run");
+}
+
+function runTimelineTypeLabel(event, evidence, t) {
+  const raw = runTimelineTypeRaw(event, evidence);
+  if (raw === "automation-action") return t.timelineAutomationAction;
+  if (raw === "subagent-action") return t.timelineSubagentAction;
+  return raw;
+}
+
 function runTimelineEvidenceForEvent(event, { commandRuns = [], automations = [], subagentRuns = [], sessions = [], t } = {}) {
   const commandRun = findCommandRunForEvent(event, commandRuns);
   if (commandRun) {
@@ -2486,9 +2500,12 @@ function runTimelineEvidenceText(event, evidence, t) {
       .map((artifact, index) => subagentArtifactLabel(artifact, index, t))
       .filter(Boolean)
     : [];
+  const typeRaw = runTimelineTypeRaw(event, evidence);
+  const typeLabel = runTimelineTypeLabel(event, evidence, t);
   const lines = [
     `${t.outputs}: ${event?.title || evidence?.title || ""}`,
-    `${t.timelineEventType}: ${evidence?.type || event?.type || ""}`,
+    `${t.timelineEventType}: ${typeLabel}`,
+    typeRaw !== typeLabel ? `${t.timelineEventRawType}: ${typeRaw}` : "",
     `${t.scheduleStatus}: ${runTimelineStatusLabel(event?.status || evidence?.status, t)}`,
     `${t.activeProject}: ${evidence?.project || ""}`,
     `${t.automationSession}: ${evidence?.sessionId || "-"}`,
@@ -5327,6 +5344,8 @@ function NoticeCenter({ notices = [], onDismiss, onClear, onAction, t }) {
 
 function RunEvidenceDetails({ event, evidence, onCopy, t, pinned = false }) {
   const hasRawEvidence = runTimelineHasEvidence(evidence);
+  const typeRaw = runTimelineTypeRaw(event, evidence);
+  const typeLabel = runTimelineTypeLabel(event, evidence, t);
   const [copiedRunEvidence, setCopiedRunEvidence] = useState(false);
   const copiedRunEvidenceTimer = useRef(null);
   useEffect(() => () => {
@@ -5350,7 +5369,13 @@ function RunEvidenceDetails({ event, evidence, onCopy, t, pinned = false }) {
       {hasRawEvidence ? (
         <>
           <dl className="run-timeline-evidence-meta">
-            <div><dt>{t.timelineEventType}</dt><dd>{evidence.type || event?.type || "-"}</dd></div>
+            <div>
+              <dt>{t.timelineEventType}</dt>
+              <dd data-run-event-type={typeRaw} title={typeRaw}>
+                <span>{typeLabel}</span>
+                {typeRaw !== typeLabel && <code className="run-timeline-type-raw">{typeRaw}</code>}
+              </dd>
+            </div>
             <div><dt>{t.scheduleStatus}</dt><dd>{runTimelineStatusLabel(event?.status || evidence.status, t)}</dd></div>
             <div><dt>{t.activeProject}</dt><dd title={evidence.cwd || ""}>{evidence.project || "-"}</dd></div>
             <div><dt>{t.automationSession}</dt><dd>{evidence.sessionId || "-"}</dd></div>
@@ -5472,12 +5497,17 @@ function RunTimeline({
       <div className="run-timeline-list">
         {events.map((event) => {
           const evidence = runTimelineEvidenceForEvent(event, { commandRuns, automations, subagentRuns, sessions, t });
+          const typeRaw = runTimelineTypeRaw(event, evidence);
+          const typeLabel = runTimelineTypeLabel(event, evidence, t);
           return (
             <details className={cx("run-timeline-row", event.status, selectedEventId === event.id && "selected")} key={event.id}>
               <summary onClick={() => onSelectEvent?.(event.id)}>
                 <span className="run-timeline-dot" />
                 <div className="run-timeline-main">
-                  <strong>{event.title}</strong>
+                  <div className="run-timeline-title-row">
+                    <strong>{event.title}</strong>
+                    <span className="run-timeline-type-pill" data-run-event-type={typeRaw} title={typeRaw}>{typeLabel}</span>
+                  </div>
                   {event.detail && <p>{event.detail}</p>}
                 </div>
                 <time>{formatDate(event.createdAt)}</time>

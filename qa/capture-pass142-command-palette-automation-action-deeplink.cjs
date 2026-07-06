@@ -214,6 +214,42 @@ async function runTest() {
         /pass142-session/.test(panel);
     })()
   `, 10000));
+  assertStep("PASS142_AUTOMATION_ACTION_TYPE_LABEL_AND_RAW_PRESENT", await win.webContents.executeJavaScript(`
+    (function() {
+      const selectedRow = document.querySelector('.run-timeline-row.selected');
+      const rowType = selectedRow?.querySelector('.run-timeline-type-pill[data-run-event-type="automation-action"]');
+      const panelType = document.querySelector('.selected-run-evidence-panel [data-run-event-type="automation-action"]');
+      return Boolean(
+        rowType &&
+        /\\u81ea\\u52a8\\u5316\\u64cd\\u4f5c/.test(rowType.textContent || '') &&
+        panelType &&
+        /\\u81ea\\u52a8\\u5316\\u64cd\\u4f5c/.test(panelType.textContent || '') &&
+        /automation-action/.test(panelType.textContent || '')
+      );
+    })()
+  `));
+  assertStep("PASS142_AUTOMATION_ACTION_COPY_USES_LABEL_AND_RAW_TYPE", await win.webContents.executeJavaScript(`
+    (async function() {
+      Object.defineProperty(navigator, 'clipboard', {
+        configurable: true,
+        value: {
+          writeText: async (text) => {
+            window.__pass142ClipboardText = String(text || '');
+          },
+        },
+      });
+      const copyButton = document.querySelector('.selected-run-evidence-panel [data-run-timeline-action="copy-evidence"]');
+      if (!copyButton) return false;
+      copyButton.click();
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      const copied = window.__pass142ClipboardText || '';
+      return /\\u4e8b\\u4ef6\\u7c7b\\u578b:\\s*\\u81ea\\u52a8\\u5316\\u64cd\\u4f5c/.test(copied) &&
+        /Raw \\u7c7b\\u578b:\\s*automation-action/.test(copied) &&
+        /pass142 deleted automation action evidence prompt/.test(copied) &&
+        /pass142-project/.test(copied) &&
+        /pass142-session/.test(copied);
+    })()
+  `));
 
   console.log("PASS142_COMMAND_PALETTE_AUTOMATION_ACTION_DEEPLINK_DONE");
   cleanup();
