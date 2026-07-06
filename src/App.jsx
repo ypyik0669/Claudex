@@ -597,6 +597,7 @@ const copy = {
     openHomepage: "主页",
     source: "来源",
     status: "状态",
+    description: "描述",
     category: "分类",
     author: "作者",
     scope: "范围",
@@ -1566,6 +1567,24 @@ function pluginEvidenceText(plugin = {}, t) {
     plugin.tools ? [t.tools, summarizePanelPluginField(plugin.tools)] : null,
     plugin.permissions ? [t.allowedTools, summarizePanelPluginField(plugin.permissions)] : null,
     plugin.error ? [t.mcpError, plugin.error] : null,
+  ].filter(Boolean);
+  return rows.map(([label, value]) => `${label}: ${value}`).join("\n");
+}
+
+function marketplacePluginEvidenceText(plugin = {}, t) {
+  const rows = [
+    [t.pluginName, plugin.id || plugin.name],
+    plugin.name && plugin.name !== plugin.id ? [t.pluginName, plugin.name] : null,
+    plugin.marketplace ? [t.marketplace, plugin.marketplace] : null,
+    plugin.version && plugin.version !== "unknown" ? [t.version, plugin.version] : null,
+    plugin.category ? [t.category, plugin.category] : null,
+    plugin.author ? [t.author, plugin.author] : null,
+    plugin.installed ? [t.status, t.installedLocal] : [t.status, t.installFromMarketplace],
+    plugin.description ? [t.description, plugin.description] : null,
+    plugin.source ? [t.source, summarizePanelPluginField(plugin.source)] : null,
+    plugin.homepage ? [t.openHomepage, plugin.homepage] : null,
+    plugin.permissions ? [t.allowedTools, summarizePanelPluginField(plugin.permissions)] : null,
+    plugin.risk ? [t.marketplaceRisk, plugin.risk] : null,
   ].filter(Boolean);
   return rows.map(([label, value]) => `${label}: ${value}`).join("\n");
 }
@@ -7731,6 +7750,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
   const [cliActionEvidence, setCliActionEvidence] = useState(null);
   const [confirmingCliCommand, setConfirmingCliCommand] = useState(null);
   const [copiedPluginId, setCopiedPluginId] = useState("");
+  const [copiedMarketplacePluginId, setCopiedMarketplacePluginId] = useState("");
   const [copiedMcpServerKey, setCopiedMcpServerKey] = useState("");
   const [copiedCustomMarketplace, setCopiedCustomMarketplace] = useState("");
   const [marketplaceOutput, setMarketplaceOutput] = useState("");
@@ -8068,6 +8088,19 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
     }
     setCopiedPluginId(id);
     window.setTimeout(() => setCopiedPluginId((current) => (current === id ? "" : current)), 1200);
+  }
+
+  async function copyMarketplacePluginEvidence(plugin) {
+    const id = String(plugin?.id || plugin?.name || "").trim();
+    const evidence = marketplacePluginEvidenceText(plugin, t);
+    if (!id || !evidence) return;
+    try {
+      await navigator.clipboard?.writeText(evidence);
+    } catch (_error) {
+      // Clipboard permissions vary by shell; visible feedback still records the copy intent.
+    }
+    setCopiedMarketplacePluginId(id);
+    window.setTimeout(() => setCopiedMarketplacePluginId((current) => (current === id ? "" : current)), 1200);
   }
 
   async function copyMcpServerRaw(server) {
@@ -8487,6 +8520,10 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                           {t.openHomepage}
                         </button>
                       )}
+                      <button type="button" className="plain-action subtle-action" data-marketplace-plugin-action="copy-evidence" onClick={() => copyMarketplacePluginEvidence(item)} disabled={cliWorking} title={cliWorking ? t.workingHint : copiedMarketplacePluginId === item.id ? t.copied : t.copyEvidence}>
+                        {copiedMarketplacePluginId === item.id ? <Check size={13} /> : <Copy size={13} />}
+                        {copiedMarketplacePluginId === item.id ? t.copied : t.copyEvidence}
+                      </button>
                     </div>
                     <RowCliActionEvidence run={recentRun} t={t} onOpenOutputs={openCapabilityOutputs} onRetry={pluginRetry} />
                   </article>
