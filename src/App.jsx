@@ -774,6 +774,7 @@ const copy = {
     browserBackedByWebview: "来自真实 Electron webview 加载/失败事件",
     browserErrorCode: "错误码",
     browserMainFrame: "主框架",
+    reopenBrowserVisit: "重新打开",
     commandRunning: "运行中",
     cancelCommand: "停止命令",
     commandCancelled: "命令已停止",
@@ -2952,6 +2953,7 @@ function Conversation({
   onCommandRuns,
   sourceRefs,
   browserVisits,
+  onOpenBrowserVisit,
   notices,
   onDismissNotice,
   onClearNotices,
@@ -3982,7 +3984,7 @@ function Conversation({
                     </button>
                   </div>
                 </div>
-                <BrowserEvidenceList visits={browserVisits} t={t} />
+                <BrowserEvidenceList visits={browserVisits} onOpenVisit={onOpenBrowserVisit} t={t} />
               </div>
             )}
           </div>
@@ -4547,7 +4549,7 @@ function SubagentWorkbench({
   );
 }
 
-function BrowserEvidenceList({ visits = [], t }) {
+function BrowserEvidenceList({ visits = [], onOpenVisit, t }) {
   if (!visits?.length) {
     return (
       <div className="empty-panel compact-empty-panel">
@@ -4573,6 +4575,18 @@ function BrowserEvidenceList({ visits = [], t }) {
               {visit.lastEventAt ? ` · ${formatDate(visit.lastEventAt)}` : ""}
             </span>
             {visit.excerpt && <p title={visit.excerpt}>{visit.excerpt}</p>}
+            {onOpenVisit && visit.url && (
+              <button
+                type="button"
+                className="plain-action subtle-action"
+                data-browser-visit-action="open"
+                onClick={() => onOpenVisit(visit)}
+                title={visit.url}
+              >
+                <Globe2 size={13} />
+                {t.reopenBrowserVisit}
+              </button>
+            )}
           </div>
         </article>
       ))}
@@ -4999,6 +5013,7 @@ function ToolsPanel({
   onCommandRuns,
   browserVisits = [],
   onBrowserVisits,
+  browserOpenRequest,
   onClose,
   t,
 }) {
@@ -5214,6 +5229,12 @@ function ToolsPanel({
       webview.removeEventListener("did-navigate-in-page", handleNavigate);
     };
   }, [browserPreviewUrl, selectedTool, t.browserFailed]);
+
+  useEffect(() => {
+    if (!browserOpenRequest?.url) return;
+    openBrowserPreviewUrl(browserOpenRequest.url, browserOpenRequest.id || browserOpenRequest.visitId || "");
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [browserOpenRequest?.nonce]);
 
   useEffect(() => {
     if (!commandRequestId && !commandResult) return;
@@ -5591,9 +5612,8 @@ function ToolsPanel({
     await desktopApi?.openClaudeTerminal({ projectPath: activeProject?.path });
   }
 
-  function submitBrowserPreview(event) {
-    event?.preventDefault?.();
-    const nextUrl = normalizeBrowserUrl(url);
+  function openBrowserPreviewUrl(value, visitId = "") {
+    const nextUrl = normalizeBrowserUrl(value);
     if (!nextUrl) {
       setUrl("");
       setBrowserPreviewUrl("");
@@ -5602,7 +5622,7 @@ function ToolsPanel({
       browserVisitIdRef.current = "";
       return;
     }
-    browserVisitIdRef.current = `browser_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+    browserVisitIdRef.current = visitId || `browser_${Date.now()}_${Math.random().toString(16).slice(2)}`;
     browserFailedRef.current = false;
     setUrl(nextUrl);
     setBrowserError("");
@@ -5613,6 +5633,11 @@ function ToolsPanel({
     } else {
       setBrowserPreviewUrl(nextUrl);
     }
+  }
+
+  function submitBrowserPreview(event) {
+    event?.preventDefault?.();
+    openBrowserPreviewUrl(url);
   }
 
   function browserBack() {
@@ -6124,7 +6149,7 @@ function ToolsPanel({
                   <strong>{browserVisits?.length ? t.browserVisitCount.replace("{count}", browserVisits.length) : t.browserNoHistory}</strong>
                 </div>
               </div>
-              <BrowserEvidenceList visits={browserVisits} t={t} />
+              <BrowserEvidenceList visits={browserVisits} onOpenVisit={(visit) => openBrowserPreviewUrl(visit?.url, visit?.id)} t={t} />
             </section>
           </div>
         )}
@@ -9740,6 +9765,13 @@ export function App() {
     showToast(t.browserOpened);
   }
 
+  function openBrowserVisit(visit) {
+    const nextUrl = normalizeBrowserUrl(visit?.url);
+    if (!nextUrl) return;
+    setBrowserOpenRequest({ url: nextUrl, id: visit?.id || "", nonce: Date.now() });
+    activateTool("browser");
+  }
+
   async function toggleCapability(id, enabled) {
     const nextCaps = { ...(state.settings.capabilities || {}), [id]: enabled };
     const next = await desktopApi.saveCapabilities(nextCaps);
@@ -9776,6 +9808,7 @@ export function App() {
   const [runTimelineFocus, setRunTimelineFocus] = useState({ id: "", nonce: 0 });
   const [taskCenterFocus, setTaskCenterFocus] = useState({ type: "", id: "", nonce: 0 });
   const [composerFocusToken, setComposerFocusToken] = useState(0);
+  const [browserOpenRequest, setBrowserOpenRequest] = useState({ url: "", id: "", nonce: 0 });
 
   function openSettingsSurface(initialSection = "general") {
     const nextSection = settingsSectionCommandSpecs(t).some((section) => section.id === initialSection) ? initialSection : "general";
@@ -10124,6 +10157,7 @@ export function App() {
           onCommandRuns={(commandRuns) => setState((current) => ({ ...current, commandRuns }))}
           sourceRefs={state.sourceRefs}
           browserVisits={state.browserVisits}
+          onOpenBrowserVisit={openBrowserVisit}
           notices={state.notices}
           onDismissNotice={dismissNotice}
           onClearNotices={clearNotices}
@@ -10188,6 +10222,7 @@ export function App() {
           onCommandRuns={(commandRuns) => setState((current) => ({ ...current, commandRuns }))}
           browserVisits={state.browserVisits}
           onBrowserVisits={(browserVisits) => setState((current) => ({ ...current, browserVisits }))}
+          browserOpenRequest={browserOpenRequest}
           onClose={() => setRightPanelVisible(false)}
           t={t}
         />
