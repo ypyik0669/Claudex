@@ -3426,10 +3426,11 @@ function Conversation({
   }, [selectedGitHunkId, gitHunks]);
   useEffect(() => {
     const focusedPath = String(gitPanelFocus?.path || "").trim();
-    if (!focusedPath) return;
+    const focusedHunkId = String(gitPanelFocus?.hunkId || "").trim();
+    if (!focusedPath && !focusedHunkId) return;
     setSelectedGitDiffPath(focusedPath);
-    setSelectedGitHunkId("");
-  }, [gitPanelFocus?.path, gitPanelFocus?.nonce]);
+    setSelectedGitHunkId(focusedHunkId);
+  }, [gitPanelFocus?.path, gitPanelFocus?.hunkId, gitPanelFocus?.nonce]);
   async function runGitFileAction(action, file = selectedGitFile) {
     if (!file?.path || !activeProject?.path) return;
     if (!desktopApi?.runWorkspaceCommand) {
@@ -10426,6 +10427,36 @@ export function App() {
         };
       });
 
+    const gitHunkCommands = (Array.isArray(environment?.git?.diff?.fileDiffs) ? environment.git.diff.fileDiffs : [])
+      .filter((fileDiff) => fileDiff?.text && (fileDiff.path || fileDiff.previousPath))
+      .slice(0, 16)
+      .flatMap((fileDiff) => {
+        const filePath = fileDiff.path || fileDiff.previousPath || "";
+        return buildGitHunks(fileDiff.text)
+          .slice(0, 6)
+          .map((hunk, index) => ({
+            id: `git-hunk:${commandIdSegment(filePath)}:${commandIdSegment(hunk.id || String(index))}`,
+            title: `${t.focusHunk}: ${filePath}`,
+            subtitle: [
+              `${index + 1}. ${hunk.header}`,
+              `+${hunk.additions || 0} -${hunk.deletions || 0}`,
+              messageExcerpt(hunk.text, 96),
+            ].filter(Boolean).join(" · "),
+            group: t.changes,
+            keywords: [
+              "git hunk diff changes status evidence focus selected hunk patch",
+              filePath,
+              fileDiff.previousPath,
+              hunk.header,
+              hunk.text,
+              environment?.git?.branch,
+              environment?.git?.root,
+            ].filter(Boolean).join(" "),
+            action: () => openGitFileDiff(filePath, hunk.id),
+          }));
+      })
+      .slice(0, 36);
+
     const sourceRefCommands = (Array.isArray(state.sourceRefs) ? state.sourceRefs : [])
       .filter((source) => source?.path || source?.name || source?.id)
       .slice(0, 24)
@@ -10792,6 +10823,7 @@ export function App() {
       ...threadActionCommands,
       ...runEvidenceCommands,
       ...gitFileCommands,
+      ...gitHunkCommands,
       ...sourceRefCommands,
       ...browserEvidenceCommands,
       ...automationCommands,
@@ -11099,7 +11131,7 @@ export function App() {
   const [rightPanelVisible, setRightPanelVisible] = useState(false);
   const [bottomPanel, setBottomPanel] = useState("");
   const [runTimelineFocus, setRunTimelineFocus] = useState({ id: "", nonce: 0 });
-  const [gitPanelFocus, setGitPanelFocus] = useState({ path: "", nonce: 0 });
+  const [gitPanelFocus, setGitPanelFocus] = useState({ path: "", hunkId: "", nonce: 0 });
   const [sourcePanelFocus, setSourcePanelFocus] = useState({ id: "", path: "", nonce: 0 });
   const [browserPanelFocus, setBrowserPanelFocus] = useState({ id: "", url: "", nonce: 0 });
   const [taskCenterFocus, setTaskCenterFocus] = useState({ type: "", id: "", nonce: 0 });
@@ -11175,9 +11207,9 @@ export function App() {
     openBottomPanel("outputs");
   }
 
-  function openGitFileDiff(pathValue = "") {
+  function openGitFileDiff(pathValue = "", hunkId = "") {
     const focusedPath = String(pathValue || "").trim();
-    setGitPanelFocus({ path: focusedPath, nonce: Date.now() });
+    setGitPanelFocus({ path: focusedPath, hunkId: String(hunkId || "").trim(), nonce: Date.now() });
     openBottomPanel("changes");
   }
 
