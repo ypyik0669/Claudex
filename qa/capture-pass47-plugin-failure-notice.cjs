@@ -97,7 +97,7 @@ function writeInitialStore(claudeCommand) {
     version: 1,
     settings: {
       provider: "anthropic",
-      model: "claude-sonnet-4-5-20250929",
+      model: "claude-haiku-4-5-20251001",
       baseUrl: "https://api.example.invalid",
       temperature: 0.2,
       timeoutMs: 600000,
