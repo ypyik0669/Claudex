@@ -1081,6 +1081,15 @@ function findRecentMcpActionRun(runs) {
   return runs.find((run) => /(?:^|\s)mcp\s+list(?=\s|$)/i.test(capabilityCommandLine(run))) || null;
 }
 
+function pluginActionArgsFromRun(run, fallbackIdentifier = "") {
+  const commandLine = capabilityCommandLine(run);
+  const match = commandLine.match(/(?:^|\s)plugin\s+(enable|disable|update|install)\s+([^\s]+)/i);
+  const action = String(match?.[1] || "").trim().toLowerCase();
+  const identifier = String(match?.[2] || fallbackIdentifier || "").trim();
+  if (!action || !identifier) return "";
+  return `plugin ${action} ${identifier}`;
+}
+
 function capabilityActionFocusForCommand(args, context = {}) {
   const parts = String(args || "").trim().split(/\s+/).filter(Boolean);
   if (parts[0] !== "plugin" || !parts[1]) return null;
@@ -8260,6 +8269,13 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                 {installedPluginRows.length === 0 && <p className="empty-list">{t.pluginsEmpty}</p>}
                 {installedPluginRows.map((plugin) => {
                   const recentRun = findRecentPluginActionRun(recentCapabilityRuns, [plugin.id, plugin.name], ["enable", "disable", "update", "install"]);
+                  const pluginFocused = capabilityFocusMatches("plugin", plugin.id, plugin.name);
+                  const pluginRetryArgs = pluginFocused && recentRun && recentRun.code !== 0
+                    ? pluginActionArgsFromRun(recentRun, plugin.id)
+                    : "";
+                  const pluginRetry = pluginRetryArgs
+                    ? () => requestCapabilityClaude(pluginRetryArgs, `${t.pluginActions}: ${plugin.id}`)
+                    : null;
                   const pluginMeta = [
                     plugin.version && plugin.version !== "unknown" ? [t.version, plugin.version] : null,
                     plugin.scope ? [t.scope, plugin.scope] : null,
@@ -8271,7 +8287,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                   ].filter(Boolean);
                   return (
                     <article
-                      className={cx("structured-plugin-row", capabilityFocusMatches("plugin", plugin.id, plugin.name) && "focused-capability-row")}
+                      className={cx("structured-plugin-row", pluginFocused && "focused-capability-row")}
                       key={plugin.id}
                       data-plugin-id={plugin.id}
                     >
@@ -8299,7 +8315,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                       )}
                       <button type="button" className="plain-action subtle-action" onClick={() => requestCapabilityClaude(`plugin update ${plugin.id}`, `${t.updatePlugin}: ${plugin.id}`)} disabled={cliWorking} title={cliWorking ? t.workingHint : undefined}>{t.updatePlugin}</button>
                     </div>
-                    <RowCliActionEvidence run={recentRun} t={t} onOpenOutputs={openCapabilityOutputs} />
+                    <RowCliActionEvidence run={recentRun} t={t} onOpenOutputs={openCapabilityOutputs} onRetry={pluginRetry} />
                   </article>
                   );
                 })}
