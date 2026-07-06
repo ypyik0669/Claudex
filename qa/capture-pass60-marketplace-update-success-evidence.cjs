@@ -90,7 +90,7 @@ else if (args[0] === 'auth' && args[1] === 'status') out({ loggedIn: true, apiPr
 else if (args[0] === 'plugin' && args[1] === 'list' && args.includes('--json')) out([]);
 else if (args[0] === 'plugin' && args[1] === 'list') out('Installed plugins: none');
 else if (args[0] === 'mcp' && args[1] === 'list') out('✓ qa-mcp: connected');
-else if (args[0] === 'plugin' && args[1] === 'marketplace' && args[2] === 'list' && args.includes('--json')) out([{ name: 'qa-market', source: 'path', repo: marketplaceDir, installLocation: marketplaceDir }]);
+else if (args[0] === 'plugin' && args[1] === 'marketplace' && args[2] === 'list' && args.includes('--json')) out([{ name: 'qa-market', source: 'path', repo: marketplaceDir, installLocation: marketplaceDir, status: 'ready' }]);
 else if (args[0] === 'plugin' && args[1] === 'marketplace' && args[2] === 'list') out('Configured marketplaces:\\n\\n  > qa-market\\n    Source: Path (' + marketplaceDir + ')');
 else if (args[0] === 'plugin' && args[1] === 'marketplace' && args[2] === 'update') out('updated qa-market');
 else out('fake claude command: ' + args.join(' '));
@@ -109,7 +109,7 @@ writeJson(path.join(USER_DATA_DIR, "desktop-data.json"), {
   version: 1,
   settings: {
     provider: "anthropic",
-    model: "claude-sonnet-4-5-20250929",
+    model: "claude-haiku-4-5-20251001",
     baseUrl: "https://api.example.invalid",
     temperature: 0.2,
     timeoutMs: 600000,
@@ -181,6 +181,18 @@ async function runTest() {
     })();
   `));
   assertStep("PASS60_UPDATE_CONFIRM_VISIBLE", await waitFor(win, "Boolean(document.querySelector('.plugin-cli-confirm'))", 5000));
+  assertStep("PASS60_UPDATE_CONFIRM_SOURCE_AWARE", await win.webContents.executeJavaScript(`
+    (function() {
+      const confirm = document.querySelector('.plugin-cli-confirm');
+      const text = confirm?.textContent || '';
+      return Boolean(confirm &&
+        /plugin marketplace update/.test(text) &&
+        /qa-market/.test(text) &&
+        text.includes(${JSON.stringify(MARKETPLACE_DIR)}) &&
+        text.includes(${JSON.stringify(PROJECT_FIXTURE_DIR)}) &&
+        /本机市场索引/.test(text));
+    })();
+  `));
   assertStep("PASS60_UPDATE_NOT_RUN_BEFORE_CONFIRM", !/plugin marketplace update/.test(readCommandLog().slice(beforeUpdate.length)));
   assertStep("PASS60_CONFIRM_UPDATE", await win.webContents.executeJavaScript(`
     (function() {

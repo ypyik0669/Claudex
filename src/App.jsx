@@ -633,6 +633,7 @@ const copy = {
     marketplaceSourceCustom: "自定义市场",
     marketplaceInstallReview: "安装前核对",
     marketplaceInstallRisk: "安装会通过 Claude Code CLI 写入本机插件，并运行来自该市场来源的本地插件代码。",
+    marketplaceUpdateRisk: "更新会通过 Claude Code CLI 刷新本机市场索引，并影响后续可安装插件目录。",
     marketplaceRisk: "风险",
     managePlugins: "管理",
     openClaudePanel: "打开 Claude 面板",
@@ -6997,6 +6998,19 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
     ].filter(Boolean);
   }
 
+  function marketplaceUpdateReviewRows() {
+    const sourceRows = marketplaceRows.slice(0, 4).map((item, index) => [
+      `${t.marketplace} ${index + 1}`,
+      [item.name, item.status, item.source, item.repo || item.installLocation].filter(Boolean).join(" · ") || item.name,
+    ]);
+    return [
+      [t.commandCwd, activeProject?.path || t.localWorkspace],
+      ...sourceRows,
+      customMarketplaceRows.length ? [t.customMarketplaces, `${customMarketplaceRows.length} · ${t.customMarketplaceNotInjected}`] : null,
+      [t.marketplaceRisk, t.marketplaceUpdateRisk],
+    ].filter(Boolean);
+  }
+
   function requestCapabilityClaude(args, label = "", reviewRows = []) {
     const nextArgs = String(args || "").trim();
     if (!nextArgs || cliWorking) return;
@@ -7283,7 +7297,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                     <Bot size={14} />
                     {t.openClaudePanel}
                   </button>
-                  <button type="button" className="plain-action subtle-action" onClick={() => requestCapabilityClaude("plugin marketplace update", t.updatePlugin)} disabled={cliWorking} title={cliWorking ? t.workingHint : undefined}>
+                  <button type="button" className="plain-action subtle-action" onClick={() => requestCapabilityClaude("plugin marketplace update", `${t.updatePlugin}: ${t.marketplace}`, marketplaceUpdateReviewRows())} disabled={cliWorking} title={cliWorking ? t.workingHint : undefined}>
                     <RefreshCw size={14} className={cliAction === "plugin marketplace update" ? "spin" : undefined} />
                     {t.updatePlugin}
                   </button>
