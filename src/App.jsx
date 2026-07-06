@@ -1265,6 +1265,7 @@ function RuntimeHealthCard({
   onRetry,
   onOpenClaudePanel,
   onOpenRow,
+  onOpenIssue,
   onRecordEvidence,
   busy = false,
   compact = false,
@@ -1348,16 +1349,39 @@ function RuntimeHealthCard({
         <details className="runtime-health-issues" open={!compact}>
           <summary>{t.capabilityStatusIssueCount.replace("{count}", summary.issues.length)}</summary>
           <div className="runtime-health-issue-list">
-            {summary.issues.map((issue) => (
-              <article className="runtime-health-issue" key={issue.id}>
-                <div>
-                  <strong>{issue.label}</strong>
-                  <span>claude {issue.commandLine}</span>
-                </div>
-                <em>{issue.kind === "auth" ? t.needsKey : `${t.commandExit}: ${issue.code}`}</em>
-                {issue.error && <code title={issue.error}>{messageExcerpt(issue.error, 220)}</code>}
-              </article>
-            ))}
+            {summary.issues.map((issue) => {
+              const target = runtimeHealthTargetForIssue(issue);
+              const actionable = Boolean(target && onOpenIssue);
+              return (
+                <article
+                  className={cx("runtime-health-issue", actionable && "actionable")}
+                  key={issue.id}
+                  data-runtime-health-issue-id={issue.id}
+                  data-runtime-health-issue-target={target}
+                  data-runtime-health-issue-command={issue.commandLine}
+                >
+                  <div>
+                    <strong>{issue.label}</strong>
+                    <span>claude {issue.commandLine}</span>
+                  </div>
+                  <em>{issue.kind === "auth" ? t.needsKey : `${t.commandExit}: ${issue.code}`}</em>
+                  {actionable && (
+                    <button
+                      type="button"
+                      className="plain-action subtle-action runtime-health-issue-action"
+                      data-runtime-health-issue-action="open"
+                      data-runtime-health-issue-target={target}
+                      title={[issue.error, t.runtimeHealthOpenTarget].filter(Boolean).join("\n")}
+                      onClick={() => onOpenIssue(issue, summary, target)}
+                    >
+                      <ExternalLink size={12} />
+                      {t.runtimeHealthOpenTarget}
+                    </button>
+                  )}
+                  {issue.error && <code title={issue.error}>{messageExcerpt(issue.error, 220)}</code>}
+                </article>
+              );
+            })}
           </div>
         </details>
       )}
@@ -5557,8 +5581,7 @@ function ToolsPanel({
     loadPlugins();
   }
 
-  function openRuntimeHealthTarget(row) {
-    const target = runtimeHealthTargetForRow(row);
+  function openRuntimeHealthTargetName(target) {
     if (target === "plugins" || target === "mcp" || target === "marketplace") {
       onCapabilities?.(target);
       return;
@@ -5566,6 +5589,14 @@ function ToolsPanel({
     if (target === "claude") {
       setSelectedTool("claude");
     }
+  }
+
+  function openRuntimeHealthTarget(row) {
+    openRuntimeHealthTargetName(runtimeHealthTargetForRow(row));
+  }
+
+  function openRuntimeHealthIssue(issue) {
+    openRuntimeHealthTargetName(runtimeHealthTargetForIssue(issue));
   }
 
   function recordRuntimeHealthEvidence(summary, evidenceText) {
@@ -6047,6 +6078,7 @@ function ToolsPanel({
               onRetry={loadClaudeStatus}
               onOpenClaudePanel={openInteractiveClaude}
               onOpenRow={openRuntimeHealthTarget}
+              onOpenIssue={openRuntimeHealthIssue}
               onRecordEvidence={recordRuntimeHealthEvidence}
               busy={statusBusy}
               compact
@@ -6441,8 +6473,7 @@ function SettingsModal({
     action?.();
   }
 
-  function openRuntimeHealthTarget(row) {
-    const target = runtimeHealthTargetForRow(row);
+  function openRuntimeHealthTargetName(target) {
     if (target === "plugins" || target === "mcp" || target === "marketplace") {
       requestDeepLink(() => onOpenCapabilities?.(target));
       return;
@@ -6450,6 +6481,14 @@ function SettingsModal({
     if (target === "claude") {
       requestDeepLink(() => onOpenTool?.("claude"));
     }
+  }
+
+  function openRuntimeHealthTarget(row) {
+    openRuntimeHealthTargetName(runtimeHealthTargetForRow(row));
+  }
+
+  function openRuntimeHealthIssue(issue) {
+    openRuntimeHealthTargetName(runtimeHealthTargetForIssue(issue));
   }
 
   const settingsBody = (
@@ -6548,6 +6587,7 @@ function SettingsModal({
                 onRetry={refreshSettingsStatus}
                 onOpenClaudePanel={() => requestDeepLink(() => onOpenTool?.("claude"))}
                 onOpenRow={openRuntimeHealthTarget}
+                onOpenIssue={openRuntimeHealthIssue}
                 busy={settingsStatusBusy}
               />
             )}
@@ -6867,7 +6907,7 @@ function SettingsModal({
                   onRefresh={refreshSettingsStatus}
                   onOpenTool={(tool) => requestDeepLink(() => onOpenTool?.(tool))}
                   onOpenBottomPanel={(panel) => requestDeepLink(() => onOpenBottomPanel?.(panel))}
-                  onOpenCapabilities={() => requestDeepLink(onOpenCapabilities)}
+                  onOpenCapabilities={(target) => requestDeepLink(() => onOpenCapabilities?.(target))}
                   onOpenProjects={() => requestDeepLink(onOpenProjects)}
                   t={t}
                 />
@@ -7288,14 +7328,21 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
     setCustomMarketplaceUrl("");
   }
 
-  function openRuntimeHealthTarget(row) {
-    const target = runtimeHealthTargetForRow(row);
+  function openRuntimeHealthTargetName(target) {
     if (target === "plugins" || target === "mcp" || target === "marketplace") {
       setQuery("");
       setActiveTab(target);
       return;
     }
     if (target === "claude") onOpenClaudePanel?.();
+  }
+
+  function openRuntimeHealthTarget(row) {
+    openRuntimeHealthTargetName(runtimeHealthTargetForRow(row));
+  }
+
+  function openRuntimeHealthIssue(issue) {
+    openRuntimeHealthTargetName(runtimeHealthTargetForIssue(issue));
   }
 
   function openCapabilityOutputs() {
@@ -7378,6 +7425,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
         onRetry={refreshCliStatus}
         onOpenClaudePanel={onOpenClaudePanel}
         onOpenRow={openRuntimeHealthTarget}
+        onOpenIssue={openRuntimeHealthIssue}
         onRecordEvidence={recordRuntimeHealthEvidence}
         busy={cliWorking}
       />
@@ -8040,13 +8088,20 @@ function SettingsBackedStatus({
     : activeSection === "git"
       ? git?.raw || ""
       : "";
-  function openRuntimeHealthTarget(row) {
-    const target = runtimeHealthTargetForRow(row);
+  function openRuntimeHealthTargetName(target) {
     if (target === "plugins" || target === "mcp" || target === "marketplace") {
       onOpenCapabilities?.(target);
       return;
     }
     if (target === "claude") onOpenTool?.("claude");
+  }
+
+  function openRuntimeHealthTarget(row) {
+    openRuntimeHealthTargetName(runtimeHealthTargetForRow(row));
+  }
+
+  function openRuntimeHealthIssue(issue) {
+    openRuntimeHealthTargetName(runtimeHealthTargetForIssue(issue));
   }
   const actionsBySection = {
     profile: [
@@ -8125,6 +8180,7 @@ function SettingsBackedStatus({
             onRetry={onRefresh}
             onOpenClaudePanel={() => onOpenTool?.("claude")}
             onOpenRow={openRuntimeHealthTarget}
+            onOpenIssue={openRuntimeHealthIssue}
             busy={busy}
             compact
           />

@@ -4255,8 +4255,9 @@ button.runtime-health-row {
 .runtime-health-issue {
   min-width: 0;
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   gap: 5px 8px;
+  align-items: center;
   border-radius: var(--radius-sm);
   background: rgba(0, 0, 0, 0.24);
   padding: 7px;
@@ -4289,6 +4290,12 @@ button.runtime-health-row {
   color: #ef9b91;
   font-size: 10.5px;
   font-style: normal;
+  white-space: nowrap;
+}
+
+.runtime-health-issue-action {
+  min-height: 26px;
+  padding: 4px 7px;
   white-space: nowrap;
 }
 
