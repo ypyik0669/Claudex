@@ -728,6 +728,8 @@ const copy = {
     automationEvidence: "运行证据",
     copyAutomationEvidence: "复制证据",
     automationRawEvidence: "原始证据",
+    automationTaskId: "任务 ID",
+    automationRunId: "运行 ID",
     automationStdout: "标准输出",
     automationStderr: "标准错误",
     automationSession: "会话",
@@ -2378,20 +2380,28 @@ function automationRunOutput(entry = {}) {
 
 function automationEvidenceText(automation, entry, t, sessions = []) {
   const run = entry || automation?.lastRun || {};
+  const projectPath = automation?.project?.path || run?.project?.path || "";
   const lines = [
     `${t.automationTasks}: ${automation?.prompt || ""}`,
+    `${t.automationTaskId || "Automation ID"}: ${automation?.id || "-"}`,
+    `${t.automationRunId || "Run ID"}: ${run.id || "-"}`,
     `${t.scheduleStatus}: ${automationStatusLabel(run.status || automation?.status, t)}`,
     `${t.scheduleHistory}: ${automationTriggerLabel(run.trigger, t)}`,
+    `${t.scheduleRepeat}: ${automationScheduleTypeLabel(automation?.schedule?.type, t)}`,
+    `${t.scheduleTime}: ${automation?.schedule?.runAt || "-"}`,
+    `${t.scheduleNextRun}: ${automation?.nextRun || "-"}`,
     `${t.activeProject}: ${automationProjectLabel(automation, t)}`,
+    `${t.path}: ${projectPath || "-"}`,
     `${t.scheduleThread}: ${automationThreadLabel(automation, sessions, t)}`,
     `${t.automationSession}: ${run.sessionId || automation?.threadId || "-"}`,
     `${t.commandExit}: ${typeof run.code === "number" ? run.code : "-"}`,
     `${t.commandDuration}: ${formatDurationMs(run.durationMs)}`,
     "",
     run.error || run.detail || run.summary || "",
-    automationRunOutput(run),
+    run.stdout ? `${t.automationStdout}\n${run.stdout}` : "",
+    run.stderr ? `${t.automationStderr}\n${run.stderr}` : "",
   ];
-  return lines.filter((line, index) => index < 8 || String(line || "").trim()).join("\n");
+  return lines.filter((line, index) => index < 14 || String(line || "").trim()).join("\n");
 }
 
 function automationRunEntries(automation = {}) {

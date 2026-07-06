@@ -137,13 +137,14 @@ function writeInitialStore() {
       {
         id: "pass130-automation",
         prompt: "pass130 automation copy evidence task",
-        schedule: { type: "once", runAt: "" },
+        schedule: { type: "daily", runAt: "2026-07-09T00:30:00.000Z" },
         project,
         threadId: "pass130-session",
         enabled: true,
         status: "succeeded",
         createdAt: "2026-07-07T00:00:00.000Z",
         updatedAt: run.endedAt,
+        nextRun: "2026-07-09T00:30:00.000Z",
         lastRun: run,
         history: [run],
       },
@@ -200,7 +201,14 @@ async function runTest() {
     (function() {
       const card = document.querySelector('.automation-task-card[data-automation-id="pass130-automation"]');
       const text = window.__pass130Clipboard || '';
+      const projectDir = ${JSON.stringify(PROJECT_DIR)};
       return /pass130 automation copy evidence task/.test(text) &&
+        /pass130-automation-run/.test(text) &&
+        /pass130-session/.test(text) &&
+        /每天/.test(text) &&
+        /时间: 2026-07-09T00:30:00\\.000Z/.test(text) &&
+        /下次运行: 2026-07-09T00:30:00\\.000Z/.test(text) &&
+        text.includes(projectDir) &&
         /pass130 automation detail evidence/.test(text) &&
         /pass130 automation stdout evidence/.test(text) &&
         /pass130 automation stderr evidence/.test(text) &&
