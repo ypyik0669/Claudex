@@ -1488,7 +1488,7 @@ function rowCliActionEvidenceText(run, t) {
   ].filter(Boolean).join("\n");
 }
 
-function RowCliActionEvidence({ run, t, onOpenOutputs }) {
+function RowCliActionEvidence({ run, t, onOpenOutputs, onRetry }) {
   const [copied, setCopied] = useState(false);
   if (!run) return null;
   const commandLine = capabilityCommandLine(run);
@@ -1524,6 +1524,12 @@ function RowCliActionEvidence({ run, t, onOpenOutputs }) {
             <button type="button" className="plain-action subtle-action" onClick={onOpenOutputs} title={t.openOutputs}>
               <PanelBottom size={12} />
               {t.openOutputs}
+            </button>
+          )}
+          {onRetry && status === "error" && (
+            <button type="button" className="plain-action subtle-action" onClick={onRetry} title={t.retry}>
+              <RefreshCw size={12} />
+              {t.retry}
             </button>
           )}
         </div>
@@ -7681,6 +7687,12 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
       }
       setCliError(message);
       recordCapabilityNotice(`${t.pluginActions}: ${nextArgs}`, message, `capability:action:${nextArgs}`);
+      if (nextActionFocus) {
+        setActiveTab(nextActionFocus.tab);
+        setFilter("all");
+        setQuery(nextActionFocus.query || nextActionFocus.id || "");
+        setCapabilityActionFocus({ ...nextActionFocus, nonce: Date.now() });
+      }
     } finally {
       setCliAction("");
     }
@@ -8040,6 +8052,9 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                 {marketplaceRows.length === 0 && <p className="empty-list">{t.noCliOutputYet}</p>}
                 {marketplaceRows.map((item) => {
                   const sourceFocused = capabilityFocusMatches("marketplace-source", item.name);
+                  const sourceRetry = sourceFocused && recentMarketplaceActionRun && recentMarketplaceActionRun.code !== 0
+                    ? () => requestCapabilityClaude("plugin marketplace update", `${t.updatePlugin}: ${t.marketplace}`, marketplaceUpdateReviewRows())
+                    : null;
                   const sourceMeta = [
                     item.version ? [t.version, item.version] : null,
                     item.status ? [t.status, item.status] : null,
@@ -8069,7 +8084,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                         )}
                       </div>
                       <em>{item.status || item.source || t.source}</em>
-                      <RowCliActionEvidence run={sourceFocused ? recentMarketplaceActionRun : null} t={t} onOpenOutputs={openCapabilityOutputs} />
+                      <RowCliActionEvidence run={sourceFocused ? recentMarketplaceActionRun : null} t={t} onOpenOutputs={openCapabilityOutputs} onRetry={sourceRetry} />
                     </article>
                   );
                 })}
