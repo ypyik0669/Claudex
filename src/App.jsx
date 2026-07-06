@@ -1688,6 +1688,67 @@ function structuredQueryMatch(item, query) {
   ].join(" ").toLowerCase().includes(normalized);
 }
 
+function summarizePanelPluginField(value) {
+  if (Array.isArray(value)) return value.map((item) => String(item || "").trim()).filter(Boolean).join(", ");
+  if (value && typeof value === "object") {
+    return Object.entries(value)
+      .filter(([, itemValue]) => itemValue !== false && itemValue !== null && itemValue !== undefined && itemValue !== "")
+      .map(([key, itemValue]) => itemValue === true ? key : `${key}:${itemValue}`)
+      .join(", ");
+  }
+  return String(value || "").trim();
+}
+
+function panelPluginNameFromId(idValue) {
+  const idText = String(idValue || "").trim();
+  return idText.split("@")[0] || idText;
+}
+
+function panelPluginMarketplaceFromId(idValue) {
+  const idText = String(idValue || "").trim();
+  return idText.includes("@") ? idText.split("@").slice(1).join("@") : "";
+}
+
+function panelPluginItemsFromJsonText(output) {
+  let parsed = null;
+  try {
+    parsed = JSON.parse(String(output || "[]"));
+  } catch {
+    return [];
+  }
+  const sourceItems = Array.isArray(parsed)
+    ? parsed
+    : Array.isArray(parsed?.plugins)
+      ? parsed.plugins
+      : Array.isArray(parsed?.installedPlugins)
+        ? parsed.installedPlugins
+        : Array.isArray(parsed?.items)
+          ? parsed.items
+          : [];
+  return sourceItems.map((plugin) => {
+    const idText = String(plugin?.id || plugin?.name || "").trim();
+    const statusText = String(plugin?.status || plugin?.state || "").trim();
+    const enabled = typeof plugin?.enabled === "boolean"
+      ? plugin.enabled
+      : typeof plugin?.disabled === "boolean"
+        ? !plugin.disabled
+        : /enabled|active|ready|ok|connected/i.test(statusText);
+    return {
+      id: idText,
+      name: String(plugin?.name || panelPluginNameFromId(idText)).trim() || idText,
+      marketplace: String(plugin?.marketplace || panelPluginMarketplaceFromId(idText)).trim(),
+      version: String(plugin?.version || "unknown"),
+      scope: String(plugin?.scope || ""),
+      enabled,
+      status: statusText || (enabled ? "enabled" : "disabled"),
+      installPath: String(plugin?.installPath || plugin?.path || plugin?.location || ""),
+      source: summarizePanelPluginField(plugin?.source || plugin?.installSource || plugin?.registry || plugin?.repository || plugin?.repo || plugin?.url),
+      tools: summarizePanelPluginField(plugin?.tools || plugin?.toolNames || plugin?.commands || plugin?.slashCommands || plugin?.mcpTools),
+      permissions: summarizePanelPluginField(plugin?.permissions || plugin?.allowedTools || plugin?.capabilities || plugin?.permissionSummary),
+    };
+  }).filter((plugin) => plugin.id);
+}
+
 function mcpStatusLabel(status, t) {
   if (status === "ok") return t.mcpStatusOk;
   if (status === "pending") return t.mcpStatusPending;
@@ -5572,14 +5633,20 @@ function ToolsPanel({
   }
 
   async function loadPlugins() {
-    if (!desktopApi?.runClaudeCommand) return;
+    if (!desktopApi?.getClaudeStatus && !desktopApi?.runClaudeCommand) return;
     setPluginsLoading(true);
     setPluginsError("");
     try {
+      if (desktopApi?.getClaudeStatus) {
+        const result = await desktopApi.getClaudeStatus({ projectPath: activeProject?.path });
+        setClaudeStatus(result);
+        setPluginItems(Array.isArray(result?.pluginItems) ? result.pluginItems : []);
+        return;
+      }
       const requestId = `plugins_${Date.now()}_${Math.random().toString(16).slice(2)}`;
       const result = await desktopApi.runClaudeCommand({ projectPath: activeProject?.path, args: "plugin list --json", requestId });
       if (result.code !== 0) throw new Error(result.stderr || t.pluginsLoadError);
-      setPluginItems(JSON.parse(result.stdout || "[]"));
+      setPluginItems(panelPluginItemsFromJsonText(result.stdout));
     } catch (error) {
       setPluginsError(error.message || t.pluginsLoadError);
       setPluginItems([]);
@@ -5685,7 +5752,11 @@ function ToolsPanel({
       stderr: claudeStream.stderr,
     }
     : null;
-  const installedPluginItems = pluginItems || claudeStatus?.pluginItems || [];
+  const installedPluginItems = Array.isArray(pluginItems)
+    ? pluginItems
+    : Array.isArray(claudeStatus?.pluginItems)
+      ? claudeStatus.pluginItems
+      : [];
 
   return (
     <aside className="tools-panel">
