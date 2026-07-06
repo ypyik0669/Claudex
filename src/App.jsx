@@ -9474,6 +9474,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                       {item.author && <div><dt>{t.author}</dt><dd>{item.author}</dd></div>}
                       {item.source && <div><dt>{t.source}</dt><dd title={item.source}>{messageExcerpt(item.source, 76)}</dd></div>}
                       {item.permissions && <div><dt>{t.allowedTools}</dt><dd title={item.permissions}>{messageExcerpt(item.permissions, 54)}</dd></div>}
+                      {item.risk && <div><dt>{t.marketplaceRisk}</dt><dd title={item.risk}>{messageExcerpt(item.risk, 64)}</dd></div>}
                     </dl>
                     <div className="marketplace-card-actions">
                       <button type="button" className="plain-action" onClick={() => requestCapabilityClaude(`plugin install ${item.id}`, `${t.installFromMarketplace}: ${item.name || item.id}`, marketplaceInstallReviewRows(item))} disabled={cliWorking || item.installed} title={item.installed ? t.installedLocal : cliWorking ? t.workingHint : t.installFromMarketplace}>

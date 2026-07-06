@@ -1613,6 +1613,31 @@ function marketplacePluginRiskSummary(plugin) {
   return String(explicit || "").trim();
 }
 
+function marketplaceManifestRootCandidates(marketplace) {
+  return [
+    marketplace?.installLocation,
+    marketplace?.repo,
+    marketplace?.path,
+    marketplace?.source,
+  ]
+    .map((value) => String(value || "").trim())
+    .filter(Boolean)
+    .filter((value) => (
+      fs.existsSync(value) &&
+      fs.statSync(value).isDirectory()
+    ));
+}
+
+function readMarketplaceManifest(marketplace) {
+  for (const root of marketplaceManifestRootCandidates(marketplace)) {
+    const direct = readJsonFileSafe(path.join(root, ".claude-plugin", "marketplace.json"));
+    if (direct) return { manifest: direct, root };
+    const nested = readJsonFileSafe(path.join(root, "marketplace.json"));
+    if (nested) return { manifest: nested, root };
+  }
+  return { manifest: null, root: "" };
+}
+
 function loadMarketplacePluginCatalog(marketplaces, installedPlugins) {
   const installedIds = new Set();
   for (const plugin of installedPlugins || []) {
@@ -1622,7 +1647,7 @@ function loadMarketplacePluginCatalog(marketplaces, installedPlugins) {
   }
   const catalog = [];
   for (const marketplace of marketplaces || []) {
-    const manifest = readJsonFileSafe(path.join(marketplace.installLocation || "", ".claude-plugin", "marketplace.json"));
+    const { manifest, root } = readMarketplaceManifest(marketplace);
     const plugins = Array.isArray(manifest?.plugins) ? manifest.plugins : [];
     for (const plugin of plugins) {
       const name = String(plugin.name || "").trim();
@@ -1642,6 +1667,7 @@ function loadMarketplacePluginCatalog(marketplaces, installedPlugins) {
         source: marketplacePluginSourceSummary(plugin.source),
         permissions: marketplacePluginPermissionsSummary(plugin),
         risk: marketplacePluginRiskSummary(plugin),
+        installLocation: root,
         installed,
       });
       if (catalog.length >= 240) return catalog;
