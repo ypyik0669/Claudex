@@ -1606,6 +1606,20 @@ function marketplaceSourceEvidenceText(source = {}, t) {
   return rows.map(([label, value]) => `${label}: ${value}`).join("\n");
 }
 
+function mcpServerEvidenceText(server = {}, t) {
+  const rows = [
+    [t.mcpServers, server.name],
+    server.status ? [t.status, `${mcpStatusLabel(server.status, t)} (${server.status})`] : null,
+    server.detail ? [t.description, server.detail] : null,
+    typeof server.tools === "number" ? [t.tools, String(server.tools)] : null,
+    server.transport ? [t.mcpTransport, server.transport] : null,
+    server.source ? [t.source, server.source] : null,
+    server.error ? [t.mcpError, server.error] : null,
+    server.raw ? [t.rawOutput, server.raw] : null,
+  ].filter(Boolean);
+  return rows.map(([label, value]) => `${label}: ${value}`).join("\n");
+}
+
 function RowCliActionEvidence({ run, t, onOpenOutputs, onRetry }) {
   const [copied, setCopied] = useState(false);
   if (!run) return null;
@@ -7770,6 +7784,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
   const [copiedMarketplacePluginId, setCopiedMarketplacePluginId] = useState("");
   const [copiedMarketplaceSourceId, setCopiedMarketplaceSourceId] = useState("");
   const [copiedMcpServerKey, setCopiedMcpServerKey] = useState("");
+  const [copiedMcpEvidenceKey, setCopiedMcpEvidenceKey] = useState("");
   const [copiedCustomMarketplace, setCopiedCustomMarketplace] = useState("");
   const [marketplaceOutput, setMarketplaceOutput] = useState("");
   const [marketplaceBusy, setMarketplaceBusy] = useState(false);
@@ -8144,6 +8159,19 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
     }
     setCopiedMcpServerKey(key);
     window.setTimeout(() => setCopiedMcpServerKey((current) => (current === key ? "" : current)), 1200);
+  }
+
+  async function copyMcpServerEvidence(server) {
+    const key = mcpServerKey(server);
+    const evidence = mcpServerEvidenceText(server, t);
+    if (!key || !evidence) return;
+    try {
+      await navigator.clipboard?.writeText(evidence);
+    } catch (_error) {
+      // Clipboard permissions vary by shell; visible feedback still records the copy intent.
+    }
+    setCopiedMcpEvidenceKey(key);
+    window.setTimeout(() => setCopiedMcpEvidenceKey((current) => (current === key ? "" : current)), 1200);
   }
 
   async function copyCustomMarketplaceUrl(url) {
@@ -8794,6 +8822,10 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                         <button type="button" className="plain-action subtle-action" onClick={() => copyMcpServerRaw(server)} title={server.raw || server.detail || server.name}>
                           {copiedMcpServerKey === rowKey ? <Check size={13} /> : <Copy size={13} />}
                           {copiedMcpServerKey === rowKey ? t.copied : t.copyRawMcpStatus}
+                        </button>
+                        <button type="button" className="plain-action subtle-action" data-mcp-server-action="copy-evidence" onClick={() => copyMcpServerEvidence(server)} title={copiedMcpEvidenceKey === rowKey ? t.copied : t.copyEvidence}>
+                          {copiedMcpEvidenceKey === rowKey ? <Check size={13} /> : <Copy size={13} />}
+                          {copiedMcpEvidenceKey === rowKey ? t.copied : t.copyEvidence}
                         </button>
                         <button type="button" className="plain-action subtle-action" onClick={() => runCapabilityClaude("mcp list")} disabled={cliWorking} title={cliWorking ? t.workingHint : undefined}>
                           <RefreshCw size={13} className={rowRecording ? "spin" : undefined} />
