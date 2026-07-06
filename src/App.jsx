@@ -2836,6 +2836,7 @@ function Conversation({
   onContinueSubagent,
   onOpenRunTimeline,
   runTimelineFocus,
+  taskCenterFocus,
   draft,
   setDraft,
   composerFocusToken,
@@ -3811,6 +3812,7 @@ function Conversation({
                 onCopy={onCopy}
                 onOpenInteractiveClaude={onOpenInteractiveClaude}
                 onOpenClaudePanel={() => onActivateTool("claude")}
+                focus={taskCenterFocus}
                 t={t}
               />
             )}
@@ -3975,6 +3977,7 @@ function SubagentWorkbench({
   onCopy,
   onOpenInteractiveClaude,
   onOpenClaudePanel,
+  focus,
   t,
 }) {
   const [task, setTask] = useState("");
@@ -3985,6 +3988,8 @@ function SubagentWorkbench({
   const activeRuns = runs.filter((run) => !run.archivedAt);
   const archivedRunCount = runs.length - activeRuns.length;
   const visibleRuns = showArchivedRuns ? runs : activeRuns;
+  const focusedAutomationId = focus?.type === "automation" ? String(focus.id || "") : "";
+  const focusedSubagentId = focus?.type === "subagent" ? String(focus.id || "") : "";
   const runCount = t.subagentCount.replace("{count}", visibleRuns.length);
   const automationItems = Array.isArray(automations) ? automations : [];
   const activeAutomationCount = automationItems.filter((item) => ["running", "scheduled"].includes(item.status)).length;
@@ -4043,6 +4048,21 @@ function SubagentWorkbench({
     await onCopy?.(automationEvidenceText(item, entry, t, sessions));
   }
 
+  useEffect(() => {
+    if (!focusedSubagentId) return;
+    const run = runs.find((item) => item?.id === focusedSubagentId || item?.requestId === focusedSubagentId);
+    if (run?.archivedAt) setShowArchivedRuns(true);
+  }, [focusedSubagentId, runs]);
+
+  useEffect(() => {
+    const id = focusedAutomationId || focusedSubagentId;
+    if (!id) return undefined;
+    const timer = window.setTimeout(() => {
+      document.querySelector(".focused-task-card")?.scrollIntoView?.({ block: "center", behavior: "smooth" });
+    }, 80);
+    return () => window.clearTimeout(timer);
+  }, [focusedAutomationId, focusedSubagentId, focus?.nonce, showArchivedRuns]);
+
   return (
     <div className="subagent-workbench">
       <div className="bottom-panel-grid subagent-workbench-head">
@@ -4088,7 +4108,12 @@ function SubagentWorkbench({
                   ? `${t.scheduleNextRun}: ${formatDate(item.nextRun)}`
                   : t.noAutomationHistory;
               return (
-                <article className={cx("automation-task-card", item.status || "idle")} key={item.id}>
+                <article
+                  className={cx("automation-task-card", item.status || "idle", focusedAutomationId === item.id && "focused-task-card")}
+                  key={item.id}
+                  data-automation-id={item.id}
+                  aria-current={focusedAutomationId === item.id ? "true" : undefined}
+                >
                   <div className="automation-task-main">
                     <div className="schedule-item-title">
                       <strong>{messageExcerpt(item.prompt, 110)}</strong>
@@ -4286,7 +4311,13 @@ function SubagentWorkbench({
       </div>
       <div className="subagent-run-list">
         {visibleRuns.map((run) => (
-          <article className={cx("subagent-run-card", run.status, run.archivedAt && "archived")} key={run.id}>
+          <article
+            className={cx("subagent-run-card", run.status, run.archivedAt && "archived", (focusedSubagentId === run.id || focusedSubagentId === run.requestId) && "focused-task-card")}
+            key={run.id}
+            data-subagent-run-id={run.id}
+            data-subagent-request-id={run.requestId || ""}
+            aria-current={(focusedSubagentId === run.id || focusedSubagentId === run.requestId) ? "true" : undefined}
+          >
             <div className="subagent-run-head">
               <div>
                 <strong>{run.nickname || "Subagent"}</strong>
@@ -8803,8 +8834,73 @@ export function App() {
         action: () => openRunTimeline(event.id),
       }));
 
-    return [...projectCommands, ...threadCommands, ...runEvidenceCommands];
-  }, [state.projects, state.sessions, runEvents, t, activeProject?.path, activeProject?.name]);
+    const automationCommands = (state.automations || [])
+      .filter((automation) => automation?.id)
+      .slice(0, 16)
+      .map((automation) => {
+        const lastRun = automation.lastRun || {};
+        return {
+          id: `automation:${commandIdSegment(automation.id)}`,
+          title: `${t.automationTasks}: ${messageExcerpt(automation.prompt, 72)}`,
+          subtitle: [
+            automationProjectLabel(automation, t),
+            automationStatusLabel(automation.status || lastRun.status, t),
+            lastRun.error || lastRun.detail || lastRun.summary,
+          ].filter(Boolean).join(" · "),
+          group: t.taskCenter,
+          keywords: [
+            "automation schedule task center run history failure evidence",
+            automation.id,
+            automation.prompt,
+            automation.status,
+            automation.threadId,
+            automation.project?.name,
+            automation.project?.path,
+            lastRun.id,
+            lastRun.status,
+            lastRun.error,
+            lastRun.detail,
+            lastRun.summary,
+            lastRun.stdout,
+            lastRun.stderr,
+          ].filter(Boolean).join(" "),
+          action: () => openTaskCenterFocus("automation", automation.id),
+        };
+      });
+
+    const subagentCommands = (state.subagentRuns || [])
+      .filter((run) => run?.id || run?.requestId)
+      .slice(0, 16)
+      .map((run) => ({
+        id: `subagent:${commandIdSegment(run.id || run.requestId)}`,
+        title: `${t.subagents}: ${run.nickname || "Subagent"}`,
+        subtitle: [
+          run.task,
+          subagentStatusLabel(run.status, t),
+          run.archivedAt ? t.showArchivedSubagents : "",
+        ].filter(Boolean).join(" · "),
+        group: t.taskCenter,
+        keywords: [
+          "subagent agent task center run artifact failure evidence",
+          run.id,
+          run.requestId,
+          run.nickname,
+          run.task,
+          run.status,
+          run.summary,
+          run.stdout,
+          run.stderr,
+          run.sessionId,
+          run.project?.name,
+          run.project?.path,
+          run.cwd,
+          ...(Array.isArray(run.artifacts) ? run.artifacts.map((artifact) => [artifact?.label, artifact?.path, artifact?.type].filter(Boolean).join(" ")) : []),
+        ].filter(Boolean).join(" "),
+        action: () => openTaskCenterFocus("subagent", run.id || run.requestId),
+      }));
+
+    return [...projectCommands, ...threadCommands, ...automationCommands, ...subagentCommands, ...runEvidenceCommands];
+  }, [state.projects, state.sessions, state.automations, state.subagentRuns, runEvents, t, activeProject?.path, activeProject?.name]);
 
   async function createAutomation(payload) {
     if (!desktopApi?.createAutomation) return;
@@ -9086,6 +9182,7 @@ export function App() {
   const [rightPanelVisible, setRightPanelVisible] = useState(false);
   const [bottomPanel, setBottomPanel] = useState("");
   const [runTimelineFocus, setRunTimelineFocus] = useState({ id: "", nonce: 0 });
+  const [taskCenterFocus, setTaskCenterFocus] = useState({ type: "", id: "", nonce: 0 });
   const [composerFocusToken, setComposerFocusToken] = useState(0);
 
   function openSettingsSurface() {
@@ -9149,6 +9246,17 @@ export function App() {
     const focusedId = String(eventId || "").trim();
     setRunTimelineFocus({ id: focusedId, nonce: Date.now() });
     openBottomPanel("outputs");
+  }
+
+  function openTaskCenterFocus(type, id = "") {
+    const focusedId = String(id || "").trim();
+    setSettingsOpen(false);
+    setCapabilitiesOpen(false);
+    setProjectsOpen(false);
+    setScheduledOpen(false);
+    setCommandsOpen(false);
+    setTaskCenterFocus({ type, id: focusedId, nonce: Date.now() });
+    setBottomPanel("subagents");
   }
 
   function activateTool(tool) {
@@ -9242,7 +9350,6 @@ export function App() {
   });
 
   const commands = [
-    ...stateDeepLinkCommands,
     { id: "new", title: t.newChat, subtitle: t.chats, group: t.chats, kbd: "Ctrl+N", keywords: "聊天 对话 会话", action: createSession },
     { id: "threads-current", title: t.projectFilteredChats, subtitle: t.chats, group: t.chats, keywords: "current project chats threads 当前项目 聊天 线程 历史", action: () => openThreadScope("current") },
     { id: "threads-all", title: t.allProjectChats, subtitle: t.chats, group: t.chats, keywords: "all project chats threads history 全部项目 聊天 线程 历史", action: () => openThreadScope("all") },
@@ -9266,6 +9373,7 @@ export function App() {
     { id: "panel-sources", title: t.sources, subtitle: t.bottomPanel, group: t.bottomPanel, keywords: "sources files project 来源 文件", action: () => openBottomPanel("sources") },
     { id: "panel-subagents", title: t.subagents, subtitle: t.bottomPanel, group: t.bottomPanel, keywords: "subagents agents 子代理 agent", action: () => openBottomPanel("subagents") },
     { id: "panel-task-center", title: t.taskCenter, subtitle: t.bottomPanel, group: t.bottomPanel, keywords: "task center automations subagents evidence 任务中心 自动化 子代理", action: () => openBottomPanel("subagents") },
+    ...stateDeepLinkCommands,
     { id: "review", title: t.quickReview, subtitle: t.schedulePrompt, group: t.chats, keywords: "审查 代码 风险", action: () => setDraft(t.quickReview) },
     { id: "plan", title: t.quickPlan, subtitle: t.schedulePrompt, group: t.chats, keywords: "计划 实现 验证", action: () => setDraft(t.quickPlan) },
     {
@@ -9411,6 +9519,7 @@ export function App() {
           onContinueSubagent={continueSubagent}
           onOpenRunTimeline={openRunTimeline}
           runTimelineFocus={runTimelineFocus}
+          taskCenterFocus={taskCenterFocus}
           draft={draft}
           setDraft={setDraft}
           composerFocusToken={composerFocusToken}
