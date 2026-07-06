@@ -622,9 +622,11 @@ function normalizeBrowserVisit(item, store) {
   const project = normalizeAutomationProject(item?.project, store);
   const startedAt = isoOrEmpty(item?.startedAt) || now();
   const endedAt = isoOrEmpty(item?.endedAt) || (status === "loading" ? "" : now());
+  const finalUrl = normalizeUrlForStore(item?.finalUrl || item?.resolvedUrl || item?.validatedUrl || item?.url);
   return {
     id: item?.id || id("browser"),
     url,
+    finalUrl,
     title: trimOutput(String(item?.title || ""), 400),
     excerpt: trimOutput(String(item?.excerpt || item?.snapshot?.text || ""), 1200),
     status,
@@ -3403,6 +3405,7 @@ ipcMain.handle("app:open-browser-url", async (_event, value) => {
   upsertBrowserVisit(store, {
     id: payload.visitId || id("browser"),
     url,
+    finalUrl: url,
     status: "external",
     external: true,
     project,

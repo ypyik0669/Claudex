@@ -6561,6 +6561,44 @@ button.runtime-health-row {
   line-height: 1.35;
 }
 
+.browser-evidence-meta {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px 8px;
+  margin: 3px 0 1px;
+}
+
+.browser-evidence-meta div {
+  min-width: 0;
+  display: grid;
+  gap: 1px;
+}
+
+.browser-evidence-meta dt {
+  color: #777b76;
+  font-size: 10px;
+  line-height: 1.1;
+}
+
+.browser-evidence-meta dd {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: #d4d7d2;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  line-height: 1.2;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.browser-evidence-card .browser-evidence-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+
 .notice-center {
   gap: 10px;
 }

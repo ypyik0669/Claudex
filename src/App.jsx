@@ -779,6 +779,14 @@ const copy = {
     browserNoHistory: "还没有浏览器证据。",
     browserBackedByWebview: "来自真实 Electron webview 加载/失败事件",
     browserErrorCode: "错误码",
+    browserFinalUrl: "最终 URL",
+    browserPageTitle: "标题",
+    browserCapturedAt: "捕获时间",
+    browserValidatedUrl: "验证 URL",
+    browserHttpStatus: "HTTP",
+    browserExcerpt: "摘录",
+    copyBrowserEvidence: "复制证据",
+    copiedBrowserEvidence: "证据已复制",
     browserMainFrame: "主框架",
     reopenBrowserVisit: "重新打开",
     commandRunning: "运行中",
@@ -1870,6 +1878,38 @@ function browserStatusLabel(status, t) {
   if (status === "external") return t.browserStatusExternal;
   if (status === "ready") return t.browserStatusReady;
   return t.browserIdle;
+}
+
+function browserVisitFinalUrl(visit = {}) {
+  return visit.finalUrl || visit.validatedUrl || visit.url || "";
+}
+
+function browserVisitCapturedAt(visit = {}) {
+  return visit.snapshotCapturedAt || visit.endedAt || visit.lastEventAt || visit.startedAt || "";
+}
+
+function browserVisitMetadataRows(visit = {}, t) {
+  const rows = [
+    [t.browserFinalUrl, browserVisitFinalUrl(visit)],
+    [t.scheduleStatus, browserStatusLabel(visit.status, t)],
+    [t.browserCapturedAt, browserVisitCapturedAt(visit)],
+    [t.browserPageTitle, visit.title],
+    [t.browserHttpStatus, Number.isFinite(Number(visit.httpStatus)) ? String(Number(visit.httpStatus)) : ""],
+    [t.browserErrorCode, Number.isFinite(Number(visit.errorCode)) ? String(Number(visit.errorCode)) : ""],
+    [t.browserValidatedUrl, visit.validatedUrl],
+    [t.activeProject, visit.project?.path || visit.project?.name || ""],
+  ];
+  return rows
+    .map(([label, value]) => [label, String(value || "").trim()])
+    .filter(([, value]) => value);
+}
+
+function browserVisitEvidenceText(visit = {}, t) {
+  const lines = browserVisitMetadataRows(visit, t).map(([label, value]) => `${label}: ${value}`);
+  if (visit.error) lines.push(`${t.requestError}: ${visit.error}`);
+  if (visit.isMainFrame) lines.push(`${t.browserMainFrame}: true`);
+  if (visit.excerpt) lines.push(`${t.browserExcerpt}: ${visit.excerpt}`);
+  return lines.join("\n");
 }
 
 function noticeLevelLabel(level, t) {
@@ -4630,6 +4670,19 @@ function SubagentWorkbench({
 }
 
 function BrowserEvidenceList({ visits = [], onOpenVisit, t }) {
+  const [copiedVisitId, setCopiedVisitId] = useState("");
+
+  async function copyVisitEvidence(visit) {
+    const key = visit?.id || visit?.url || "";
+    try {
+      await navigator.clipboard?.writeText(browserVisitEvidenceText(visit, t));
+    } catch {
+      // Clipboard permissions vary; the visible feedback still records the copy intent.
+    }
+    setCopiedVisitId(key);
+    window.setTimeout(() => setCopiedVisitId((current) => (current === key ? "" : current)), 1200);
+  }
+
   if (!visits?.length) {
     return (
       <div className="empty-panel compact-empty-panel">
@@ -4641,35 +4694,61 @@ function BrowserEvidenceList({ visits = [], onOpenVisit, t }) {
   }
   return (
     <div className="browser-evidence-list" aria-label={t.browserEvidence}>
-      {visits.slice(0, 10).map((visit) => (
-        <article className={cx("browser-evidence-card", visit.status)} key={visit.id}>
-          <Globe2 size={14} />
-          <div>
-            <strong title={visit.url}>{visit.url}</strong>
-            {visit.title && <small title={visit.title}>{visit.title}</small>}
-            <span>
-              {browserStatusLabel(visit.status, t)}
-              {visit.error ? ` · ${visit.error}` : ""}
-              {Number.isFinite(Number(visit.errorCode)) ? ` · ${t.browserErrorCode} ${visit.errorCode}` : ""}
-              {visit.isMainFrame ? ` · ${t.browserMainFrame}` : ""}
-              {visit.lastEventAt ? ` · ${formatDate(visit.lastEventAt)}` : ""}
-            </span>
-            {visit.excerpt && <p title={visit.excerpt}>{visit.excerpt}</p>}
-            {onOpenVisit && visit.url && (
-              <button
-                type="button"
-                className="plain-action subtle-action"
-                data-browser-visit-action="open"
-                onClick={() => onOpenVisit(visit)}
-                title={visit.url}
-              >
-                <Globe2 size={13} />
-                {t.reopenBrowserVisit}
-              </button>
-            )}
-          </div>
-        </article>
-      ))}
+      {visits.slice(0, 10).map((visit) => {
+        const visitKey = visit.id || visit.url;
+        const metadataRows = browserVisitMetadataRows(visit, t);
+        return (
+          <article className={cx("browser-evidence-card", visit.status)} key={visitKey}>
+            <Globe2 size={14} />
+            <div>
+              <strong title={browserVisitFinalUrl(visit)}>{browserVisitFinalUrl(visit) || visit.url}</strong>
+              {visit.title && <small title={visit.title}>{visit.title}</small>}
+              <span>
+                {browserStatusLabel(visit.status, t)}
+                {visit.error ? ` · ${visit.error}` : ""}
+                {Number.isFinite(Number(visit.errorCode)) ? ` · ${t.browserErrorCode} ${visit.errorCode}` : ""}
+                {visit.isMainFrame ? ` · ${t.browserMainFrame}` : ""}
+                {visit.lastEventAt ? ` · ${formatDate(visit.lastEventAt)}` : ""}
+              </span>
+              {metadataRows.length > 0 && (
+                <dl className="browser-evidence-meta" data-browser-evidence-meta="">
+                  {metadataRows.map(([label, value]) => (
+                    <div key={`${visitKey}-${label}`}>
+                      <dt>{label}</dt>
+                      <dd title={value}>{value}</dd>
+                    </div>
+                  ))}
+                </dl>
+              )}
+              {visit.excerpt && <p title={visit.excerpt}>{visit.excerpt}</p>}
+              <div className="browser-evidence-actions">
+                <button
+                  type="button"
+                  className="plain-action subtle-action"
+                  data-browser-visit-action="copy"
+                  onClick={() => copyVisitEvidence(visit)}
+                  title={t.copyBrowserEvidence}
+                >
+                  <Copy size={13} />
+                  {copiedVisitId === visitKey ? t.copiedBrowserEvidence : t.copyBrowserEvidence}
+                </button>
+                {onOpenVisit && visit.url && (
+                  <button
+                    type="button"
+                    className="plain-action subtle-action"
+                    data-browser-visit-action="open"
+                    onClick={() => onOpenVisit(visit)}
+                    title={visit.url}
+                  >
+                    <Globe2 size={13} />
+                    {t.reopenBrowserVisit}
+                  </button>
+                )}
+              </div>
+            </div>
+          </article>
+        );
+      })}
     </div>
   );
 }
@@ -5284,7 +5363,7 @@ function ToolsPanel({
       browserFailedRef.current = false;
       setBrowserStatus("loading");
       setBrowserError("");
-      recordBrowserVisit({ url: browserPreviewUrl, status: "loading" });
+      recordBrowserVisit({ url: browserPreviewUrl, finalUrl: browserPreviewUrl, status: "loading" });
     };
     const handleStop = async () => {
       if (browserFailedRef.current) return;
@@ -5293,7 +5372,7 @@ function ToolsPanel({
       const currentWebview = browserWebviewRef.current;
       const finalUrl = currentWebview?.getURL?.() || browserPreviewUrl;
       const snapshot = await captureBrowserSnapshot(currentWebview);
-      recordBrowserVisit({ url: finalUrl, status: "ready", ...snapshot });
+      recordBrowserVisit({ url: finalUrl, finalUrl, status: "ready", ...snapshot });
       onRunEvent?.({
         type: "browser",
         status: "ok",
@@ -5309,6 +5388,7 @@ function ToolsPanel({
       setBrowserError(error);
       recordBrowserVisit({
         url: event?.validatedURL || browserPreviewUrl,
+        finalUrl: event?.validatedURL || browserPreviewUrl,
         status: "error",
         error,
         errorCode: event?.errorCode,
@@ -5325,7 +5405,7 @@ function ToolsPanel({
     const handleNavigate = (event) => {
       if (event?.url && /^https?:\/\//i.test(event.url)) {
         setUrl(event.url);
-        recordBrowserVisit({ url: event.url, status: browserStatus === "error" ? "error" : "ready" });
+        recordBrowserVisit({ url: event.url, finalUrl: event.url, status: browserStatus === "error" ? "error" : "ready" });
       }
     };
     webview.addEventListener("did-start-loading", handleStart);
@@ -5739,7 +5819,7 @@ function ToolsPanel({
     setUrl(nextUrl);
     setBrowserError("");
     setBrowserStatus("loading");
-    recordBrowserVisit({ id: browserVisitIdRef.current, url: nextUrl, status: "loading" });
+    recordBrowserVisit({ id: browserVisitIdRef.current, url: nextUrl, finalUrl: nextUrl, status: "loading" });
     if (nextUrl === browserPreviewUrl) {
       browserWebviewRef.current?.reload?.();
     } else {
@@ -5769,7 +5849,7 @@ function ToolsPanel({
     browserFailedRef.current = false;
     setBrowserStatus("loading");
     setBrowserError("");
-    recordBrowserVisit({ id: browserVisitIdRef.current, url: browserPreviewUrl, status: "loading" });
+    recordBrowserVisit({ id: browserVisitIdRef.current, url: browserPreviewUrl, finalUrl: browserPreviewUrl, status: "loading" });
     browserWebviewRef.current?.reload?.();
   }
 
