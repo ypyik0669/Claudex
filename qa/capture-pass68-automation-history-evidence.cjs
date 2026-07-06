@@ -51,7 +51,7 @@ writeJson(DATA_FILE, {
   version: 1,
   settings: {
     provider: "anthropic",
-    model: "claude-sonnet-4-5-20250929",
+    model: "claude-haiku-4-5-20251001",
     baseUrl: "https://api.example.invalid",
     temperature: 0.2,
     timeoutMs: 600000,
@@ -197,6 +197,29 @@ app.whenReady().then(async () => {
         }
         await new Promise((resolve) => setTimeout(resolve, 300));
         return /已复制/.test(document.body.textContent || '');
+      })();
+    `, 5000));
+
+    assertStep("PASS68_OPEN_TIMELINE_FROM_AUTOMATION", await waitFor(win, `
+      (async function() {
+        if (!window.__pass68OpenedTimeline) {
+          const open = Array.from(document.querySelectorAll('.schedule-item-actions button'))
+            .find((button) => /timeline/i.test(button.title || '') || /timeline/i.test(button.textContent || ''));
+          if (!open) return false;
+          window.__pass68OpenedTimeline = true;
+          open.click();
+        }
+        await new Promise((resolve) => setTimeout(resolve, 300));
+        const panel = document.querySelector('.selected-run-evidence-panel');
+        const text = panel?.textContent || '';
+        return Boolean(
+          panel &&
+          /automation/.test(text) &&
+          /pass68 evidence prompt/.test(text) &&
+          /pass68-automation-result/.test(text) &&
+          /pass68-stderr-evidence/.test(text) &&
+          /pass68-claude-session/.test(text)
+        );
       })();
     `, 5000));
 

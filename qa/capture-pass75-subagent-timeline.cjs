@@ -278,30 +278,37 @@ app.whenReady().then(async () => {
       })();
     `, 12000));
 
-    assertStep("PASS75_ERROR_TIMELINE_EVIDENCE", await waitFor(win, `
+    assertStep("PASS75_OPEN_ERROR_CARD_SELECTS_TIMELINE", await waitFor(win, `
       (async function() {
-        if (!window.__pass75OpenedErrorOutputs) {
-          window.__pass75OpenedErrorOutputs = true;
-          const open = Array.from(document.querySelectorAll('.subagent-run-foot button'))
-            .find((button) => /timeline/i.test(button.textContent || ''));
-          if (open) open.click();
-          else {
-            const label = '\\u8f93\\u51fa';
-            const outputs = Array.from(document.querySelectorAll('.bottom-panel-tabs button, .workspace-context-button'))
-              .find((item) => item.getAttribute('aria-label') === label || (item.textContent || '').includes(label));
-            if (!outputs) return false;
-            outputs.click();
-          }
+        if (!window.__pass75OpenedErrorCardTimeline) {
+          const card = document.querySelector('.subagent-run-card.error');
+          const open = Array.from(card?.querySelectorAll('.subagent-run-foot button') || [])
+            .find((button) => /timeline/i.test(button.title || '') || /timeline/i.test(button.textContent || ''));
+          if (!open) return false;
+          window.__pass75OpenedErrorCardTimeline = true;
+          open.click();
         }
-        await new Promise((resolve) => setTimeout(resolve, 250));
-        const row = Array.from(document.querySelectorAll('.run-timeline-row.error'))
-          .find((item) => /pass75-subagent-failure artifact evidence|Failing Timeline QA/.test(item.textContent || ''));
-        if (!row) return false;
-        row.querySelector('summary')?.click();
-        await new Promise((resolve) => setTimeout(resolve, 150));
+        await new Promise((resolve) => setTimeout(resolve, 300));
         const panel = document.querySelector('.selected-run-evidence-panel.error');
         const text = panel?.textContent || '';
         return Boolean(
+          panel &&
+          /subagent/.test(text) &&
+          /pass75-subagent-failure artifact evidence/.test(text) &&
+          /pass75-subagent-error/.test(text) &&
+          /pass75-error-session/.test(text) &&
+          /Failing Timeline QA/.test(text)
+        );
+      })();
+    `, 5000));
+
+    assertStep("PASS75_ERROR_TIMELINE_EVIDENCE", await waitFor(win, `
+      (async function() {
+        const row = document.querySelector('.run-timeline-row.selected.error');
+        const panel = document.querySelector('.selected-run-evidence-panel.error');
+        const text = panel?.textContent || '';
+        return Boolean(
+          row &&
           panel &&
           /subagent/.test(text) &&
           /pass75-subagent-failure artifact evidence/.test(text) &&

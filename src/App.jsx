@@ -2779,6 +2779,8 @@ function Conversation({
   onCancelSubagent,
   onArchiveSubagent,
   onContinueSubagent,
+  onOpenRunTimeline,
+  runTimelineFocus,
   draft,
   setDraft,
   composerFocusToken,
@@ -3057,6 +3059,10 @@ function Conversation({
     if (selectedRunEventId && runEvents.some((event) => event.id === selectedRunEventId)) return;
     setSelectedRunEventId(runEvents[0].id);
   }, [runEvents, selectedRunEventId]);
+  useEffect(() => {
+    const focusedId = String(runTimelineFocus?.id || "").trim();
+    if (focusedId) setSelectedRunEventId(focusedId);
+  }, [runTimelineFocus?.id, runTimelineFocus?.nonce]);
   const activeTaskCount = automationItemsForUi.filter((item) => ["running", "scheduled"].includes(item.status)).length
     + (subagentRuns || []).filter((run) => run.status === "running").length;
   const contextTabs = [
@@ -3735,7 +3741,11 @@ function Conversation({
                 onCancelSubagent={onCancelSubagent}
                 onArchiveSubagent={onArchiveSubagent}
                 onContinueSubagent={onContinueSubagent}
-                onOpenRunTimeline={() => setBottomPanel("outputs")}
+                onOpenRunTimeline={onOpenRunTimeline || ((eventId) => {
+                  const focusedId = String(eventId || "").trim();
+                  if (focusedId) setSelectedRunEventId(focusedId);
+                  setBottomPanel("outputs");
+                })}
                 onCopy={onCopy}
                 onOpenInteractiveClaude={onOpenInteractiveClaude}
                 onOpenClaudePanel={() => onActivateTool("claude")}
@@ -4117,6 +4127,17 @@ function SubagentWorkbench({
                           {t.copyAutomationEvidence}
                         </button>
                       )}
+                      {item.lastRun?.id && (
+                        <button
+                          type="button"
+                          className="plain-action subtle-action"
+                          onClick={() => onOpenRunTimeline?.(item.lastRun.id)}
+                          title={t.openRunTimeline}
+                        >
+                          <FileText size={13} />
+                          {t.openRunTimeline}
+                        </button>
+                      )}
                       <button
                         type="button"
                         className="plain-action subtle-action"
@@ -4240,7 +4261,7 @@ function SubagentWorkbench({
                 <Copy size={13} />
                 {t.copySubagentEvidence}
               </button>
-              <button type="button" className="plain-action subtle-action" onClick={onOpenRunTimeline}>
+              <button type="button" className="plain-action subtle-action" onClick={() => onOpenRunTimeline?.(run.requestId || run.id)} title={t.openRunTimeline}>
                 <FileText size={13} />
                 {t.openRunTimeline}
               </button>
@@ -8039,6 +8060,7 @@ function ScheduledModal({
   onDelete,
   onToggleEnabled,
   onCopy,
+  onOpenRunTimeline,
 }) {
   const items = Array.isArray(automations) ? automations : [];
   const [prompt, setPrompt] = useState("");
@@ -8207,6 +8229,12 @@ function ScheduledModal({
                     <button type="button" onClick={() => copyAutomationEvidence(item)} title={t.copyAutomationEvidence}>
                       <Copy size={14} />
                       {t.copyAutomationEvidence}
+                    </button>
+                  )}
+                  {item.lastRun?.id && (
+                    <button type="button" onClick={() => onOpenRunTimeline?.(item.lastRun.id)} title={t.openRunTimeline}>
+                      <FileText size={14} />
+                      {t.openRunTimeline}
                     </button>
                   )}
                   <button type="button" className="danger-action" onClick={() => handleAction(item.id, () => onDelete?.(item))} disabled={workingId === item.id} title={t.delete}>
@@ -8868,6 +8896,7 @@ export function App() {
   const [sidebarVisible, setSidebarVisible] = useState(true);
   const [rightPanelVisible, setRightPanelVisible] = useState(false);
   const [bottomPanel, setBottomPanel] = useState("");
+  const [runTimelineFocus, setRunTimelineFocus] = useState({ id: "", nonce: 0 });
   const [composerFocusToken, setComposerFocusToken] = useState(0);
 
   function openSettingsSurface() {
@@ -8925,6 +8954,12 @@ export function App() {
     setScheduledOpen(false);
     setCommandsOpen(false);
     setBottomPanel(id);
+  }
+
+  function openRunTimeline(eventId = "") {
+    const focusedId = String(eventId || "").trim();
+    setRunTimelineFocus({ id: focusedId, nonce: Date.now() });
+    openBottomPanel("outputs");
   }
 
   function activateTool(tool) {
@@ -9184,6 +9219,8 @@ export function App() {
           onCancelSubagent={cancelSubagent}
           onArchiveSubagent={archiveSubagent}
           onContinueSubagent={continueSubagent}
+          onOpenRunTimeline={openRunTimeline}
+          runTimelineFocus={runTimelineFocus}
           draft={draft}
           setDraft={setDraft}
           composerFocusToken={composerFocusToken}
@@ -9272,6 +9309,7 @@ export function App() {
           onDelete={deleteAutomation}
           onToggleEnabled={toggleAutomationEnabled}
           onCopy={copyMessage}
+          onOpenRunTimeline={openRunTimeline}
         />
       )}
       {shortcutsOpen && <KeyboardShortcutsModal t={t} onClose={() => setShortcutsOpen(false)} />}
