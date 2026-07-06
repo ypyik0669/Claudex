@@ -1571,6 +1571,11 @@ function runTimelineEvidenceForEvent(event, { commandRuns = [], automations = []
 }
 
 function runTimelineEvidenceText(event, evidence, t) {
+  const artifactLabels = Array.isArray(evidence?.artifacts)
+    ? evidence.artifacts
+      .map((artifact, index) => artifact?.label || artifact?.path || artifact?.type || `${t.subagentArtifacts} ${index + 1}`)
+      .filter(Boolean)
+    : [];
   const lines = [
     `${t.outputs}: ${event?.title || evidence?.title || ""}`,
     `${t.timelineEventType}: ${evidence?.type || event?.type || ""}`,
@@ -1581,11 +1586,12 @@ function runTimelineEvidenceText(event, evidence, t) {
     `${t.commandCwd}: ${evidence?.cwd || "-"}`,
     `${t.commandExit}: ${typeof evidence?.code === "number" ? evidence.code : "-"}`,
     `${t.commandDuration}: ${formatDurationMs(evidence?.durationMs)}`,
+    `${t.subagentArtifacts}: ${artifactLabels.length ? artifactLabels.join(", ") : "-"}`,
     "",
     evidence?.summary || evidence?.detail || "",
     automationRunOutput(evidence || {}),
   ];
-  return lines.filter((line, index) => index < 9 || String(line || "").trim()).join("\n");
+  return lines.filter((line, index) => index < 10 || String(line || "").trim()).join("\n");
 }
 
 function runTimelineHasEvidence(evidence) {
@@ -1599,6 +1605,7 @@ function runTimelineHasEvidence(evidence) {
     || typeof evidence?.durationMs === "number"
     || evidence?.summary
     || evidence?.detail
+    || (Array.isArray(evidence?.artifacts) && evidence.artifacts.length > 0)
   );
 }
 
