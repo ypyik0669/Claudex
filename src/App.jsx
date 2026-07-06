@@ -1634,6 +1634,28 @@ function upsertSubagentRunForUi(runs = [], run) {
   return [run, ...runs.filter((item) => item.id !== run.id)].slice(0, 40);
 }
 
+function appendSubagentChunkForUi(runs = [], event = {}) {
+  const text = String(event.text || "");
+  if (!text) return runs;
+  let matched = false;
+  const nextRuns = runs.map((run) => {
+    if (run?.id !== event.runId && run?.requestId !== event.requestId) return run;
+    matched = true;
+    return appendStreamChunk({ ...run, status: run.status || "running" }, event.stream, text);
+  });
+  return matched ? nextRuns : runs;
+}
+
+function appendSubagentChunkToRunEvents(events = [], event = {}) {
+  const text = String(event.text || "");
+  if (!text) return events;
+  const stream = event.stream === "stderr" ? "stderr" : "stdout";
+  return events.map((runEvent) => {
+    if (runEvent?.id !== event.requestId && runEvent?.id !== event.runId) return runEvent;
+    return appendStreamChunk(runEvent, stream, text);
+  });
+}
+
 function browserStatusLabel(status, t) {
   if (status === "loading") return t.browserStatusLoading;
   if (status === "error") return t.browserStatusError;
@@ -8131,11 +8153,36 @@ export function App() {
   useEffect(() => {
     if (!desktopApi?.onSubagentStream) return undefined;
     return desktopApi.onSubagentStream((event) => {
+      if (event.type === "chunk") {
+        setState((current) => ({
+          ...current,
+          subagentRuns: appendSubagentChunkForUi(current.subagentRuns || [], event),
+        }));
+        setRunEvents((current) => appendSubagentChunkToRunEvents(current, event));
+      }
       if (event.run) {
         setState((current) => ({
           ...current,
           subagentRuns: upsertSubagentRunForUi(current.subagentRuns || [], event.run),
         }));
+        if (event.run.requestId || event.run.id) {
+          setRunEvents((current) => prependRunEvent(current, {
+            id: event.run.requestId || event.run.id,
+            type: "subagent",
+            status: event.run.status === "running" ? "running" : event.run.status === "done" ? "ok" : event.run.status === "cancelled" ? "cancelled" : "error",
+            title: `${t.subagents}: ${event.run.nickname || "Subagent"}`,
+            detail: event.run.summary || event.run.stderr || event.run.stdout || messageExcerpt(event.run.task, 120),
+            commandLine: subagentCommandLine(event.run),
+            cwd: event.run.cwd || event.run.project?.path || "",
+            code: typeof event.run.code === "number" ? event.run.code : null,
+            durationMs: typeof event.run.durationMs === "number" ? event.run.durationMs : null,
+            stdout: event.run.stdout || "",
+            stderr: event.run.stderr || "",
+            project: event.run.project,
+            sessionId: event.run.sessionId || "",
+            createdAt: event.run.startedAt,
+          }));
+        }
       }
     });
   }, []);

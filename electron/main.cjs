@@ -419,10 +419,30 @@ function upsertSubagentRunEvent(store, run, status) {
     cwd: run.cwd || run.project?.path || "",
     code: typeof run.code === "number" ? run.code : null,
     durationMs: typeof run.durationMs === "number" ? run.durationMs : null,
+    stdout: run.stdout || "",
+    stderr: run.stderr || "",
     project: run.project,
     sessionId: run.sessionId || "",
     createdAt: run.startedAt || now(),
   });
+}
+
+function persistSubagentChunk({ runId, requestId, stream, text }) {
+  const cleanText = stripAnsi(text || "");
+  if (!cleanText) return null;
+  const store = readStore();
+  const existing = findSubagentRun(store, { runId, requestId });
+  if (!existing || existing.status !== "running") return null;
+  const key = stream === "stderr" ? "stderr" : "stdout";
+  const nextRun = normalizeSubagentRun({
+    ...existing,
+    [key]: trimOutput(`${existing[key] || ""}${cleanText}`, MAX_COMMAND_OUTPUT_CHARS),
+  }, store);
+  upsertSubagentRun(store, nextRun);
+  upsertSubagentRunEvent(store, nextRun, "running");
+  writeStore(store);
+  broadcastStoreUpdate(store);
+  return nextRun;
 }
 
 function findSubagentRun(store, { runId, requestId } = {}) {
@@ -2698,6 +2718,7 @@ async function runSubagent(payload = {}, sender) {
     onChunk: (stream, text) => {
       if (stream === "stderr") stderr = trimOutput(`${stderr}${text || ""}`);
       else stdout = trimOutput(`${stdout}${text || ""}`);
+      persistSubagentChunk({ runId, requestId, stream, text });
       emitSubagentEvent(sender, {
         type: "chunk",
         runId,
