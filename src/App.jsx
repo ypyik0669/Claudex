@@ -1081,6 +1081,31 @@ function findRecentMcpActionRun(runs) {
   return runs.find((run) => /(?:^|\s)mcp\s+list(?=\s|$)/i.test(capabilityCommandLine(run))) || null;
 }
 
+function capabilityActionFocusForCommand(args) {
+  const parts = String(args || "").trim().split(/\s+/).filter(Boolean);
+  if (parts[0] !== "plugin" || !parts[1]) return null;
+  const action = parts[1].toLowerCase();
+  const identifier = parts[2] || "";
+  if (!identifier) return null;
+  if (action === "install") {
+    return {
+      tab: "marketplace",
+      kind: "marketplace-plugin",
+      id: identifier,
+      query: panelPluginNameFromId(identifier),
+    };
+  }
+  if (["enable", "disable", "update"].includes(action)) {
+    return {
+      tab: "plugins",
+      kind: "plugin",
+      id: identifier,
+      query: panelPluginNameFromId(identifier),
+    };
+  }
+  return null;
+}
+
 function cliStatusIssue(label, commandLine, commandState, t, jsonCommandLine = "") {
   if (!commandState) return null;
   const plainCode = typeof commandState.code === "number" ? commandState.code : null;
@@ -7393,6 +7418,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
   const [marketplaceOutput, setMarketplaceOutput] = useState("");
   const [marketplaceBusy, setMarketplaceBusy] = useState(false);
   const [customMarketplaceUrl, setCustomMarketplaceUrl] = useState("");
+  const [capabilityActionFocus, setCapabilityActionFocus] = useState({ tab: "", kind: "", id: "", query: "", nonce: 0 });
   const activeProject = state.activeProject || { name: t.localWorkspace, path: "" };
   const customMarketplaces = Array.isArray(state.settings.customMarketplaces) ? state.settings.customMarketplaces : [];
   const capabilityRows = capabilityCatalog.map((item) => ({
@@ -7438,10 +7464,24 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
     activeTab === "skills" ? t.searchSkills : activeTab === "marketplace" ? t.searchMarketplace : t.searchPlugins;
   const focusedCapabilityKind = String(focus?.kind || "").trim();
   const focusedCapabilityId = String(focus?.id || "").trim();
+  const actionFocusedCapabilityKind = String(capabilityActionFocus?.kind || "").trim();
+  const actionFocusedCapabilityId = String(capabilityActionFocus?.id || "").trim();
+  const hasFocusedCapability = Boolean(
+    (focusedCapabilityKind && focusedCapabilityId) ||
+    (actionFocusedCapabilityKind && actionFocusedCapabilityId),
+  );
 
   function capabilityFocusMatches(kind, ...ids) {
-    if (!focusedCapabilityKind || focusedCapabilityKind !== kind || !focusedCapabilityId) return false;
-    return ids.some((id) => String(id || "").trim() === focusedCapabilityId);
+    const normalizedIds = ids.map((id) => String(id || "").trim()).filter(Boolean);
+    if (!normalizedIds.length) return false;
+    return [
+      [focusedCapabilityKind, focusedCapabilityId],
+      [actionFocusedCapabilityKind, actionFocusedCapabilityId],
+    ].some(([focusKind, focusId]) => (
+      focusKind === kind &&
+      Boolean(focusId) &&
+      normalizedIds.includes(String(focusId || "").trim())
+    ));
   }
 
   function recordCapabilityNotice(title, detail, key = "") {
@@ -7558,6 +7598,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
     const nextArgs = String(args || "").trim();
     if (!desktopApi?.runClaudeCommand || !nextArgs) return;
     const requestId = `capability_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+    const nextActionFocus = capabilityActionFocusForCommand(nextArgs);
     setCliAction(nextArgs);
     setCliError("");
     onRunEvent?.({
@@ -7599,6 +7640,12 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
       if (result.code !== 0) throw new Error(result.stderr || result.stdout || t.pluginsLoadError);
       if (/plugin marketplace/i.test(nextArgs)) setMarketplaceOutput(result.stdout || result.stderr || "");
       await refreshCliStatus();
+      if (nextActionFocus) {
+        setActiveTab(nextActionFocus.tab);
+        setFilter("all");
+        setQuery(nextActionFocus.query || nextActionFocus.id || "");
+        setCapabilityActionFocus({ ...nextActionFocus, nonce: Date.now() });
+      }
     } catch (error) {
       const message = error.message || String(error);
       if (!result) {
@@ -7766,15 +7813,16 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
     if (tabs.some(([id]) => id === focus.tab)) setActiveTab(focus.tab);
     setFilter("all");
     setQuery(String(focus.query || focus.id || "").trim());
+    setCapabilityActionFocus({ tab: "", kind: "", id: "", query: "", nonce: 0 });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [focus?.nonce]);
   useEffect(() => {
-    if (!focus?.nonce || !focusedCapabilityKind) return undefined;
+    if (!hasFocusedCapability) return undefined;
     const timer = window.setTimeout(() => {
       document.querySelector(".focused-capability-row")?.scrollIntoView?.({ block: "center", behavior: "smooth" });
     }, 120);
     return () => window.clearTimeout(timer);
-  }, [focus?.nonce, focusedCapabilityKind, focusedCapabilityId, activeTab, cliStatus, normalizedQuery]);
+  }, [focus?.nonce, capabilityActionFocus?.nonce, hasFocusedCapability, focusedCapabilityKind, focusedCapabilityId, actionFocusedCapabilityKind, actionFocusedCapabilityId, activeTab, cliStatus, normalizedQuery]);
   return (
     <ShellModal title={t.capabilities} subtitle={t.capabilitiesSubtitle} onClose={onClose} closeLabel={surface ? t.backToApp : t.close} className="capability-modal plugin-manager-modal" surface={surface}>
       <div className="installed-capability-strip" aria-label={t.installed}>
