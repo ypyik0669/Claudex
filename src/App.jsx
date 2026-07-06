@@ -518,6 +518,8 @@ const copy = {
     subagentExitCode: "退出码",
     subagentCommand: "命令",
     subagentSession: "会话",
+    subagentRunId: "运行 ID",
+    subagentRequestId: "请求 ID",
     copySubagentEvidence: "复制证据",
     copiedSubagentEvidence: "证据已复制",
     openRunTimeline: "查看 timeline",
@@ -2096,6 +2098,32 @@ function subagentArtifactsEvidenceText(artifacts = [], t) {
     .map((artifact, index) => subagentArtifactEvidenceText(artifact, index, t))
     .filter(Boolean)
     .join("\n\n");
+}
+
+function subagentRunEvidenceText(run = {}, t) {
+  const artifacts = subagentArtifactsEvidenceText(run?.artifacts || [], t);
+  const projectPath = run?.project?.path || run?.cwd || "";
+  const commandLine = subagentCommandLine(run);
+  const lines = [
+    `${t.subagents}: ${run?.nickname || "Subagent"}`,
+    `${t.subagentTask}: ${run?.task || ""}`,
+    `${t.scheduleStatus}: ${subagentStatusLabel(run?.status, t)}`,
+    `${t.subagentRunId || "Run ID"}: ${run?.id || "-"}`,
+    `${t.subagentRequestId || "Request ID"}: ${run?.requestId || "-"}`,
+    `${t.activeProject}: ${projectLabel(run?.project, t)}`,
+    `${t.path}: ${projectPath || "-"}`,
+    `${t.commandCwd}: ${run?.cwd || projectPath || "-"}`,
+    `${t.subagentSession}: ${run?.sessionId || "-"}`,
+    `${t.subagentCommand}: ${commandLine || "-"}`,
+    `${t.subagentExitCode}: ${typeof run?.code === "number" ? run.code : "-"}`,
+    `${t.commandDuration}: ${formatDurationMs(run?.durationMs)}`,
+    "",
+    run?.summary ? `${t.timelineEvidence}\n${run.summary}` : "",
+    run?.stdout ? `${t.subagentStdout}\n${run.stdout}` : "",
+    run?.stderr ? `${t.subagentStderr}\n${run.stderr}` : "",
+    artifacts,
+  ];
+  return lines.filter((line, index) => index < 12 || String(line || "").trim()).join("\n");
 }
 
 function upsertSubagentRunForUi(runs = [], run) {
@@ -5240,18 +5268,8 @@ function SubagentWorkbench({
   }
 
   async function copySubagentEvidence(run) {
-    const output = run?.summary || run?.stdout || run?.stderr || "";
-    const artifacts = subagentArtifactsEvidenceText(run?.artifacts || [], t);
     const runId = String(run?.id || run?.requestId || "").trim();
-    await onCopy?.([
-      `${t.subagents}: ${run?.nickname || "Subagent"}`,
-      `${t.subagentTask}: ${run?.task || ""}`,
-      `${t.scheduleStatus}: ${subagentStatusLabel(run?.status, t)}`,
-      `${t.subagentExitCode}: ${run?.code ?? ""}`,
-      "",
-      output,
-      artifacts,
-    ].filter((line, index) => index < 4 || line).join("\n"));
+    await onCopy?.(subagentRunEvidenceText(run, t));
     if (runId) {
       setCopiedSubagentRunId(runId);
       window.setTimeout(() => setCopiedSubagentRunId((current) => (current === runId ? "" : current)), 1200);

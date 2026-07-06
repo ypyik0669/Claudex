@@ -196,9 +196,18 @@ async function runTest() {
     (function() {
       const card = document.querySelector('.subagent-run-card[data-subagent-run-id="pass129-subagent-run"]');
       const text = window.__pass129Clipboard || '';
+      const projectDir = ${JSON.stringify(PROJECT_DIR)};
       return /Pass129 Copy Agent/.test(text) &&
         /pass129 copy subagent evidence task/.test(text) &&
+        /pass129-subagent-run/.test(text) &&
+        /pass129-subagent-request/.test(text) &&
+        /pass129-session/.test(text) &&
+        text.includes(projectDir) &&
+        /claude -p pass129 copy subagent evidence task --model claude-haiku-4-5-20251001/.test(text) &&
+        /1\\.3s/.test(text) &&
         /pass129 subagent summary evidence/.test(text) &&
+        /pass129 subagent stdout evidence/.test(text) &&
+        /pass129 subagent stderr evidence/.test(text) &&
         /pass129 artifact body evidence/.test(text) &&
         /证据已复制/.test(card?.textContent || '');
     })();
