@@ -2593,6 +2593,9 @@ function Sidebar({
                   onClick={() => onSetProject(project)}
                   title={missing ? `${t.projectPathMissing}: ${project.path || project.name}` : project.path || project.name}
                   aria-label={`${t.projects}: ${projectLabel(project, t)}${missing ? ` · ${t.projectPathMissing}` : ""}`}
+                  data-project-name={project.name || ""}
+                  data-project-path={project.path || ""}
+                  data-project-active={active ? "true" : "false"}
                 >
                   <Folder size={15} />
                   <span>{projectLabel(project, t)}</span>
@@ -2612,6 +2615,7 @@ function Sidebar({
                 className={cx(projectScope === "current" && "active")}
                 onClick={() => onProjectScopeChange?.("current")}
                 title={activeProject?.path || activeProject?.name || t.projectFilteredChats}
+                data-thread-scope="current"
               >
                 <span>{t.projectFilteredChats}</span>
                 <em>{scopeCounts.current}</em>
@@ -2621,6 +2625,7 @@ function Sidebar({
                 className={cx(projectScope === "all" && "active")}
                 onClick={() => onProjectScopeChange?.("all")}
                 title={t.allProjectChats}
+                data-thread-scope="all"
               >
                 <span>{t.allProjectChats}</span>
                 <em>{scopeCounts.all}</em>
@@ -2630,6 +2635,7 @@ function Sidebar({
                 className={cx(projectScope === "archived" && "active")}
                 onClick={() => onProjectScopeChange?.("archived")}
                 title={t.showArchivedChats}
+                data-thread-scope="archived"
               >
                 <span>{t.showArchivedChats}</span>
                 <em>{scopeCounts.archived}</em>
@@ -2669,6 +2675,12 @@ function Sidebar({
                     key={session.id}
                     className={cx("thread-item", isDraft && "draft-thread", activeSessionId === session.id && "active", session.pinned && "pinned-thread")}
                     title={`${item.title}\n${item.subtitle}`}
+                    data-thread-id={session.id}
+                    data-thread-project={session.project || ""}
+                    data-thread-project-path={session.projectPath || ""}
+                    data-thread-pinned={session.pinned ? "true" : "false"}
+                    data-thread-archived={session.archived ? "true" : "false"}
+                    data-thread-message-count={item.messageCount}
                   >
                     <button type="button" className="thread-open-button" onClick={() => setActiveSessionId(session.id)}>
                       <span className="thread-main">
@@ -2688,19 +2700,19 @@ function Sidebar({
                       </span>
                     </button>
                     <span className="thread-actions" aria-label={t.commandPalette}>
-                      <button type="button" onClick={() => onRenameThread(session)} title={t.renameThread} aria-label={t.renameThread}>
+                      <button type="button" data-thread-action="rename" onClick={() => onRenameThread(session)} title={t.renameThread} aria-label={t.renameThread}>
                         <Pencil size={12} />
                       </button>
-                      <button type="button" onClick={() => onTogglePinThread(session)} title={session.pinned ? t.unpinThread : t.pinThread} aria-label={session.pinned ? t.unpinThread : t.pinThread}>
+                      <button type="button" data-thread-action={session.pinned ? "unpin" : "pin"} onClick={() => onTogglePinThread(session)} title={session.pinned ? t.unpinThread : t.pinThread} aria-label={session.pinned ? t.unpinThread : t.pinThread}>
                         <Pin size={12} />
                       </button>
-                      <button type="button" onClick={() => onForkThread(session)} title={t.forkThread} aria-label={t.forkThread}>
+                      <button type="button" data-thread-action="fork" onClick={() => onForkThread(session)} title={t.forkThread} aria-label={t.forkThread}>
                         <GitFork size={12} />
                       </button>
-                      <button type="button" onClick={() => onArchiveThread(session)} title={session.archived ? t.restoreThread : t.archiveThread} aria-label={session.archived ? t.restoreThread : t.archiveThread}>
+                      <button type="button" data-thread-action={session.archived ? "restore" : "archive"} onClick={() => onArchiveThread(session)} title={session.archived ? t.restoreThread : t.archiveThread} aria-label={session.archived ? t.restoreThread : t.archiveThread}>
                         <Archive size={12} />
                       </button>
-                      <button type="button" onClick={() => onDeleteThread(session)} title={t.deleteThread} aria-label={t.deleteThread}>
+                      <button type="button" data-thread-action="delete" onClick={() => onDeleteThread(session)} title={t.deleteThread} aria-label={t.deleteThread}>
                         <Trash2 size={12} />
                       </button>
                       <button type="button" data-thread-action="resume" onClick={() => onResumeThread?.(session)} title={t.resumeThread} aria-label={t.resumeThread}>

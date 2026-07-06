@@ -185,8 +185,7 @@ app.whenReady().then(async () => {
       (async function() {
         if (!window.__pass80AllClicked) {
           window.__pass80AllClicked = true;
-          const button = Array.from(document.querySelectorAll('.chat-scope-toggle button'))
-            .find((item) => /\\u5168\\u90e8\\u9879\\u76ee/.test(item.textContent || ''));
+          const button = document.querySelector('.chat-scope-toggle button[data-thread-scope="all"]');
           if (!button) return false;
           button.click();
         }
@@ -229,9 +228,8 @@ app.whenReady().then(async () => {
       (async function() {
         if (!window.__pass80UnpinClicked) {
           window.__pass80UnpinClicked = true;
-          const row = Array.from(document.querySelectorAll('.thread-list .thread-item'))
-            .find((item) => /Resume source thread/.test(item.textContent || ''));
-          const unpin = row?.querySelectorAll('.thread-actions button')[1];
+          const row = document.querySelector('.thread-list .thread-item[data-thread-id="project-b-resume"]');
+          const unpin = row?.querySelector('[data-thread-action="unpin"]');
           if (!unpin) return false;
           unpin.click();
         }
@@ -250,9 +248,8 @@ app.whenReady().then(async () => {
         if (!window.__pass80DeleteCancelClicked) {
           window.__pass80DeleteCancelClicked = true;
           window.confirm = () => false;
-          const row = Array.from(document.querySelectorAll('.thread-list .thread-item'))
-            .find((item) => /Fresh B thread/.test(item.textContent || ''));
-          const del = row?.querySelectorAll('.thread-actions button')[4];
+          const row = document.querySelector('.thread-list .thread-item[data-thread-id="project-b-fresh"]');
+          const del = row?.querySelector('[data-thread-action="delete"]');
           if (!del) return false;
           del.click();
         }

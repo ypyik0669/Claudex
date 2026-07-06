@@ -137,8 +137,7 @@ app.whenReady().then(async () => {
     (async function() {
       if (!window.__pass38AllProjectsClicked) {
         window.__pass38AllProjectsClicked = true;
-        const button = Array.from(document.querySelectorAll('.chat-scope-toggle button'))
-          .find((item) => /\\u5168\\u90e8\\u9879\\u76ee/.test(item.textContent || ''));
+        const button = document.querySelector('.chat-scope-toggle button[data-thread-scope="all"]');
         if (!button) return false;
         button.click();
       }
@@ -158,8 +157,7 @@ app.whenReady().then(async () => {
     (async function() {
       if (!window.__pass38CurrentProjectClicked) {
         window.__pass38CurrentProjectClicked = true;
-        const button = Array.from(document.querySelectorAll('.chat-scope-toggle button'))
-          .find((item) => /\\u5f53\\u524d\\u9879\\u76ee/.test(item.textContent || ''));
+        const button = document.querySelector('.chat-scope-toggle button[data-thread-scope="current"]');
         if (!button) return false;
         button.click();
       }
@@ -177,8 +175,7 @@ app.whenReady().then(async () => {
     (async function() {
       if (!window.__pass38ArchivedScopeClicked) {
         window.__pass38ArchivedScopeClicked = true;
-        const button = Array.from(document.querySelectorAll('.chat-scope-toggle button'))
-          .find((item) => /\\u67e5\\u770b\\u5f52\\u6863/.test(item.textContent || ''));
+        const button = document.querySelector('.chat-scope-toggle button[data-thread-scope="archived"]');
         if (!button) return false;
         button.click();
       }
@@ -199,9 +196,8 @@ app.whenReady().then(async () => {
     (async function() {
       if (!window.__pass38RestoreArchivedClicked) {
         window.__pass38RestoreArchivedClicked = true;
-        const row = Array.from(document.querySelectorAll('.thread-list .thread-item'))
-          .find((item) => /Archived A thread/.test(item.textContent || ''));
-        const restore = row?.querySelectorAll('.thread-actions button')[3];
+        const row = document.querySelector('.thread-list .thread-item[data-thread-id="project-a-archived"]');
+        const restore = row?.querySelector('[data-thread-action="restore"]');
         if (!restore) return false;
         restore.click();
       }
@@ -222,9 +218,8 @@ app.whenReady().then(async () => {
     (async function() {
       if (!window.__pass38RearchiveRestoredClicked) {
         window.__pass38RearchiveRestoredClicked = true;
-        const row = Array.from(document.querySelectorAll('.thread-list .thread-item'))
-          .find((item) => /Archived A thread/.test(item.textContent || ''));
-        const archive = row?.querySelectorAll('.thread-actions button')[3];
+        const row = document.querySelector('.thread-list .thread-item[data-thread-id="project-a-archived"]');
+        const archive = row?.querySelector('[data-thread-action="archive"]');
         if (!archive) return false;
         archive.click();
       }
@@ -241,8 +236,8 @@ app.whenReady().then(async () => {
 
   assertStep("PASS38_PIN_THREAD", await win.webContents.executeJavaScript(`
     (async function() {
-      const row = Array.from(document.querySelectorAll('.thread-list .thread-item')).find((item) => /Active A thread/.test(item.textContent || ''));
-      const pin = row?.querySelectorAll('.thread-actions button')[1];
+      const row = document.querySelector('.thread-list .thread-item[data-thread-id="project-a-active"]');
+      const pin = row?.querySelector('[data-thread-action="pin"]');
       if (!pin) return false;
       pin.click();
       await new Promise((resolve) => setTimeout(resolve, 450));
@@ -255,8 +250,8 @@ app.whenReady().then(async () => {
   assertStep("PASS38_RENAME_THREAD", await win.webContents.executeJavaScript(`
     (async function() {
       window.prompt = () => 'Renamed A thread';
-      const row = Array.from(document.querySelectorAll('.thread-list .thread-item')).find((item) => /Active A thread/.test(item.textContent || ''));
-      const rename = row?.querySelectorAll('.thread-actions button')[0];
+      const row = document.querySelector('.thread-list .thread-item[data-thread-id="project-a-active"]');
+      const rename = row?.querySelector('[data-thread-action="rename"]');
       if (!rename) return false;
       rename.click();
       await new Promise((resolve) => setTimeout(resolve, 450));
@@ -270,8 +265,8 @@ app.whenReady().then(async () => {
     (async function() {
       if (!window.__pass38ForkClicked) {
         window.__pass38ForkClicked = true;
-        const row = Array.from(document.querySelectorAll('.thread-list .thread-item')).find((item) => /Renamed A thread/.test(item.textContent || ''));
-        const fork = row?.querySelectorAll('.thread-actions button')[2];
+        const row = document.querySelector('.thread-list .thread-item[data-thread-id="project-a-active"]');
+        const fork = row?.querySelector('[data-thread-action="fork"]');
         if (!fork) return false;
         fork.click();
       }
@@ -288,9 +283,8 @@ app.whenReady().then(async () => {
     (async function() {
       if (!window.__pass38ArchiveClicked) {
         window.__pass38ArchiveClicked = true;
-        const rows = Array.from(document.querySelectorAll('.thread-list .thread-item'));
-        const original = rows.find((item) => /Renamed A thread/.test(item.textContent || '') && !/Fork: Renamed A thread/.test(item.textContent || ''));
-        const archive = original?.querySelectorAll('.thread-actions button')[3];
+        const original = document.querySelector('.thread-list .thread-item[data-thread-id="project-a-active"]');
+        const archive = original?.querySelector('[data-thread-action="archive"]');
         if (!archive) return false;
         archive.click();
       }
@@ -309,7 +303,7 @@ app.whenReady().then(async () => {
         window.__pass38DeleteClicked = true;
         window.confirm = () => true;
         const forkRow = Array.from(document.querySelectorAll('.thread-list .thread-item')).find((item) => /Fork: Renamed A thread/.test(item.textContent || ''));
-        const del = forkRow?.querySelectorAll('.thread-actions button')[4];
+        const del = forkRow?.querySelector('[data-thread-action="delete"]');
         if (!del) return false;
         del.click();
       }
@@ -333,7 +327,7 @@ app.whenReady().then(async () => {
     (async function() {
       if (!window.__pass38ProjectBClicked) {
         window.__pass38ProjectBClicked = true;
-        const projectButton = Array.from(document.querySelectorAll('.project-list button')).find((button) => button.title === ${JSON.stringify(PROJECT_B)} || /Project B/.test(button.textContent || ''));
+        const projectButton = Array.from(document.querySelectorAll('.project-list button[data-project-path]')).find((button) => button.dataset.projectPath === ${JSON.stringify(PROJECT_B)});
         if (!projectButton) return false;
         projectButton.click();
       }

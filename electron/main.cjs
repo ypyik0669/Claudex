@@ -210,6 +210,14 @@ function ensureActiveProjectDraftSession(store) {
     messages: [],
     pinned: false,
     archived: false,
+    pinnedAt: "",
+    archivedAt: "",
+    renamedAt: "",
+    forkedAt: "",
+    forkedFromId: "",
+    forkedFromTitle: "",
+    forkedFromClaudeSessionId: "",
+    claudeSessionId: "",
   };
   store.sessions = [session, ...(store.sessions || [])];
   return session;
@@ -835,6 +843,13 @@ function normalizeStore(store) {
         messages: Array.isArray(session.messages) ? session.messages : [],
         pinned: Boolean(session.pinned),
         archived: Boolean(session.archived),
+        pinnedAt: session.pinned ? isoOrEmpty(session.pinnedAt) : "",
+        archivedAt: session.archived ? isoOrEmpty(session.archivedAt) : "",
+        renamedAt: isoOrEmpty(session.renamedAt),
+        forkedAt: isoOrEmpty(session.forkedAt),
+        forkedFromId: String(session.forkedFromId || ""),
+        forkedFromTitle: String(session.forkedFromTitle || ""),
+        forkedFromClaudeSessionId: String(session.forkedFromClaudeSessionId || ""),
       };
     }),
     automations: Array.isArray(store.automations)
@@ -3124,7 +3139,7 @@ ipcMain.handle("chat:create-session", (_event, title = "新聊天") => {
   const project = store.activeProject || { name: "本地工作区", path: "" };
   const currentProjectKey = String(project.path || project.name || "").trim().toLowerCase();
   const reusableIndex = store.sessions.findIndex(
-    (item) => !hasSessionMessages(item) && isGenericSessionTitle(item.title) && sessionProjectKey(item) === currentProjectKey,
+    (item) => !item.archived && !hasSessionMessages(item) && isGenericSessionTitle(item.title) && sessionProjectKey(item) === currentProjectKey,
   );
   if (reusableIndex >= 0) {
     const [reusable] = store.sessions.splice(reusableIndex, 1);
@@ -3132,6 +3147,16 @@ ipcMain.handle("chat:create-session", (_event, title = "新聊天") => {
     reusable.project = project.name;
     reusable.projectPath = project.path;
     reusable.updatedAt = createdAt;
+    reusable.pinned = false;
+    reusable.archived = false;
+    reusable.pinnedAt = "";
+    reusable.archivedAt = "";
+    reusable.renamedAt = "";
+    reusable.forkedAt = "";
+    reusable.forkedFromId = "";
+    reusable.forkedFromTitle = "";
+    reusable.forkedFromClaudeSessionId = "";
+    reusable.claudeSessionId = "";
     store.sessions.unshift(reusable);
     writeStore(store);
     return sanitizeStore(store);
@@ -3145,6 +3170,16 @@ ipcMain.handle("chat:create-session", (_event, title = "新聊天") => {
     createdAt,
     updatedAt: createdAt,
     messages: [],
+    pinned: false,
+    archived: false,
+    pinnedAt: "",
+    archivedAt: "",
+    renamedAt: "",
+    forkedAt: "",
+    forkedFromId: "",
+    forkedFromTitle: "",
+    forkedFromClaudeSessionId: "",
+    claudeSessionId: "",
   };
   store.sessions.unshift(session);
   writeStore(store);
@@ -3158,10 +3193,19 @@ ipcMain.handle("chat:update-session", (_event, { sessionId, title, pinned, archi
   const updatedAt = now();
   if (typeof title === "string") {
     const nextTitle = title.trim();
-    if (nextTitle) session.title = nextTitle;
+    if (nextTitle && nextTitle !== session.title) {
+      session.title = nextTitle;
+      session.renamedAt = updatedAt;
+    }
   }
-  if (typeof pinned === "boolean") session.pinned = pinned;
-  if (typeof archived === "boolean") session.archived = archived;
+  if (typeof pinned === "boolean" && session.pinned !== pinned) {
+    session.pinned = pinned;
+    session.pinnedAt = pinned ? updatedAt : "";
+  }
+  if (typeof archived === "boolean" && session.archived !== archived) {
+    session.archived = archived;
+    session.archivedAt = archived ? updatedAt : "";
+  }
   session.updatedAt = updatedAt;
   ensureActiveProjectDraftSession(store);
   writeStore(store);
@@ -3191,6 +3235,14 @@ ipcMain.handle("chat:fork-session", (_event, sessionId) => {
     updatedAt: createdAt,
     pinned: false,
     archived: false,
+    pinnedAt: "",
+    archivedAt: "",
+    renamedAt: "",
+    forkedAt: createdAt,
+    forkedFromId: source.id,
+    forkedFromTitle: sessionDisplayTitleForStore(source),
+    forkedFromClaudeSessionId: String(source.claudeSessionId || ""),
+    claudeSessionId: "",
     messages: sessionMessages(source).map((message) => ({ ...message })),
   };
   store.sessions.unshift(fork);
