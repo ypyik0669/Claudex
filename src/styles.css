@@ -5585,6 +5585,7 @@ button.runtime-health-row {
 }
 
 .schedule-form input,
+.schedule-form select,
 .schedule-form textarea {
   width: 100%;
   border: 1px solid #333333;

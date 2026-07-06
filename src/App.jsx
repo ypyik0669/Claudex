@@ -682,6 +682,10 @@ const copy = {
     schedulePrompt: "提示词",
     schedulePromptPlaceholder: "稍后要让 Claude Code 做什么？",
     scheduleTime: "时间",
+    scheduleRepeat: "重复",
+    scheduleRepeatOnce: "一次",
+    scheduleRepeatDaily: "每天",
+    scheduleRepeatWeekly: "每周",
     addSchedule: "添加任务",
     scheduleQueue: "队列",
     scheduleCount: "已保存 {count} 个",
@@ -1776,6 +1780,12 @@ function automationStatusLabel(status, t) {
   if (status === "succeeded") return t.automationStatusSucceeded;
   if (status === "failed") return t.automationStatusFailed;
   return t.automationStatusIdle;
+}
+
+function automationScheduleTypeLabel(type, t) {
+  if (type === "daily") return t.scheduleRepeatDaily;
+  if (type === "weekly") return t.scheduleRepeatWeekly;
+  return t.scheduleRepeatOnce;
 }
 
 function automationProjectLabel(automation, t) {
@@ -4254,6 +4264,7 @@ function SubagentWorkbench({
                     <div className="automation-task-meta">
                       <span title={item.project?.path || ""}>{automationProjectLabel(item, t)}</span>
                       <span>{automationThreadLabel(item, sessions, t)}</span>
+                      <span>{automationScheduleTypeLabel(item.schedule?.type, t)}</span>
                       <span>{timing}</span>
                     </div>
                     {item.lastRun && (
@@ -8593,6 +8604,7 @@ function ScheduledModal({
   const items = Array.isArray(automations) ? automations : [];
   const [prompt, setPrompt] = useState("");
   const [time, setTime] = useState("");
+  const [scheduleType, setScheduleType] = useState("once");
   const [workingId, setWorkingId] = useState("");
   const [submitting, setSubmitting] = useState(false);
 
@@ -8623,11 +8635,13 @@ function ScheduledModal({
           Promise.resolve(onCreate?.({
             prompt: prompt.trim(),
             runAt: time ? new Date(time).toISOString() : "",
+            scheduleType,
             projectPath: activeProject?.path || "",
             threadId: activeSession?.id || "",
           })).then(() => {
             setPrompt("");
             setTime("");
+            setScheduleType("once");
           }).catch(() => {}).finally(() => setSubmitting(false));
         }}>
           <label>
@@ -8641,6 +8655,14 @@ function ScheduledModal({
           <label>
             <span>{t.scheduleTime}</span>
             <input type="datetime-local" value={time} onChange={(event) => setTime(event.target.value)} />
+          </label>
+          <label>
+            <span>{t.scheduleRepeat}</span>
+            <select value={scheduleType} onChange={(event) => setScheduleType(event.target.value)} data-automation-repeat-select>
+              <option value="once">{t.scheduleRepeatOnce}</option>
+              <option value="daily">{t.scheduleRepeatDaily}</option>
+              <option value="weekly">{t.scheduleRepeatWeekly}</option>
+            </select>
           </label>
           <div className="schedule-form-context">
             <span>{t.scheduleProject}</span>
@@ -8686,6 +8708,10 @@ function ScheduledModal({
                     <div>
                       <dt>{t.scheduleNextRun}</dt>
                       <dd>{item.nextRun ? formatDate(item.nextRun, lang) : t.scheduleAnytime}</dd>
+                    </div>
+                    <div>
+                      <dt>{t.scheduleRepeat}</dt>
+                      <dd>{automationScheduleTypeLabel(item.schedule?.type, t)}</dd>
                     </div>
                     <div>
                       <dt>{t.scheduleLastRun}</dt>

@@ -75,6 +75,10 @@ const CLAUDE_TIMEOUT_MS = 10 * 60 * 1000;
 const AUTOMATION_HISTORY_LIMIT = 8;
 const AUTOMATION_LIMIT = 80;
 const AUTOMATION_POLL_MS = 15000;
+const AUTOMATION_REPEAT_MS = {
+  daily: 24 * 60 * 60 * 1000,
+  weekly: 7 * 24 * 60 * 60 * 1000,
+};
 const SUBAGENT_RUN_LIMIT = 40;
 const COMMAND_RUN_LIMIT = 80;
 const RUN_EVENT_LIMIT = 120;
@@ -84,6 +88,7 @@ const NOTICE_LIMIT = 80;
 const automationRunLocks = new Set();
 const cancelledSubagentRuns = new Set();
 let automationSchedulerTimer = null;
+let automationSchedulerRunning = false;
 
 const CLAUDE_CODE_SETTINGS = {
   executionMode: "claude-code",
@@ -247,11 +252,37 @@ function automationHasScheduledRun(automation) {
   return (automation.history || []).some((entry) => entry?.trigger === "scheduled" && entry?.endedAt);
 }
 
+function latestScheduledAutomationRunMs(automation) {
+  return (automation.history || [])
+    .filter((entry) => entry?.trigger === "scheduled")
+    .map((entry) => new Date(entry.endedAt || entry.startedAt || "").getTime())
+    .filter(Number.isFinite)
+    .reduce((latest, value) => Math.max(latest, value), 0);
+}
+
+function normalizeAutomationScheduleType(type) {
+  const value = String(type || "once").trim().toLowerCase();
+  return ["once", "daily", "weekly"].includes(value) ? value : "once";
+}
+
 function automationNextRun(automation) {
   const runAt = isoOrEmpty(automation?.schedule?.runAt || automation?.runAt || automation?.time);
   if (!automation?.enabled || !runAt) return "";
-  if ((automation.schedule?.type || "once") === "once" && automationHasScheduledRun(automation)) return "";
-  return runAt;
+  const type = normalizeAutomationScheduleType(automation.schedule?.type);
+  if (type === "once") {
+    if (automationHasScheduledRun(automation)) return "";
+    return runAt;
+  }
+  const repeatMs = AUTOMATION_REPEAT_MS[type];
+  if (!repeatMs) return runAt;
+  const runAtMs = new Date(runAt).getTime();
+  if (!Number.isFinite(runAtMs)) return "";
+  const at = Date.now();
+  if (runAtMs > at) return runAt;
+  const latestDueMs = runAtMs + Math.floor((at - runAtMs) / repeatMs) * repeatMs;
+  const latestRunMs = latestScheduledAutomationRunMs(automation);
+  if (!latestRunMs || latestRunMs < latestDueMs) return new Date(latestDueMs).toISOString();
+  return new Date(latestDueMs + repeatMs).toISOString();
 }
 
 function normalizeAutomationProject(project, store) {
@@ -287,7 +318,7 @@ function normalizeAutomationHistoryEntry(entry, item, createdAt) {
 function normalizeAutomation(item, store) {
   const createdAt = isoOrEmpty(item?.createdAt) || now();
   const schedule = {
-    type: item?.schedule?.type || "once",
+    type: normalizeAutomationScheduleType(item?.schedule?.type || item?.scheduleType || item?.repeat),
     runAt: isoOrEmpty(item?.schedule?.runAt || item?.runAt || item?.time),
   };
   const history = Array.isArray(item?.history)
@@ -2673,15 +2704,22 @@ function dueAutomations(store) {
 
 function startAutomationScheduler() {
   if (automationSchedulerTimer) return;
-  const tick = () => {
+  const tick = async () => {
+    if (automationSchedulerRunning) return;
+    automationSchedulerRunning = true;
     let store;
     try {
       store = readStore();
     } catch {
+      automationSchedulerRunning = false;
       return;
     }
-    for (const automation of dueAutomations(store).slice(0, 2)) {
-      runAutomationById(automation.id, { trigger: "scheduled", requestId: id("automation") }).catch(() => {});
+    try {
+      for (const automation of dueAutomations(store).slice(0, 2)) {
+        await runAutomationById(automation.id, { trigger: "scheduled", requestId: id("automation") }).catch(() => {});
+      }
+    } finally {
+      automationSchedulerRunning = false;
     }
   };
   automationSchedulerTimer = setInterval(tick, AUTOMATION_POLL_MS);
@@ -2982,11 +3020,12 @@ ipcMain.handle("automation:create", (_event, payload = {}) => {
   const createdAt = now();
   const project = automationProjectFromPayload(store, payload);
   const runAt = isoOrEmpty(payload.runAt);
+  const scheduleType = normalizeAutomationScheduleType(payload.scheduleType || payload.schedule?.type || payload.repeat);
   const automation = normalizeAutomation({
     id: id("automation"),
     prompt,
     schedule: {
-      type: "once",
+      type: scheduleType,
       runAt,
     },
     project,
