@@ -3,7 +3,30 @@ const os = require("os");
 const path = require("path");
 const { app, BrowserWindow } = require("electron");
 
-const REPO_DIR = path.join(__dirname, "..");
+function findRepoDir() {
+  const candidates = [
+    process.env.CLAUDEX_REPO_DIR,
+    process.cwd(),
+    __dirname,
+    path.join(__dirname, ".."),
+  ].filter(Boolean);
+  for (const candidate of candidates) {
+    let current = path.resolve(candidate);
+    while (current && current !== path.dirname(current)) {
+      if (
+        fs.existsSync(path.join(current, "package.json")) &&
+        fs.existsSync(path.join(current, "electron", "main.cjs"))
+      ) {
+        return current;
+      }
+      current = path.dirname(current);
+    }
+  }
+  throw new Error("Unable to locate Claudex repo root");
+}
+
+const REPO_DIR = findRepoDir();
+process.chdir(REPO_DIR);
 const USER_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "claudex-pass48-data-"));
 const FAKE_BIN_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "claudex-pass48-bin-"));
 const PROJECT_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "claudex-pass48-project-"));
@@ -93,7 +116,7 @@ function writeInitialStore(claudeCommand) {
     version: 1,
     settings: {
       provider: "anthropic",
-      model: "claude-sonnet-4-5-20250929",
+      model: "claude-haiku-4-5-20251001",
       baseUrl: "https://api.example.invalid",
       temperature: 0.2,
       timeoutMs: 600000,
@@ -194,7 +217,7 @@ async function runTest() {
       /pass48 scheduled automation failed/.test(document.body.textContent || '')
     )
   `, 8000));
-  assertStep("PASS48_NOTICE_ACTION_OPEN_AUTOMATION", await win.webContents.executeJavaScript(`
+  assertStep("PASS48_NOTICE_ACTION_OPEN_TASK_CENTER", await win.webContents.executeJavaScript(`
     (function() {
       const button = document.querySelector('.bottom-work-panel .notice-card.error button[data-notice-action="open"]');
       if (!button) return false;
@@ -202,8 +225,13 @@ async function runTest() {
       return true;
     })();
   `));
-  assertStep("PASS48_AUTOMATION_MODAL_OPENED", await waitFor(win, `
-    Boolean(document.querySelector('.scheduled-modal') && /pass48 scheduled prompt/.test(document.body.textContent || ''))
+  assertStep("PASS48_TASK_CENTER_AUTOMATION_FOCUSED", await waitFor(win, `
+    Boolean(
+      document.querySelector('.bottom-work-panel .task-center-summary') &&
+      document.querySelector('.automation-task-card.focused-task-card[data-automation-id="pass48-automation"]') &&
+      /pass48 scheduled prompt/.test(document.querySelector('.automation-task-card.focused-task-card')?.textContent || '') &&
+      /pass48 scheduled automation failed/.test(document.querySelector('.automation-task-card.focused-task-card')?.textContent || '')
+    )
   `, 8000));
   assertStep("PASS48_STORE_PERSISTED", (() => {
     const parsed = JSON.parse(fs.readFileSync(DATA_FILE, "utf8"));

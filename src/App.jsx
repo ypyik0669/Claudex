@@ -3297,6 +3297,7 @@ function Conversation({
   setBottomPanel,
   onActivateTool,
   onOpenAutomation,
+  onOpenTaskCenterFocus,
   onOpenTerminal,
   onOpenProject,
   busy,
@@ -3733,6 +3734,11 @@ function Conversation({
       return;
     }
     if (action.startsWith("automation:")) {
+      const automationId = decodeActionSuffix(action, "automation:");
+      if (automationId && onOpenTaskCenterFocus) {
+        onOpenTaskCenterFocus("automation", automationId);
+        return;
+      }
       onOpenAutomation?.();
       return;
     }
@@ -11661,6 +11667,7 @@ export function App() {
           setBottomPanel={setBottomPanel}
           onActivateTool={activateTool}
           onOpenAutomation={openScheduledSurface}
+          onOpenTaskCenterFocus={openTaskCenterFocus}
           onOpenTerminal={openTerminal}
           onOpenProject={openProject}
           busy={busy}
