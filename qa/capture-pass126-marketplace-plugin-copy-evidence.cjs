@@ -217,8 +217,8 @@ async function runTest() {
   assertStep("PASS126_MARKETPLACE_PLUGIN_EVIDENCE_COPIED", await waitFor(win, `
     (function() {
       const text = window.__pass126Clipboard || '';
-      return /pass126-catalog-plugin@pass126-market/.test(text) &&
-        /pass126-catalog-plugin/.test(text) &&
+      return /^ID: pass126-catalog-plugin@pass126-market/m.test(text) &&
+        /插件名: pass126-catalog-plugin/m.test(text) &&
         /pass126-market/.test(text) &&
         /12\\.6\\.0/.test(text) &&
         /PASS126 QA/.test(text) &&

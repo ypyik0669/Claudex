@@ -184,7 +184,8 @@ async function runTest() {
   assertStep("PASS125_PLUGIN_EVIDENCE_COPIED", await waitFor(win, `
     (function() {
       const text = window.__pass125Clipboard || '';
-      return /pass125-plugin@qa-market/.test(text) &&
+      return /^ID: pass125-plugin@qa-market/m.test(text) &&
+        /插件名: pass125-plugin/m.test(text) &&
         /12\\.5\\.0/.test(text) &&
         /project/.test(text) &&
         /pass125 source fixture/.test(text) &&

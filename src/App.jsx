@@ -1588,7 +1588,7 @@ function rowCliActionEvidenceText(run, t) {
 function pluginEvidenceText(plugin = {}, t) {
   const status = plugin.enabled ? t.pluginStatusEnabled : t.pluginStatusDisabled;
   const rows = [
-    [t.pluginName, plugin.id || plugin.name],
+    ["ID", plugin.id || plugin.name],
     plugin.name && plugin.name !== plugin.id ? [t.pluginName, plugin.name] : null,
     plugin.version && plugin.version !== "unknown" ? [t.version, plugin.version] : null,
     plugin.scope ? [t.scope, plugin.scope] : null,
@@ -1605,7 +1605,7 @@ function pluginEvidenceText(plugin = {}, t) {
 
 function marketplacePluginEvidenceText(plugin = {}, t) {
   const rows = [
-    [t.pluginName, plugin.id || plugin.name],
+    ["ID", plugin.id || plugin.name],
     plugin.name && plugin.name !== plugin.id ? [t.pluginName, plugin.name] : null,
     plugin.marketplace ? [t.marketplace, plugin.marketplace] : null,
     plugin.version && plugin.version !== "unknown" ? [t.version, plugin.version] : null,
