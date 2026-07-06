@@ -510,6 +510,7 @@ const copy = {
     subagentArtifacts: "产物",
     subagentArtifactPath: "路径",
     copySubagentArtifact: "复制产物",
+    openSubagentArtifact: "打开文件",
     noSubagentArtifacts: "暂无产物",
     subagentEvidence: "证据",
     subagentStdout: "标准输出",
@@ -2043,6 +2044,15 @@ function subagentArtifactLabel(artifact, index, t) {
 
 function subagentArtifactContent(artifact) {
   return String(artifact?.content || artifact?.text || artifact?.summary || artifact?.value || "");
+}
+
+function subagentArtifactPathValue(artifact) {
+  return String(artifact?.path || "").trim();
+}
+
+function isOpenableSubagentArtifact(artifact) {
+  const artifactPath = subagentArtifactPathValue(artifact);
+  return Boolean(artifactPath && !/^[a-z][a-z0-9+.-]*:\/\//i.test(artifactPath));
 }
 
 function subagentArtifactEvidenceText(artifact, index, t) {
@@ -4068,12 +4078,14 @@ function Conversation({
                       selectedEventId={selectedRunEvent?.id || ""}
                       onSelectEvent={setSelectedRunEventId}
                       onCopy={onCopy}
+                      onOpenWorkspaceFile={onOpenWorkspaceFile}
                       t={t}
                     />
                     <SelectedRunEvidencePanel
                       event={selectedRunEvent}
                       evidence={selectedRunEvidence}
                       onCopy={onCopy}
+                      onOpenWorkspaceFile={onOpenWorkspaceFile}
                       t={t}
                     />
                   </div>
@@ -4516,6 +4528,7 @@ function Conversation({
                 onOpenInteractiveClaude={onOpenInteractiveClaude}
                 onOpenClaudePanel={() => onActivateTool("claude")}
                 onOpenAutomation={onOpenAutomation}
+                onOpenWorkspaceFile={onOpenWorkspaceFile}
                 focus={taskCenterFocus}
                 t={t}
               />
@@ -4727,6 +4740,7 @@ function SubagentWorkbench({
   onArchiveSubagent,
   onContinueSubagent,
   onOpenRunTimeline,
+  onOpenWorkspaceFile,
   onCopy,
   onOpenInteractiveClaude,
   onOpenClaudePanel,
@@ -4809,6 +4823,16 @@ function SubagentWorkbench({
 
   async function copySubagentArtifact(artifact, index) {
     await onCopy?.(subagentArtifactEvidenceText(artifact, index, t));
+  }
+
+  function openSubagentArtifact(run, artifact) {
+    const artifactPath = subagentArtifactPathValue(artifact);
+    if (!artifactPath) return;
+    onOpenWorkspaceFile?.(artifactPath, {
+      projectPath: run?.project?.path || run?.cwd || activeProject?.path || "",
+      projectLabel: run?.project?.name || run?.nickname || t.subagents,
+      force: true,
+    });
   }
 
   async function copyAutomationEvidence(item, entry = item?.lastRun) {
@@ -5147,6 +5171,7 @@ function SubagentWorkbench({
                       {run.artifacts.map((artifact, index) => {
                         const label = subagentArtifactLabel(artifact, index, t);
                         const content = subagentArtifactContent(artifact);
+                        const openable = isOpenableSubagentArtifact(artifact);
                         return (
                           <article
                             className="subagent-artifact-item"
@@ -5155,16 +5180,30 @@ function SubagentWorkbench({
                           >
                             <div className="subagent-artifact-head">
                               <code title={artifact?.path || artifact?.type || label}>{label}</code>
-                              <button
-                                type="button"
-                                className="plain-action subtle-action"
-                                data-subagent-artifact-copy={index}
-                                onClick={() => copySubagentArtifact(artifact, index)}
-                                title={t.copySubagentArtifact}
-                              >
-                                <Copy size={12} />
-                                {t.copySubagentArtifact}
-                              </button>
+                              <div className="subagent-artifact-actions">
+                                {openable && (
+                                  <button
+                                    type="button"
+                                    className="plain-action subtle-action"
+                                    data-subagent-artifact-open={index}
+                                    onClick={() => openSubagentArtifact(run, artifact)}
+                                    title={t.openSubagentArtifact}
+                                  >
+                                    <FileText size={12} />
+                                    {t.openSubagentArtifact}
+                                  </button>
+                                )}
+                                <button
+                                  type="button"
+                                  className="plain-action subtle-action"
+                                  data-subagent-artifact-copy={index}
+                                  onClick={() => copySubagentArtifact(artifact, index)}
+                                  title={t.copySubagentArtifact}
+                                >
+                                  <Copy size={12} />
+                                  {t.copySubagentArtifact}
+                                </button>
+                              </div>
                             </div>
                             {artifact?.path && <small title={artifact.path}>{artifact.path}</small>}
                             {content ? (
@@ -5392,7 +5431,7 @@ function NoticeCenter({ notices = [], onDismiss, onClear, onAction, t }) {
   );
 }
 
-function RunEvidenceDetails({ event, evidence, onCopy, t, pinned = false }) {
+function RunEvidenceDetails({ event, evidence, onCopy, onOpenWorkspaceFile, t, pinned = false }) {
   const hasRawEvidence = runTimelineHasEvidence(evidence);
   const typeRaw = runTimelineTypeRaw(event, evidence);
   const typeLabel = runTimelineTypeLabel(event, evidence, t);
@@ -5406,6 +5445,15 @@ function RunEvidenceDetails({ event, evidence, onCopy, t, pinned = false }) {
   }, [event?.id]);
   async function copyRunArtifact(artifact, index) {
     await onCopy?.(subagentArtifactEvidenceText(artifact, index, t));
+  }
+  function openRunArtifact(artifact) {
+    const artifactPath = subagentArtifactPathValue(artifact);
+    if (!artifactPath) return;
+    onOpenWorkspaceFile?.(artifactPath, {
+      projectPath: evidence?.cwd || "",
+      projectLabel: evidence?.project || t.subagents,
+      force: true,
+    });
   }
   async function copyRunEvidence() {
     await onCopy?.(runTimelineEvidenceText(event, evidence, t));
@@ -5458,6 +5506,7 @@ function RunEvidenceDetails({ event, evidence, onCopy, t, pinned = false }) {
                 {evidence.artifacts.map((artifact, index) => {
                   const label = subagentArtifactLabel(artifact, index, t);
                   const content = subagentArtifactContent(artifact);
+                  const openable = isOpenableSubagentArtifact(artifact);
                   return (
                     <article
                       className="subagent-artifact-item"
@@ -5466,16 +5515,30 @@ function RunEvidenceDetails({ event, evidence, onCopy, t, pinned = false }) {
                     >
                       <div className="subagent-artifact-head">
                         <code title={artifact?.path || artifact?.type || label}>{label}</code>
-                        <button
-                          type="button"
-                          className="plain-action subtle-action"
-                          data-run-timeline-artifact-copy={index}
-                          onClick={() => copyRunArtifact(artifact, index)}
-                          title={t.copySubagentArtifact}
-                        >
-                          <Copy size={12} />
-                          {t.copySubagentArtifact}
-                        </button>
+                        <div className="subagent-artifact-actions">
+                          {openable && (
+                            <button
+                              type="button"
+                              className="plain-action subtle-action"
+                              data-run-timeline-artifact-open={index}
+                              onClick={() => openRunArtifact(artifact)}
+                              title={t.openSubagentArtifact}
+                            >
+                              <FileText size={12} />
+                              {t.openSubagentArtifact}
+                            </button>
+                          )}
+                          <button
+                            type="button"
+                            className="plain-action subtle-action"
+                            data-run-timeline-artifact-copy={index}
+                            onClick={() => copyRunArtifact(artifact, index)}
+                            title={t.copySubagentArtifact}
+                          >
+                            <Copy size={12} />
+                            {t.copySubagentArtifact}
+                          </button>
+                        </div>
                       </div>
                       {artifact?.path && <small title={artifact.path}>{artifact.path}</small>}
                       {content ? (
@@ -5509,7 +5572,7 @@ function RunEvidenceDetails({ event, evidence, onCopy, t, pinned = false }) {
   );
 }
 
-function SelectedRunEvidencePanel({ event, evidence, onCopy, t }) {
+function SelectedRunEvidencePanel({ event, evidence, onCopy, onOpenWorkspaceFile, t }) {
   if (!event || !evidence) return null;
   return (
     <section className={cx("selected-run-evidence-panel", event.status)} aria-label={t.selectedRunEvidence}>
@@ -5521,7 +5584,7 @@ function SelectedRunEvidencePanel({ event, evidence, onCopy, t }) {
         </div>
         <time>{formatDate(event.createdAt)}</time>
       </div>
-      <RunEvidenceDetails event={event} evidence={evidence} onCopy={onCopy} t={t} pinned />
+      <RunEvidenceDetails event={event} evidence={evidence} onCopy={onCopy} onOpenWorkspaceFile={onOpenWorkspaceFile} t={t} pinned />
     </section>
   );
 }
@@ -5535,6 +5598,7 @@ function RunTimeline({
   selectedEventId = "",
   onSelectEvent,
   onCopy,
+  onOpenWorkspaceFile,
   t,
 }) {
   if (!events.length) return null;
@@ -5562,7 +5626,7 @@ function RunTimeline({
                 </div>
                 <time>{formatDate(event.createdAt)}</time>
               </summary>
-              <RunEvidenceDetails event={event} evidence={evidence} onCopy={onCopy} t={t} />
+              <RunEvidenceDetails event={event} evidence={evidence} onCopy={onCopy} onOpenWorkspaceFile={onOpenWorkspaceFile} t={t} />
             </details>
           );
         })}

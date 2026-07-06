@@ -6446,6 +6446,13 @@ button.runtime-health-row {
   gap: 8px;
 }
 
+.subagent-artifact-actions {
+  display: inline-flex;
+  flex-shrink: 0;
+  align-items: center;
+  gap: 5px;
+}
+
 .subagent-artifact-list code {
   min-width: 0;
   border: 1px solid #2e2e2e;
