@@ -637,6 +637,9 @@ const copy = {
     localSkillRegistry: "本地 Skills registry",
     localSkillRegistryHint: "来自本机 SKILL.md 扫描，不是静态演示目录。",
     localSkillRegistryFallback: "未发现本机 SKILL.md，下面仅显示本地能力设置 fallback。",
+    skillRegistryEvidence: "Skills registry 证据",
+    openSkillFile: "打开 SKILL.md",
+    pinSkillEvidence: "固定证据",
     skillPath: "技能路径",
     skillRoot: "技能根目录",
     marketplaceHint: "市场命令由 Claude Code CLI 支撑。安装前请在 Claude Code 面板获取实时市场输出。",
@@ -728,6 +731,7 @@ const copy = {
     timelineAutomationAction: "自动化操作",
     timelineSubagentAction: "子代理操作",
     timelineThreadAction: "聊天操作",
+    timelineSkillRegistry: "技能 registry",
     selectedRunEvidence: "选中证据",
     selectedRunEvidenceHint: "点击 timeline 行后，这里固定显示关联到本地 store/CLI 的完整证据。",
     automationRunHistoryShort: "最近 3 次",
@@ -2443,6 +2447,7 @@ function runTimelineTypeLabel(event, evidence, t) {
   if (raw === "automation-action") return t.timelineAutomationAction;
   if (raw === "subagent-action") return t.timelineSubagentAction;
   if (raw === "thread-action") return t.timelineThreadAction;
+  if (raw === "skill-registry") return t.timelineSkillRegistry;
   return raw;
 }
 
@@ -3775,7 +3780,7 @@ function Conversation({
     }
     if (action.startsWith("runtime-health:")) {
       const target = action.split(":")[1] || "";
-      if (["plugins", "mcp", "marketplace"].includes(target)) {
+      if (["plugins", "skills", "mcp", "marketplace"].includes(target)) {
         onCapabilities?.(target);
         return;
       }
@@ -6114,7 +6119,8 @@ function ToolsPanel({
       setWorkspaceError(t.desktopOnly);
       return;
     }
-    const cacheKey = `${activeProject?.path || ""}::${item.path}`;
+    const targetProjectPath = String(item.projectPath || options.projectPath || activeProject?.path || "").trim();
+    const cacheKey = `${targetProjectPath}::${item.path}`;
     const cached = fileCacheRef.current.get(cacheKey);
     if (cached && !options.force) {
       cacheFileRead(fileCacheRef, cacheKey, cached);
@@ -6131,16 +6137,21 @@ function ToolsPanel({
     setWorkspaceErrorRetry(null);
     setOpeningPath(item.path);
     try {
-      const result = await desktopApi.readWorkspaceFile({ projectPath: activeProject.path, relativePath: item.path });
-      cacheFileRead(fileCacheRef, cacheKey, result);
-      setFile(result);
-      setFileDraft(result.content || "");
+      const result = await desktopApi.readWorkspaceFile({ projectPath: targetProjectPath, relativePath: item.path });
+      const nextFile = {
+        ...result,
+        projectPath: targetProjectPath,
+        projectLabel: item.projectLabel || result.sourceRef?.project?.name || "",
+      };
+      cacheFileRead(fileCacheRef, cacheKey, nextFile);
+      setFile(nextFile);
+      setFileDraft(nextFile.content || "");
       setFileView("edit");
       setSaveStatus("idle");
       if (Array.isArray(result.sourceRefs)) onSourceRefs?.(result.sourceRefs);
     } catch (error) {
       setWorkspaceError(error.message || String(error));
-      setWorkspaceErrorRetry(() => () => openFile(item));
+      setWorkspaceErrorRetry(() => () => openFile(item, options));
     } finally {
       setWorkspaceBusy(false);
       setOpeningPath("");
@@ -6168,19 +6179,20 @@ function ToolsPanel({
       status: "running",
       title: `${t.saveFile}: ${file.path}`,
       detail: changeSummary,
-      cwd: activeProject?.path || "",
+      cwd: file.projectPath || activeProject?.path || "",
     });
     try {
       const result = await desktopApi.saveWorkspaceFile({
-        projectPath: activeProject.path,
+        projectPath: file.projectPath || activeProject.path,
         relativePath: file.path,
         content: fileDraft,
         baseUpdatedAt: file.updatedAt,
         baseSha256: file.sha256,
       });
-      cacheFileRead(fileCacheRef, `${activeProject?.path || ""}::${file.path}`, result);
-      setFile(result);
-      setFileDraft(result.content || "");
+      const nextFile = { ...result, projectPath: file.projectPath || activeProject.path, projectLabel: file.projectLabel || "" };
+      cacheFileRead(fileCacheRef, `${file.projectPath || activeProject?.path || ""}::${file.path}`, nextFile);
+      setFile(nextFile);
+      setFileDraft(nextFile.content || "");
       setFileView("edit");
       setSaveStatus("saved");
       onRefreshEnvironment?.();
@@ -6190,11 +6202,11 @@ function ToolsPanel({
         status: "ok",
         title: `${t.saveFile}: ${file.path}`,
         detail: changeSummary,
-        cwd: activeProject?.path || "",
+        cwd: file.projectPath || activeProject?.path || "",
       });
     } catch (error) {
       setWorkspaceError(error.message || String(error));
-      setWorkspaceErrorRetry(() => () => openFile({ type: "file", path: file.path }, { force: true }));
+      setWorkspaceErrorRetry(() => () => openFile({ type: "file", path: file.path, projectPath: file.projectPath, projectLabel: file.projectLabel }, { force: true }));
       setSaveStatus("error");
       onRunEvent?.({
         id: requestId,
@@ -6202,7 +6214,7 @@ function ToolsPanel({
         status: "error",
         title: `${t.saveFile}: ${file.path}`,
         detail: error.message || String(error),
-        cwd: activeProject?.path || "",
+        cwd: file.projectPath || activeProject?.path || "",
         path: file.path,
         action: `workspace:file:${encodeURIComponent(file.path)}`,
       });
@@ -6534,7 +6546,12 @@ function ToolsPanel({
   useEffect(() => {
     const focusedPath = String(workspaceOpenRequest?.path || "").trim();
     if (selectedTool !== "workspace" || !focusedPath) return;
-    openFile({ type: "file", path: focusedPath }, { force: workspaceOpenRequest?.force !== false });
+    openFile({
+      type: "file",
+      path: focusedPath,
+      projectPath: workspaceOpenRequest?.projectPath || "",
+      projectLabel: workspaceOpenRequest?.projectLabel || "",
+    }, { force: workspaceOpenRequest?.force !== false, projectPath: workspaceOpenRequest?.projectPath || "" });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedTool, workspaceOpenRequest?.nonce]);
 
@@ -6749,6 +6766,7 @@ function ToolsPanel({
                           <em>{t.fileSize}: {formatBytes(file.size)}</em>
                           {fileUpdatedAt && <em>{t.fileUpdatedAt}: {fileUpdatedAt}</em>}
                           <em>{t.changedLines}: {changeSummary}</em>
+                          {file.projectPath && file.projectPath !== activeProject?.path && <em title={file.projectPath}>{t.skillRoot}: {compactPath(file.projectPath, 58)}</em>}
                         </div>
                       </div>
                       <div className="editor-actions">
@@ -7987,7 +8005,7 @@ function ShellModal({ title, subtitle, onClose, children, className = "", closeL
   );
 }
 
-function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenClaudePanel, onNotice, onRunEvent, onOpenBottomPanel, onCommandRuns, onStatus, surface = false, initialTab = "plugins", focus = null }) {
+function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenClaudePanel, onNotice, onRunEvent, onOpenBottomPanel, onOpenWorkspaceFile, onCommandRuns, onStatus, surface = false, initialTab = "plugins", focus = null }) {
   const tabs = [
     ["plugins", t.plugins],
     ["mcp", t.mcps],
@@ -8373,6 +8391,40 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
     }
     setCopiedSkillId(id);
     window.setTimeout(() => setCopiedSkillId((current) => (current === id ? "" : current)), 1200);
+  }
+
+  function openSkillWorkspaceFile(skill) {
+    const relativePath = String(skill?.relativePath || "").trim();
+    const root = String(skill?.root || "").trim();
+    if (!relativePath || !root) return;
+    onOpenWorkspaceFile?.(relativePath, {
+      projectPath: root,
+      projectLabel: skill?.name || skill?.id || t.skills,
+      force: true,
+    });
+    onClose?.();
+  }
+
+  function pinSkillEvidence(skill) {
+    const skillId = String(skill?.id || skill?.name || skill?.path || "").trim();
+    const evidence = skillEvidenceText(skill, t);
+    if (!skillId || !evidence) return;
+    const eventId = `skill_registry_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+    onRunEvent?.({
+      id: eventId,
+      type: "skill-registry",
+      status: "ok",
+      title: `${t.skillRegistryEvidence}: ${skill.name || skillId}`,
+      detail: skill.description || skill.path || "",
+      cwd: skill.root || activeProject?.path || "",
+      path: skill.relativePath || skill.path || "",
+      stdout: evidence,
+      project: skill.root ? { name: skill.name || t.skills, path: skill.root } : activeProject,
+      action: skill.relativePath && skill.root ? `workspace:file:${encodeURIComponent(skill.relativePath)}` : "",
+      suppressNotice: true,
+    });
+    onOpenBottomPanel?.("outputs");
+    onClose?.();
   }
 
   async function copyMarketplacePluginEvidence(plugin) {
@@ -9138,6 +9190,14 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                       </div>
                       <em className="plugin-status-badge ok">{t.installedLocal}</em>
                       <div className="structured-row-actions">
+                        <button type="button" className="plain-action subtle-action" data-skill-action="open-workspace" onClick={() => openSkillWorkspaceFile(skill)} disabled={!skill.relativePath || !skill.root}>
+                          <FileText size={13} />
+                          {t.openSkillFile}
+                        </button>
+                        <button type="button" className="plain-action subtle-action" data-skill-action="pin-evidence" onClick={() => pinSkillEvidence(skill)}>
+                          <Pin size={13} />
+                          {t.pinSkillEvidence}
+                        </button>
                         <button type="button" className="plain-action subtle-action" data-skill-action="copy-evidence" onClick={() => copySkillEvidence(skill)} title={copied ? t.copied : t.copyEvidence}>
                           {copied ? <Check size={13} /> : <Copy size={13} />}
                           {copied ? t.copied : t.copyEvidence}
@@ -11488,7 +11548,7 @@ export function App() {
   const [taskCenterFocus, setTaskCenterFocus] = useState({ type: "", id: "", nonce: 0 });
   const [composerFocusToken, setComposerFocusToken] = useState(0);
   const [browserOpenRequest, setBrowserOpenRequest] = useState({ url: "", id: "", nonce: 0 });
-  const [workspaceOpenRequest, setWorkspaceOpenRequest] = useState({ path: "", force: false, nonce: 0 });
+  const [workspaceOpenRequest, setWorkspaceOpenRequest] = useState({ path: "", projectPath: "", projectLabel: "", force: false, nonce: 0 });
 
   function openSettingsSurface(initialSection = "general") {
     const nextSection = settingsSectionCommandSpecs(t).some((section) => section.id === initialSection) ? initialSection : "general";
@@ -11590,6 +11650,8 @@ export function App() {
     }
     setWorkspaceOpenRequest({
       path: focusedPath,
+      projectPath: String(options.projectPath || "").trim(),
+      projectLabel: String(options.projectLabel || "").trim(),
       force: options.force !== false,
       nonce: Date.now(),
     });
@@ -11619,7 +11681,7 @@ export function App() {
     }
     if (action.startsWith("runtime-health:")) {
       const target = action.split(":")[1] || "";
-      if (["plugins", "mcp", "marketplace"].includes(target)) {
+      if (["plugins", "skills", "mcp", "marketplace"].includes(target)) {
         openCapabilitiesSurface(target);
         return;
       }
@@ -11884,6 +11946,7 @@ export function App() {
             onNotice={recordNotice}
             onRunEvent={recordRunEvent}
             onOpenBottomPanel={(panel) => setBottomPanel(panel)}
+            onOpenWorkspaceFile={openWorkspaceFile}
             onCommandRuns={(commandRuns) => setState((current) => ({ ...current, commandRuns }))}
             onStatus={setCapabilityCommandStatus}
             surface

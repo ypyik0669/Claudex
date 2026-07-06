@@ -238,6 +238,35 @@ async function runTest() {
     })();
   `));
 
+  assertStep("PASS144_OPEN_SKILL_IN_WORKSPACE", await win.webContents.executeJavaScript(`
+    (function() {
+      document.querySelector('.skill-registry-row[data-skill-id="pass144-local-skill"] [data-skill-action="open-workspace"]')?.click();
+      return true;
+    })();
+  `) && await waitFor(win, `
+    (function() {
+      const activeTool = document.querySelector('.tool-row.active')?.textContent || '';
+      const editor = document.querySelector('.file-editor');
+      const textarea = editor?.querySelector('textarea');
+      const head = editor?.querySelector('.editor-head')?.textContent || '';
+      return /\\u5de5\\u4f5c\\u533a/.test(activeTool) &&
+        /SKILL\\.md/.test(head) &&
+        /pass144-local-skill[\\\\/]SKILL\\.md/.test(head) &&
+        /claudex-pass144-skills/.test(head) &&
+        /This markdown body proves the row is backed by a real SKILL\\.md file/.test(textarea?.value || '');
+    })();
+  `, 10000));
+  assertStep("PASS144_SKILL_SOURCE_REF_PERSISTED", await waitFor(win, `
+    (async function() {
+      const state = await window.claudexDesktop.getState();
+      return Boolean((state.sourceRefs || []).some((ref) =>
+        ref.path === 'pass144-local-skill/SKILL.md' &&
+        /SKILL\\.md/.test(ref.title || '') &&
+        /claudex-pass144-skills/.test(ref.project?.path || '')
+      ));
+    })();
+  `, 10000));
+
   assertStep("PASS144_PALETTE_SKILL_COMMAND_VISIBLE", await openPaletteAndQuery(win, "pass144 local skill") && await waitFor(win, `
     Boolean([...document.querySelectorAll('.command-modal .command-list button')].some((button) =>
       (button.getAttribute('data-command-id') || '').startsWith('capability-skill:') &&
@@ -260,6 +289,27 @@ async function runTest() {
       return /\\u6280\\u80fd/.test(activeTab) && Boolean(row);
     })();
   `, 8000));
+  assertStep("PASS144_PIN_SKILL_REGISTRY_EVIDENCE", await win.webContents.executeJavaScript(`
+    (function() {
+      document.querySelector('.skill-registry-row[data-skill-id="pass144-local-skill"] [data-skill-action="pin-evidence"]')?.click();
+      return true;
+    })();
+  `) && await waitFor(win, `
+    (function() {
+      const panel = document.querySelector('.selected-run-evidence-panel');
+      const row = document.querySelector('.run-timeline-row.selected');
+      const typePill = panel?.querySelector('[data-run-event-type="skill-registry"]') || row?.querySelector('[data-run-event-type="skill-registry"]');
+      const text = panel?.textContent || '';
+      return Boolean(panel && row && typePill) &&
+        /\\u6280\\u80fd registry/.test(typePill.textContent || '') &&
+        /skill-registry/.test(typePill.textContent || '') &&
+        /Skills registry/.test(text) &&
+        /pass144-local-skill/.test(text) &&
+        /Pass144 local skill registry evidence/.test(text) &&
+        /SKILL\\.md/.test(text) &&
+        /local-skill/.test(text);
+    })();
+  `, 10000));
 
   console.log("PASS144_SKILLS_REGISTRY_DONE");
 }
