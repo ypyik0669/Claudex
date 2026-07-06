@@ -2146,6 +2146,19 @@ function automationEvidenceText(automation, entry, t, sessions = []) {
   return lines.filter((line, index) => index < 8 || String(line || "").trim()).join("\n");
 }
 
+function automationRunEntries(automation = {}) {
+  const entries = [];
+  const seen = new Set();
+  for (const entry of Array.isArray(automation?.history) ? automation.history : []) {
+    if (!entry?.id || seen.has(entry.id)) continue;
+    seen.add(entry.id);
+    entries.push(entry);
+  }
+  const lastRun = automation?.lastRun;
+  if (lastRun?.id && !seen.has(lastRun.id)) entries.push(lastRun);
+  return entries;
+}
+
 function findCommandRunForEvent(event, commandRuns = []) {
   const eventId = String(event?.id || "");
   const commandLine = String(event?.commandLine || "").trim();
@@ -2238,16 +2251,7 @@ function runEventTimestamp(event = {}) {
 function localEvidenceRunEvents({ automations = [], subagentRuns = [], t } = {}) {
   const events = [];
   for (const automation of automations || []) {
-    const entries = [];
-    const seen = new Set();
-    for (const entry of Array.isArray(automation?.history) ? automation.history : []) {
-      if (!entry?.id || seen.has(entry.id)) continue;
-      seen.add(entry.id);
-      entries.push(entry);
-    }
-    const lastRun = automation?.lastRun;
-    if (lastRun?.id && !seen.has(lastRun.id)) entries.push(lastRun);
-    for (const entry of entries) {
+    for (const entry of automationRunEntries(automation)) {
       const event = fallbackRunEventForId(entry.id, { automations, subagentRuns, t });
       if (event) events.push(event);
     }
@@ -10284,6 +10288,38 @@ export function App() {
         };
       });
 
+    const automationRunCommands = (state.automations || [])
+      .filter((automation) => automation?.id)
+      .slice(0, 16)
+      .flatMap((automation) => automationRunEntries(automation).slice(0, 6).map((entry) => ({
+        id: `automation-run:${commandIdSegment(entry.id)}`,
+        title: `${t.openRunTimeline}: ${messageExcerpt(automation.prompt, 56)}`,
+        subtitle: [
+          automationStatusLabel(entry.status || automation.status, t),
+          entry.summary || entry.error || entry.detail,
+          entry.endedAt ? formatDate(entry.endedAt) : "",
+        ].filter(Boolean).join(" Â· "),
+        group: t.taskCenter,
+        keywords: [
+          "automation run history timeline evidence stdout stderr",
+          automation.id,
+          automation.prompt,
+          automation.project?.name,
+          automation.project?.path,
+          automation.threadId,
+          entry.id,
+          entry.status,
+          entry.trigger,
+          entry.summary,
+          entry.error,
+          entry.detail,
+          entry.stdout,
+          entry.stderr,
+          entry.sessionId,
+        ].filter(Boolean).join(" "),
+        action: () => openRunTimeline(entry.id),
+      })));
+
     const subagentCommands = (state.subagentRuns || [])
       .filter((run) => run?.id || run?.requestId)
       .slice(0, 16)
@@ -10458,6 +10494,7 @@ export function App() {
       ...sourceRefCommands,
       ...browserEvidenceCommands,
       ...automationCommands,
+      ...automationRunCommands,
       ...subagentCommands,
       ...installedPluginCommands,
       ...mcpServerCommands,
