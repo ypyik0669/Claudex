@@ -2050,6 +2050,27 @@ function subagentArtifactPathValue(artifact) {
   return String(artifact?.path || "").trim();
 }
 
+function subagentArtifactProjectPath(artifact = {}, fallback = "") {
+  return String(
+    artifact?.projectPath
+      || artifact?.cwd
+      || artifact?.project?.path
+      || fallback
+      || "",
+  ).trim();
+}
+
+function subagentArtifactProjectLabel(artifact = {}, fallback = "", t) {
+  return String(
+    artifact?.projectLabel
+      || artifact?.project?.name
+      || artifact?.project?.path
+      || fallback
+      || t?.subagents
+      || "",
+  ).trim();
+}
+
 function isOpenableSubagentArtifact(artifact) {
   const artifactPath = subagentArtifactPathValue(artifact);
   return Boolean(artifactPath && !/^[a-z][a-z0-9+.-]*:\/\//i.test(artifactPath));
@@ -5235,8 +5256,8 @@ function SubagentWorkbench({
     const artifactPath = subagentArtifactPathValue(artifact);
     if (!artifactPath) return;
     onOpenWorkspaceFile?.(artifactPath, {
-      projectPath: run?.project?.path || run?.cwd || activeProject?.path || "",
-      projectLabel: run?.project?.name || run?.nickname || t.subagents,
+      projectPath: subagentArtifactProjectPath(artifact, run?.project?.path || run?.cwd || activeProject?.path || ""),
+      projectLabel: subagentArtifactProjectLabel(artifact, run?.project?.name || run?.nickname || t.subagents, t),
       force: true,
     });
   }
@@ -5880,8 +5901,8 @@ function RunEvidenceDetails({ event, evidence, onCopy, onOpenWorkspaceFile, t, p
     const artifactPath = subagentArtifactPathValue(artifact);
     if (!artifactPath) return;
     onOpenWorkspaceFile?.(artifactPath, {
-      projectPath: evidence?.cwd || "",
-      projectLabel: evidence?.project || t.subagents,
+      projectPath: subagentArtifactProjectPath(artifact, evidence?.cwd || ""),
+      projectLabel: subagentArtifactProjectLabel(artifact, evidence?.project || t.subagents, t),
       force: true,
     });
   }
