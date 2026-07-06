@@ -228,12 +228,15 @@ async function runTest() {
   assertStep("PASS161_OPEN_MARKETPLACE", await openMarketplace(win));
   assertStep("PASS161_REPO_ONLY_MARKETPLACE_PLUGIN_VISIBLE", await waitFor(win, `
     (function() {
+      const expectedRoot = ${JSON.stringify(MARKETPLACE_REPO_DIR)};
       const source = document.querySelector('.marketplace-source-row[data-marketplace-source-id="pass161-repo-market"]');
       const plugin = document.querySelector('.marketplace-plugin-card[data-marketplace-plugin-id="pass161-repo-plugin@pass161-repo-market"]');
+      const installMeta = plugin?.querySelector('dd[title*="claudex-pass161-market-repo-"]');
       const pluginText = plugin?.textContent || '';
       return Boolean(
         source &&
         plugin &&
+        installMeta?.getAttribute('title') === expectedRoot &&
         /pass161-repo-plugin/.test(pluginText) &&
         /16\\.1\\.0/.test(pluginText) &&
         /repo-catalog/.test(pluginText) &&

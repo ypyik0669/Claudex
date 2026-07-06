@@ -1610,6 +1610,7 @@ function marketplacePluginEvidenceText(plugin = {}, t) {
     plugin.installed ? [t.status, t.installedLocal] : [t.status, t.installFromMarketplace],
     plugin.description ? [t.description, plugin.description] : null,
     plugin.source ? [t.source, summarizePanelPluginField(plugin.source)] : null,
+    plugin.installLocation ? [t.installPath, plugin.installLocation] : null,
     plugin.homepage ? [t.openHomepage, plugin.homepage] : null,
     plugin.permissions ? [t.allowedTools, summarizePanelPluginField(plugin.permissions)] : null,
     plugin.risk ? [t.marketplaceRisk, plugin.risk] : null,
@@ -8925,6 +8926,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
       item.author ? [t.author, item.author] : null,
       item.category ? [t.category, item.category] : null,
       item.source ? [t.source, item.source] : null,
+      item.installLocation ? [t.installPath, item.installLocation] : null,
       item.permissions ? [t.allowedTools, item.permissions] : null,
       [t.marketplaceRisk, item.risk || t.marketplaceInstallRisk],
     ].filter(Boolean);
@@ -9473,6 +9475,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                       {item.version && item.version !== "unknown" && <div><dt>{t.version}</dt><dd>{item.version}</dd></div>}
                       {item.author && <div><dt>{t.author}</dt><dd>{item.author}</dd></div>}
                       {item.source && <div><dt>{t.source}</dt><dd title={item.source}>{messageExcerpt(item.source, 76)}</dd></div>}
+                      {item.installLocation && <div><dt>{t.installPath}</dt><dd title={item.installLocation}>{compactPath(item.installLocation, 64)}</dd></div>}
                       {item.permissions && <div><dt>{t.allowedTools}</dt><dd title={item.permissions}>{messageExcerpt(item.permissions, 54)}</dd></div>}
                       {item.risk && <div><dt>{t.marketplaceRisk}</dt><dd title={item.risk}>{messageExcerpt(item.risk, 64)}</dd></div>}
                     </dl>
