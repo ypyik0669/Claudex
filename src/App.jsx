@@ -5297,7 +5297,7 @@ function EnvironmentOverview({
         </div>
       )}
       <div className="environment-rows">
-        <button type="button" className="environment-row" title={git?.raw || t.changes}>
+        <button type="button" className="environment-row" onClick={() => onOpenBottomPanel?.("changes")} title={git?.raw || t.changes}>
           <FileText size={15} />
           <span>{t.changes}</span>
           <em>{git?.available ? `${git.changes || 0}` : t.gitUnavailable}</em>
@@ -5307,12 +5307,12 @@ function EnvironmentOverview({
           <span>{t.local}</span>
           <em>{projectMissing ? t.projectPathMissing : activeProject?.path ? compactPath(activeProject.path, 28) : t.noProjectPath}</em>
         </button>
-        <button type="button" className="environment-row" title={gitRootPath || t.gitUnavailable}>
+        <button type="button" className="environment-row" onClick={() => onOpenBottomPanel?.("changes")} title={gitRootPath || t.gitUnavailable}>
           <GitFork size={15} />
           <span>{t.gitRoot}</span>
           <em>{gitRootLabel}</em>
         </button>
-        <button type="button" className="environment-row" title={git?.branch || t.gitUnavailable}>
+        <button type="button" className="environment-row" onClick={() => onOpenBottomPanel?.("changes")} title={git?.branch || t.gitUnavailable}>
           <GitBranch size={15} />
           <span>{t.branch}</span>
           <em>{git?.branch || t.gitUnavailable}</em>
@@ -5324,7 +5324,12 @@ function EnvironmentOverview({
             <em>{gitRelativeLabel}</em>
           </button>
         )}
-        <button type="button" className="environment-row muted" disabled title={git?.available ? `${upstreamLabel} · ${syncLabel}` : t.gitUnavailable}>
+        <button
+          type="button"
+          className="environment-row muted"
+          onClick={() => onOpenBottomPanel?.("changes")}
+          title={git?.available ? `${upstreamLabel} · ${syncLabel}` : t.gitUnavailable}
+        >
           <GitCommit size={15} />
           <span>{t.commitOrPush}</span>
           <em>{git?.available ? syncLabel : t.gitUnavailable}</em>
