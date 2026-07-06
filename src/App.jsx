@@ -3813,7 +3813,10 @@ function Conversation({
     if (action.startsWith("automation:")) {
       const automationId = decodeActionSuffix(action, "automation:");
       if (automationId && onOpenTaskCenterFocus) {
-        onOpenTaskCenterFocus("automation", automationId);
+        onOpenTaskCenterFocus("automation", automationId, {
+          expandEvidence: true,
+          expandHistory: true,
+        });
         return;
       }
       onOpenAutomation?.();
@@ -4900,6 +4903,9 @@ function SubagentWorkbench({
         {automationItems.length ? (
           <div className="automation-task-list">
             {automationItems.slice(0, 4).map((item) => {
+              const isFocusedAutomation = focusedAutomationId === item.id;
+              const openFocusedAutomationEvidence = Boolean(isFocusedAutomation && focus?.expandEvidence);
+              const openFocusedAutomationHistory = Boolean(isFocusedAutomation && (focus?.expandHistory || focus?.expandEvidence));
               const lastRunDetail = item.lastRun?.error || item.lastRun?.detail || "";
               const history = Array.isArray(item.history) ? item.history.slice(0, 3) : [];
               const timing = item.lastRun?.endedAt
@@ -4909,10 +4915,10 @@ function SubagentWorkbench({
                   : t.noAutomationHistory;
               return (
                 <article
-                  className={cx("automation-task-card", item.status || "idle", focusedAutomationId === item.id && "focused-task-card")}
+                  className={cx("automation-task-card", item.status || "idle", isFocusedAutomation && "focused-task-card")}
                   key={item.id}
                   data-automation-id={item.id}
-                  aria-current={focusedAutomationId === item.id ? "true" : undefined}
+                  aria-current={isFocusedAutomation ? "true" : undefined}
                 >
                   <div className="automation-task-main">
                     <div className="schedule-item-title">
@@ -4956,7 +4962,7 @@ function SubagentWorkbench({
                     )}
                     {lastRunDetail && <p className="automation-task-detail">{lastRunDetail}</p>}
                     {history.length > 0 && (
-                      <details className="automation-task-history">
+                      <details className="automation-task-history" open={openFocusedAutomationHistory || undefined}>
                         <summary>{t.automationRunHistoryShort}</summary>
                         <ul>
                           {history.map((entry) => (
@@ -4991,7 +4997,7 @@ function SubagentWorkbench({
                               </div>
                               {(entry.detail || entry.error || entry.summary) && <p>{messageExcerpt(entry.detail || entry.error || entry.summary, 110)}</p>}
                               {(entry.stdout || entry.stderr || entry.sessionId || typeof entry.code === "number") && (
-                                <details className="automation-run-evidence-details">
+                                <details className="automation-run-evidence-details" open={openFocusedAutomationEvidence || undefined}>
                                   <summary>{t.automationRawEvidence}</summary>
                                   <dl className="automation-run-evidence-meta">
                                     <div><dt>{t.automationSession}</dt><dd>{entry.sessionId || "-"}</dd></div>
@@ -10991,6 +10997,8 @@ export function App() {
       .slice(0, 16)
       .map((automation) => {
         const lastRun = automation.lastRun || {};
+        const hasEvidence = Boolean(lastRun.id || lastRun.error || lastRun.detail || lastRun.summary || lastRun.stdout || lastRun.stderr);
+        const hasHistory = automationRunEntries(automation).length > 0;
         return {
           id: `automation:${commandIdSegment(automation.id)}`,
           title: `${t.automationTasks}: ${messageExcerpt(automation.prompt, 72)}`,
@@ -11016,7 +11024,10 @@ export function App() {
             lastRun.stdout,
             lastRun.stderr,
           ].filter(Boolean).join(" "),
-          action: () => openTaskCenterFocus("automation", automation.id),
+          action: () => openTaskCenterFocus("automation", automation.id, {
+            expandEvidence: hasEvidence,
+            expandHistory: hasHistory,
+          }),
         };
       });
 
@@ -11832,7 +11843,10 @@ export function App() {
     if (action.startsWith("automation:")) {
       const automationId = decodeActionSuffix(action, "automation:");
       if (automationId) {
-        openTaskCenterFocus("automation", automationId);
+        openTaskCenterFocus("automation", automationId, {
+          expandEvidence: true,
+          expandHistory: true,
+        });
         return;
       }
       openScheduledSurface();
@@ -11863,6 +11877,7 @@ export function App() {
       id: focusedId,
       expandEvidence: Boolean(options.expandEvidence),
       expandArtifacts: Boolean(options.expandArtifacts),
+      expandHistory: Boolean(options.expandHistory),
       nonce: Date.now(),
     });
     setBottomPanel("subagents");

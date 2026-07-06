@@ -226,12 +226,17 @@ async function runTest() {
     })();
   `));
   assertStep("PASS48_TASK_CENTER_AUTOMATION_FOCUSED", await waitFor(win, `
-    Boolean(
-      document.querySelector('.bottom-work-panel .task-center-summary') &&
-      document.querySelector('.automation-task-card.focused-task-card[data-automation-id="pass48-automation"]') &&
-      /pass48 scheduled prompt/.test(document.querySelector('.automation-task-card.focused-task-card')?.textContent || '') &&
-      /pass48 scheduled automation failed/.test(document.querySelector('.automation-task-card.focused-task-card')?.textContent || '')
-    )
+    (function() {
+      const card = document.querySelector('.automation-task-card.focused-task-card[data-automation-id="pass48-automation"]');
+      return Boolean(
+        document.querySelector('.bottom-work-panel .task-center-summary') &&
+        card &&
+        card.querySelector('.automation-task-history[open]') &&
+        card.querySelector('.automation-run-evidence-details[open]') &&
+        /pass48 scheduled prompt/.test(card.textContent || '') &&
+        /pass48 scheduled automation failed/.test(card.textContent || '')
+      );
+    })()
   `, 8000));
   assertStep("PASS48_STORE_PERSISTED", (() => {
     const parsed = JSON.parse(fs.readFileSync(DATA_FILE, "utf8"));

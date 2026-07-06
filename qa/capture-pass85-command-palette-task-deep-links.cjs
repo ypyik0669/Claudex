@@ -3,7 +3,30 @@ const os = require("os");
 const path = require("path");
 const { app, BrowserWindow } = require("electron");
 
-const REPO_DIR = path.join(__dirname, "..");
+function findRepoDir() {
+  const candidates = [
+    process.env.CLAUDEX_REPO_DIR,
+    process.cwd(),
+    __dirname,
+    path.join(__dirname, ".."),
+  ].filter(Boolean);
+  for (const candidate of candidates) {
+    let current = path.resolve(candidate);
+    while (current && current !== path.dirname(current)) {
+      if (
+        fs.existsSync(path.join(current, "package.json")) &&
+        fs.existsSync(path.join(current, "electron", "main.cjs"))
+      ) {
+        return current;
+      }
+      current = path.dirname(current);
+    }
+  }
+  throw new Error("Unable to locate Claudex repo root");
+}
+
+const REPO_DIR = findRepoDir();
+process.chdir(REPO_DIR);
 const USER_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "claudex-pass85-data-"));
 const FAKE_BIN_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "claudex-pass85-bin-"));
 const PROJECT_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "claudex-pass85-project-"));
@@ -220,12 +243,18 @@ async function runTest() {
 
   assertStep("PASS85_OPEN_AUTOMATION_TASK_CENTER_FOCUS", await runPaletteCommand(win, "pass85 focused automation task"));
   assertStep("PASS85_AUTOMATION_CARD_FOCUSED", await waitFor(win, `
-    Boolean(
-      document.querySelector('.bottom-work-panel .subagent-workbench') &&
-      document.querySelector('.automation-task-card.focused-task-card[data-automation-id="pass85-automation"]') &&
-      /pass85 focused automation task/.test(document.querySelector('.automation-task-card.focused-task-card')?.textContent || '') &&
-      /pass85 automation stderr evidence/.test(document.querySelector('.automation-task-card.focused-task-card')?.textContent || '')
-    )
+    (function() {
+      const card = document.querySelector('.automation-task-card.focused-task-card[data-automation-id="pass85-automation"]');
+      return Boolean(
+        document.querySelector('.bottom-work-panel .subagent-workbench') &&
+        card &&
+        card.querySelector('.automation-task-history[open]') &&
+        card.querySelector('.automation-run-evidence-details[open]') &&
+        /pass85 focused automation task/.test(card.textContent || '') &&
+        /pass85 automation stdout evidence/.test(card.textContent || '') &&
+        /pass85 automation stderr evidence/.test(card.textContent || '')
+      );
+    })()
   `, 10000));
 
   assertStep("PASS85_SUBAGENT_COMMAND_SEARCHABLE", await win.webContents.executeJavaScript(`
