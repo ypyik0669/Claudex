@@ -1585,15 +1585,34 @@ function rowCliActionEvidenceText(run, t) {
   ].filter(Boolean).join("\n");
 }
 
+function pluginStatusKind(plugin = {}) {
+  const rawStatus = String(plugin?.status || "").trim();
+  if (plugin?.error || /\b(?:error|failed|failure|unavailable|denied|missing|timeout)\b/i.test(rawStatus)) return "error";
+  if (/\b(?:pending|starting|waiting|paused)\b/i.test(rawStatus)) return "pending";
+  return plugin?.enabled ? "enabled" : "disabled";
+}
+
+function pluginStatusDisplay(plugin = {}, t) {
+  const kind = pluginStatusKind(plugin);
+  if (kind === "error") return t.mcpStatusError;
+  if (kind === "pending") return t.mcpStatusPending;
+  return plugin?.enabled ? t.pluginStatusEnabled : t.pluginStatusDisabled;
+}
+
+function pluginEvidenceStatusText(plugin = {}, t) {
+  const rawStatus = String(plugin?.status || "").trim();
+  const label = pluginStatusDisplay(plugin, t);
+  return rawStatus && rawStatus.toLowerCase() !== label.toLowerCase() ? `${label} (${rawStatus})` : label;
+}
+
 function pluginEvidenceText(plugin = {}, t) {
-  const status = plugin.enabled ? t.pluginStatusEnabled : t.pluginStatusDisabled;
   const rows = [
     ["ID", plugin.id || plugin.name],
     plugin.name && plugin.name !== plugin.id ? [t.pluginName, plugin.name] : null,
     plugin.version && plugin.version !== "unknown" ? [t.version, plugin.version] : null,
     plugin.scope ? [t.scope, plugin.scope] : null,
     plugin.marketplace ? [t.marketplace, plugin.marketplace] : null,
-    [t.status, status],
+    [t.status, pluginEvidenceStatusText(plugin, t)],
     plugin.source ? [t.source, summarizePanelPluginField(plugin.source)] : null,
     plugin.installPath ? [t.installPath, plugin.installPath] : null,
     plugin.tools ? [t.tools, summarizePanelPluginField(plugin.tools)] : null,
@@ -7762,8 +7781,8 @@ function ToolsPanel({
                             {[plugin.version && plugin.version !== "unknown" ? `v${plugin.version}` : "", plugin.scope, plugin.marketplace].filter(Boolean).join(" · ") || t.installedLocal}
                           </span>
                         </div>
-                        <em className={cx("plugin-status-badge", plugin.enabled ? "enabled" : "disabled")}>
-                          {plugin.enabled ? t.pluginStatusEnabled : t.pluginStatusDisabled}
+                        <em className={cx("plugin-status-badge", pluginStatusKind(plugin))}>
+                          {pluginStatusDisplay(plugin, t)}
                         </em>
                         {plugin.enabled ? (
                           <button
@@ -9707,7 +9726,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                         </dl>
                       )}
                     </div>
-                    <em className={cx("plugin-status-badge", plugin.enabled ? "enabled" : "disabled")}>{plugin.enabled ? t.pluginStatusEnabled : t.pluginStatusDisabled}</em>
+                    <em className={cx("plugin-status-badge", pluginStatusKind(plugin))}>{pluginStatusDisplay(plugin, t)}</em>
                     <div className="structured-row-actions">
                       {plugin.enabled ? (
                         <button type="button" className="plain-action subtle-action" onClick={() => requestCapabilityClaude(`plugin disable ${plugin.id}`, `${t.disablePlugin}: ${plugin.id}`)} disabled={cliWorking} title={cliWorking ? t.workingHint : undefined}>{t.disablePlugin}</button>
@@ -10241,7 +10260,7 @@ function SettingsBackedStatus({
                     {[plugin.version && plugin.version !== "unknown" ? `${t.version}: ${plugin.version}` : "", plugin.scope && `${t.scope}: ${plugin.scope}`, plugin.marketplace].filter(Boolean).join(" · ") || t.installedLocal}
                   </small>
                 </div>
-                <em className={cx("plugin-status-badge", plugin.enabled ? "enabled" : "disabled")}>{plugin.enabled ? t.pluginStatusEnabled : t.pluginStatusDisabled}</em>
+                <em className={cx("plugin-status-badge", pluginStatusKind(plugin))}>{pluginStatusDisplay(plugin, t)}</em>
               </article>
             ))}
           </div>

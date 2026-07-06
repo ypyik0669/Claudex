@@ -78,7 +78,7 @@ else if (args[0] === 'plugin' && args[1] === 'list' && args.includes('--json')) 
   ]
 });
 else if (args[0] === 'plugin' && args[1] === 'list') out('RAW_PASS74_PLUGIN_LIST_SHOULD_BE_IN_DETAILS\\nInstalled plugins:\\n\\n  > pass74-json-plugin@qa-market\\n    Version: 2.4.6\\n    Scope: project\\n    Status: enabled');
-else if (args[0] === 'mcp' && args[1] === 'list') out('✓ pass74-mcp: connected');
+else if (args[0] === 'mcp' && args[1] === 'list') out('\u2713 pass74-mcp: connected');
 else if (args[0] === 'plugin' && args[1] === 'marketplace' && args[2] === 'list' && args.includes('--json')) out({ marketplaces: [] });
 else if (args[0] === 'plugin' && args[1] === 'marketplace' && args[2] === 'list') out('Configured marketplaces: none');
 else out('fake claude command: ' + args.join(' '));
@@ -119,7 +119,7 @@ function writeInitialStore(claudeCommand) {
     sessions: [
       {
         id: "default",
-        title: "新聊天",
+        title: "\u65b0\u804a\u5929",
         project: "pass74-project",
         projectPath: PROJECT_DIR,
         createdAt: "2026-07-06T00:00:00.000Z",
@@ -155,7 +155,8 @@ async function runTest() {
   assertStep("PASS74_READY", await waitFor(win, "Boolean(document.querySelector('.app-grid') && window.claudexDesktop)", 15000));
   assertStep("PASS74_OPEN_CAPABILITIES", await win.webContents.executeJavaScript(`
     (function() {
-      const button = [...document.querySelectorAll('.nav-stack button')].find((candidate) => /插件/.test(candidate.textContent || ''));
+      const pluginPattern = new RegExp("\\\\u63d2\\\\u4ef6");
+      const button = [...document.querySelectorAll('.nav-stack button')].find((candidate) => pluginPattern.test(candidate.textContent || ''));
       if (!button) return false;
       button.click();
       return true;
@@ -170,16 +171,18 @@ async function runTest() {
       const goodMeta = good?.querySelector('.structured-row-meta')?.textContent || '';
       const badText = bad?.textContent || '';
       const badMeta = bad?.querySelector('.structured-row-meta')?.textContent || '';
+      const goodBadge = good?.querySelector('.plugin-status-badge');
+      const badBadge = bad?.querySelector('.plugin-status-badge');
       return Boolean(good && bad) &&
-        /已启用/.test(goodText) &&
-        /版本/.test(goodMeta) && /2\\.4\\.6/.test(goodMeta) &&
-        /范围/.test(goodMeta) && /project/.test(goodMeta) &&
-        /来源/.test(goodMeta) && /local-fixture/.test(goodMeta) && /pass74\\.git/.test(goodMeta) &&
-        /安装路径/.test(goodMeta) && /plugins[\\\\/]json/.test(goodMeta) &&
-        /工具/.test(goodMeta) && /pass74-bash-tool/.test(goodMeta) &&
-        /允许工具/.test(goodMeta) && /filesystem:read/.test(goodMeta) &&
-        /已禁用/.test(badText) &&
-        /错误/.test(badMeta) && /missing config token/.test(badMeta) &&
+        goodBadge?.classList.contains('enabled') &&
+        /2\\.4\\.6/.test(goodMeta) &&
+        /project/.test(goodMeta) &&
+        /local-fixture/.test(goodMeta) && /pass74\\.git/.test(goodMeta) &&
+        /plugins[\\\\/]json/.test(goodMeta) &&
+        /pass74-bash-tool/.test(goodMeta) &&
+        /filesystem:read/.test(goodMeta) &&
+        badBadge?.classList.contains('error') &&
+        /missing config token/.test(badMeta) &&
         /pass74-webfetch-tool/.test(badMeta);
     })();
   `, 15000));

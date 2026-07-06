@@ -76,7 +76,7 @@ function writeFakeClaude() {
       "@echo off",
       "if \"%1\"==\"--version\" (echo claude fake pass125& exit /b 0)",
       "if \"%1\"==\"auth\" (echo {\"loggedIn\":true,\"apiProvider\":\"qa\",\"authMethod\":\"api_key\"}& exit /b 0)",
-      "if \"%1\"==\"plugin\" if \"%2\"==\"list\" if \"%3\"==\"--json\" (echo {\"plugins\":[{\"id\":\"pass125-plugin@qa-market\",\"name\":\"pass125-plugin\",\"marketplace\":\"qa-market\",\"version\":\"12.5.0\",\"scope\":\"project\",\"enabled\":true,\"source\":\"pass125 source fixture\",\"installPath\":\"C:\\\\plugins\\\\pass125\",\"tools\":[\"pass125-tool\"],\"permissions\":[\"Read\",\"Bash\"],\"status\":\"enabled\"}]}& exit /b 0)",
+      "if \"%1\"==\"plugin\" if \"%2\"==\"list\" if \"%3\"==\"--json\" (echo {\"plugins\":[{\"id\":\"pass125-plugin@qa-market\",\"name\":\"pass125-plugin\",\"marketplace\":\"qa-market\",\"version\":\"12.5.0\",\"scope\":\"project\",\"enabled\":false,\"source\":\"pass125 source fixture\",\"installPath\":\"C:\\\\plugins\\\\pass125\",\"tools\":[\"pass125-tool\"],\"permissions\":[\"Read\",\"Bash\"],\"status\":\"error\",\"error\":\"pass125 plugin load failed\"}]}& exit /b 0)",
       "if \"%1\"==\"plugin\" if \"%2\"==\"list\" (echo Installed plugins:& echo   ^> pass125-plugin@qa-market& exit /b 0)",
       "if \"%1\"==\"plugin\" if \"%2\"==\"marketplace\" if \"%3\"==\"list\" if \"%4\"==\"--json\" (echo []& exit /b 0)",
       "if \"%1\"==\"plugin\" if \"%2\"==\"marketplace\" if \"%3\"==\"list\" (echo Configured marketplaces: none& exit /b 0)",
@@ -188,6 +188,8 @@ async function runTest() {
         /插件名: pass125-plugin/m.test(text) &&
         /12\\.5\\.0/.test(text) &&
         /project/.test(text) &&
+        /error/.test(text) &&
+        /pass125 plugin load failed/.test(text) &&
         /pass125 source fixture/.test(text) &&
         /C:\\\\plugins\\\\pass125/.test(text) &&
         /pass125-tool/.test(text) &&
