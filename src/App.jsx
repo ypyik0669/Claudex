@@ -3615,6 +3615,8 @@ function Conversation({
     : null;
   const selectedGitCanStage = gitAvailable && gitFileCanStage(selectedGitFile);
   const selectedGitCanUnstage = gitAvailable && gitFileCanUnstage(selectedGitFile);
+  const selectedGitCanOpenWorkspace = Boolean(selectedGitFile?.path && !/D/.test(selectedGitFile.status || ""));
+  const selectedGitWorkspaceProjectPath = gitRootPath || activeProject?.path || "";
   const selectedGitActionBusy = Boolean(selectedGitFile?.path && gitActionWorkingPath === selectedGitFile.path);
   const gitActionWorking = Boolean(gitActionWorkingPath);
   const gitStagedCount = Number(gitSummary.staged || 0);
@@ -3661,6 +3663,14 @@ function Conversation({
     setCopiedGitEvidence(true);
     if (copiedGitEvidenceTimer.current) window.clearTimeout(copiedGitEvidenceTimer.current);
     copiedGitEvidenceTimer.current = window.setTimeout(() => setCopiedGitEvidence(false), 1200);
+  }
+  function openSelectedGitWorkspaceFile() {
+    if (!selectedGitCanOpenWorkspace) return;
+    onOpenWorkspaceFile?.(selectedGitFile.path, {
+      projectPath: selectedGitWorkspaceProjectPath,
+      projectLabel: selectedGitWorkspaceProjectPath === activeProject?.path ? projectLabel(activeProject, t) : gitRootLabel,
+      force: true,
+    });
   }
   useEffect(() => {
     if (!selectedGitDiffPath) return;
@@ -4631,6 +4641,18 @@ function Conversation({
                           {copiedGitEvidence ? <Check size={13} /> : <Copy size={13} />}
                           {copiedGitEvidence ? t.copied : t.copyGitEvidence}
                         </button>
+                        {selectedGitCanOpenWorkspace && (
+                          <button
+                            type="button"
+                            className="plain-action subtle-action"
+                            data-git-action="open-workspace-file"
+                            onClick={openSelectedGitWorkspaceFile}
+                            title={`${t.openWorkspaceTool}: ${selectedGitFile.path}`}
+                          >
+                            <FileText size={13} />
+                            {t.openWorkspaceTool}
+                          </button>
+                        )}
                         {selectedGitFile && selectedGitCanStage && (
                           <button
                             type="button"

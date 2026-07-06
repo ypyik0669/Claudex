@@ -252,6 +252,30 @@ async function runTest() {
         /pass120-target-diff-evidence/.test(panel);
     })()
   `, 10000));
+  assertStep("PASS120_GIT_EVIDENCE_OPEN_WORKSPACE_VISIBLE", await waitFor(win, `
+    Boolean(document.querySelector('.git-selected-evidence-panel [data-git-action="open-workspace-file"]'))
+  `, 5000));
+  assertStep("PASS120_CLICK_GIT_EVIDENCE_OPEN_WORKSPACE", await win.webContents.executeJavaScript(`
+    (function() {
+      const button = document.querySelector('.git-selected-evidence-panel [data-git-action="open-workspace-file"]');
+      if (!button) return false;
+      button.click();
+      return true;
+    })()
+  `));
+  assertStep("PASS120_GIT_EVIDENCE_OPENED_WORKSPACE_FILE", await waitFor(win, `
+    (function() {
+      const textarea = document.querySelector('.file-editor textarea');
+      const editor = document.querySelector('.file-editor')?.textContent || '';
+      return Boolean(
+        textarea &&
+        textarea.getAttribute('aria-label') === ${JSON.stringify(TARGET_FILE)} &&
+        textarea.value.includes('pass120-target-diff-evidence') &&
+        editor.includes(${JSON.stringify(TARGET_FILE)}) &&
+        !editor.includes(${JSON.stringify(OTHER_FILE)})
+      );
+    })()
+  `, 10000));
   assertStep("PASS120_OPEN_PALETTE_QUERY_TARGET_WORKSPACE", await openPaletteAndQuery(win, "workspace open pass120-target"));
   assertStep("PASS120_GIT_OPEN_FILE_COMMAND_VISIBLE", await waitFor(win, `
     Boolean([...document.querySelectorAll('.command-modal .command-list button')].some((button) =>
