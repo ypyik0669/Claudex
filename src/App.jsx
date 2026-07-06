@@ -8643,15 +8643,27 @@ function SettingsBackedStatus({
   );
 }
 
+function commandSearchText(command) {
+  return [command.id, command.title, command.subtitle, command.group, command.kbd, command.keywords]
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+}
+
+function commandMatchesQuery(command, query) {
+  const tokens = String(query || "").trim().toLowerCase().split(/\s+/).filter(Boolean);
+  if (!tokens.length) return true;
+  const haystack = commandSearchText(command);
+  return tokens.every((token) => haystack.includes(token));
+}
+
 function CommandPalette({ commands, t, onClose }) {
   const [commandQuery, setCommandQuery] = useState("");
   const inputRef = useRef(null);
   useEffect(() => {
     inputRef.current?.focus();
   }, []);
-  const filtered = commands.filter((command) =>
-    [command.id, command.title, command.subtitle, command.group, command.kbd, command.keywords].join(" ").toLowerCase().includes(commandQuery.toLowerCase()),
-  );
+  const filtered = commands.filter((command) => commandMatchesQuery(command, commandQuery));
   return (
     <ShellModal title={t.commandPalette} onClose={onClose} closeLabel={t.close} className="command-modal">
       <label className="command-search">
@@ -9412,25 +9424,53 @@ export function App() {
     const runEvidenceCommands = (runEvents || [])
       .filter((event) => event?.id)
       .slice(0, 16)
-      .map((event) => ({
-        id: `run:${commandIdSegment(event.id)}`,
-        title: `${t.openRunTimeline}: ${event.title || t.outputs}`,
-        subtitle: [event.detail, runTimelineStatusLabel(event.status, t), event.commandLine].filter(Boolean).join(" · "),
-        group: t.bottomPanel,
-        keywords: [
-          "run timeline evidence output command stdout stderr",
-          event.id,
-          event.type,
-          event.title,
-          event.detail,
-          event.commandLine,
-          event.cwd,
-          event.project?.name,
-          event.project?.path,
-          event.sessionId,
-        ].filter(Boolean).join(" "),
-        action: () => openRunTimeline(event.id),
-      }));
+      .map((event) => {
+        const evidence = runTimelineEvidenceForEvent(event, {
+          commandRuns: state.commandRuns,
+          automations: state.automations,
+          subagentRuns: state.subagentRuns,
+          sessions: state.sessions,
+          t,
+        });
+        const artifactSearchParts = Array.isArray(evidence?.artifacts)
+          ? evidence.artifacts.map((artifact, index) => [
+            subagentArtifactLabel(artifact, index, t),
+            artifact?.path,
+            artifact?.type,
+            subagentArtifactContent(artifact),
+          ].filter(Boolean).join(" "))
+          : [];
+        return {
+          id: `run:${commandIdSegment(event.id)}`,
+          title: `${t.openRunTimeline}: ${event.title || t.outputs}`,
+          subtitle: [
+            event.detail || evidence?.summary,
+            runTimelineStatusLabel(event.status, t),
+            evidence?.commandLine || event.commandLine,
+          ].filter(Boolean).join(" · "),
+          group: t.bottomPanel,
+          keywords: [
+            "run timeline evidence output command stdout stderr artifact",
+            event.id,
+            event.type,
+            event.title,
+            event.detail,
+            event.commandLine,
+            event.cwd,
+            event.project?.name,
+            event.project?.path,
+            event.sessionId,
+            evidence?.summary,
+            evidence?.stdout,
+            evidence?.stderr,
+            evidence?.commandLine,
+            evidence?.cwd,
+            evidence?.sessionId,
+            ...artifactSearchParts,
+          ].filter(Boolean).join(" "),
+          action: () => openRunTimeline(event.id),
+        };
+      });
 
     const automationCommands = (state.automations || [])
       .filter((automation) => automation?.id)
@@ -9492,7 +9532,7 @@ export function App() {
           run.project?.name,
           run.project?.path,
           run.cwd,
-          ...(Array.isArray(run.artifacts) ? run.artifacts.map((artifact) => [artifact?.label, artifact?.path, artifact?.type].filter(Boolean).join(" ")) : []),
+          ...(Array.isArray(run.artifacts) ? run.artifacts.map((artifact) => [artifact?.label, artifact?.path, artifact?.type, subagentArtifactContent(artifact)].filter(Boolean).join(" ")) : []),
         ].filter(Boolean).join(" "),
         action: () => openTaskCenterFocus("subagent", run.id || run.requestId),
       }));
@@ -9635,15 +9675,15 @@ export function App() {
       ...projectCommands,
       ...threadCommands,
       ...threadActionCommands,
+      ...runEvidenceCommands,
       ...automationCommands,
       ...subagentCommands,
       ...installedPluginCommands,
       ...mcpServerCommands,
       ...marketplaceSourceCommands,
       ...marketplacePluginCommands,
-      ...runEvidenceCommands,
     ];
-  }, [state.projects, state.sessions, state.automations, state.subagentRuns, capabilityCommandStatus, runEvents, t, activeProject?.path, activeProject?.name]);
+  }, [state.projects, state.sessions, state.automations, state.subagentRuns, state.commandRuns, capabilityCommandStatus, runEvents, t, activeProject?.path, activeProject?.name]);
 
   async function createAutomation(payload) {
     if (!desktopApi?.createAutomation) return;
