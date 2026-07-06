@@ -2221,6 +2221,51 @@ function fallbackRunEventForId(eventId, { automations = [], subagentRuns = [], t
   return null;
 }
 
+function runEventTimestamp(event = {}) {
+  const value = event.createdAt || event.endedAt || event.startedAt || "";
+  const time = value ? new Date(value).getTime() : 0;
+  return Number.isFinite(time) ? time : 0;
+}
+
+function localEvidenceRunEvents({ automations = [], subagentRuns = [], t } = {}) {
+  const events = [];
+  for (const automation of automations || []) {
+    const entries = [];
+    const seen = new Set();
+    for (const entry of Array.isArray(automation?.history) ? automation.history : []) {
+      if (!entry?.id || seen.has(entry.id)) continue;
+      seen.add(entry.id);
+      entries.push(entry);
+    }
+    const lastRun = automation?.lastRun;
+    if (lastRun?.id && !seen.has(lastRun.id)) entries.push(lastRun);
+    for (const entry of entries) {
+      const event = fallbackRunEventForId(entry.id, { automations, subagentRuns, t });
+      if (event) events.push(event);
+    }
+  }
+  for (const run of subagentRuns || []) {
+    const id = String(run?.requestId || run?.id || "").trim();
+    const event = fallbackRunEventForId(id, { automations, subagentRuns, t });
+    if (event) events.push(event);
+  }
+  return events;
+}
+
+function timelineEventsForUi(runEvents = [], { automations = [], subagentRuns = [], t } = {}) {
+  const byId = new Map();
+  const add = (event) => {
+    const id = String(event?.id || "").trim();
+    if (!id || byId.has(id)) return;
+    byId.set(id, event);
+  };
+  (runEvents || []).forEach(add);
+  localEvidenceRunEvents({ automations, subagentRuns, t }).forEach(add);
+  return [...byId.values()]
+    .sort((a, b) => runEventTimestamp(b) - runEventTimestamp(a))
+    .slice(0, 14);
+}
+
 function runTimelineStatusLabel(status, t) {
   if (status === "running") return t.commandRunning;
   if (status === "cancelled") return t.commandCancelled;
@@ -3420,14 +3465,19 @@ function Conversation({
     subagentRuns,
     t,
   }), [selectedRunEventId, automationItemsForUi, subagentRuns, t]);
+  const runTimelineEvents = useMemo(() => timelineEventsForUi(runEvents, {
+    automations: automationItemsForUi,
+    subagentRuns,
+    t,
+  }), [runEvents, automationItemsForUi, subagentRuns, t]);
   const selectedRunEvent = useMemo(() => {
-    const existing = runEvents?.find((event) => event.id === selectedRunEventId);
+    const existing = runTimelineEvents.find((event) => event.id === selectedRunEventId);
     if (existing) return existing;
     if (fallbackSelectedRunEvent) return fallbackSelectedRunEvent;
-    if (!runEvents?.length) return null;
+    if (!runTimelineEvents.length) return null;
     if (selectedRunEventId) return null;
-    return runEvents[0];
-  }, [runEvents, selectedRunEventId, fallbackSelectedRunEvent]);
+    return runTimelineEvents[0];
+  }, [runTimelineEvents, selectedRunEventId, fallbackSelectedRunEvent]);
   const selectedRunEvidence = useMemo(() => (
     selectedRunEvent
       ? runTimelineEvidenceForEvent(selectedRunEvent, {
@@ -3440,11 +3490,12 @@ function Conversation({
       : null
   ), [selectedRunEvent, commandRuns, automationItemsForUi, subagentRuns, sessions, t]);
   useEffect(() => {
-    if (!runEvents?.length) return;
-    if (selectedRunEventId && runEvents.some((event) => event.id === selectedRunEventId)) return;
+    if (!runTimelineEvents.length) return;
+    if (selectedRunEventId && runTimelineEvents.some((event) => event.id === selectedRunEventId)) return;
     if (fallbackRunEventForId(selectedRunEventId, { automations: automationItemsForUi, subagentRuns, t })) return;
-    setSelectedRunEventId(runEvents[0].id);
-  }, [runEvents, selectedRunEventId, automationItemsForUi, subagentRuns, t]);
+    if (selectedRunEventId) return;
+    setSelectedRunEventId(runTimelineEvents[0].id);
+  }, [runTimelineEvents, selectedRunEventId, automationItemsForUi, subagentRuns, t]);
   useEffect(() => {
     const focusedId = String(runTimelineFocus?.id || "").trim();
     if (focusedId) setSelectedRunEventId(focusedId);
@@ -3749,10 +3800,10 @@ function Conversation({
                     <div><dt>{t.changes}</dt><dd>{environment?.git?.available ? environment.git.changes || 0 : t.gitUnavailable}</dd></div>
                   </dl>
                 </div>
-                {(runEvents.length > 0 || selectedRunEvent) && (
+                {(runTimelineEvents.length > 0 || selectedRunEvent) && (
                   <div className="run-evidence-layout">
                     <RunTimeline
-                      events={runEvents}
+                      events={runTimelineEvents}
                       commandRuns={commandRuns}
                       automations={automationItemsForUi}
                       subagentRuns={subagentRuns}
