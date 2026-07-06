@@ -85,6 +85,9 @@ const RUN_EVENT_LIMIT = 120;
 const SOURCE_REF_LIMIT = 80;
 const BROWSER_VISIT_LIMIT = 60;
 const NOTICE_LIMIT = 80;
+const MAX_SKILL_REGISTRY_ITEMS = 500;
+const MAX_SKILL_SCAN_DEPTH = 10;
+const MAX_SKILL_FILE_BYTES = 64 * 1024;
 const automationRunLocks = new Set();
 const cancelledSubagentRuns = new Set();
 let automationSchedulerTimer = null;
@@ -1622,6 +1625,165 @@ function loadMarketplacePluginCatalog(marketplaces, installedPlugins) {
     }
   }
   return catalog;
+}
+
+function normalizeSkillId(value, fallback) {
+  const text = String(value || fallback || "skill")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9._:-]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return text || "skill";
+}
+
+function parseYamlScalar(value) {
+  const text = String(value || "").trim();
+  return text.replace(/^["']|["']$/g, "");
+}
+
+function parseSkillFrontmatter(content) {
+  const text = String(content || "").replace(/^\uFEFF/, "");
+  const match = text.match(/^---\s*\r?\n([\s\S]*?)\r?\n---/);
+  if (!match) return {};
+  const result = {};
+  const stack = [{ indent: -1, target: result }];
+  for (const rawLine of match[1].split(/\r?\n/)) {
+    if (!rawLine.trim() || rawLine.trim().startsWith("#")) continue;
+    const lineMatch = rawLine.match(/^(\s*)([A-Za-z0-9_.-]+)\s*:\s*(.*)$/);
+    if (!lineMatch) continue;
+    const indent = lineMatch[1].length;
+    const key = lineMatch[2];
+    const rawValue = lineMatch[3];
+    while (stack.length > 1 && indent <= stack[stack.length - 1].indent) stack.pop();
+    const parent = stack[stack.length - 1].target;
+    if (rawValue.trim() === "") {
+      parent[key] = parent[key] && typeof parent[key] === "object" ? parent[key] : {};
+      stack.push({ indent, target: parent[key] });
+      continue;
+    }
+    parent[key] = parseYamlScalar(rawValue);
+  }
+  return result;
+}
+
+function firstMarkdownParagraph(content) {
+  const body = String(content || "").replace(/^---\s*\r?\n[\s\S]*?\r?\n---/, "");
+  for (const block of body.split(/\r?\n\s*\r?\n/)) {
+    const text = block
+      .split(/\r?\n/)
+      .map((line) => line.trim())
+      .filter((line) => line && !line.startsWith("#") && !line.startsWith("```"))
+      .join(" ")
+      .trim();
+    if (text) return text.slice(0, 240);
+  }
+  return "";
+}
+
+function skillRootsForScan(cwd) {
+  const envRoots = String(process.env.CLAUDEX_SKILL_ROOTS || "")
+    .split(path.delimiter)
+    .map((item) => item.trim())
+    .filter(Boolean);
+  const roots = envRoots.length
+    ? envRoots
+    : [
+      path.join(app.getPath("home"), ".codex", "skills"),
+      path.join(app.getPath("home"), ".codex", "plugins", "cache"),
+      cwd ? path.join(cwd, ".codex", "skills") : "",
+      cwd ? path.join(cwd, ".agents", "skills") : "",
+    ].filter(Boolean);
+  const seen = new Set();
+  return roots
+    .map((root) => path.resolve(root))
+    .filter((root) => {
+      const key = root.toLowerCase();
+      if (seen.has(key)) return false;
+      seen.add(key);
+      return fs.existsSync(root);
+    });
+}
+
+function findSkillFiles(root) {
+  const files = [];
+  const queue = [{ dir: root, depth: 0 }];
+  const ignored = new Set([".git", "node_modules", "dist", "build", "release", ".next", "coverage"]);
+  while (queue.length && files.length < MAX_SKILL_REGISTRY_ITEMS) {
+    const { dir, depth } = queue.shift();
+    let entries = [];
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      const fullPath = path.join(dir, entry.name);
+      if (entry.isFile() && entry.name === "SKILL.md") {
+        files.push(fullPath);
+        if (files.length >= MAX_SKILL_REGISTRY_ITEMS) break;
+        continue;
+      }
+      if (!entry.isDirectory()) continue;
+      if (ignored.has(entry.name)) continue;
+      if (entry.name.startsWith(".") && entry.name !== ".system") continue;
+      if (depth + 1 <= MAX_SKILL_SCAN_DEPTH) queue.push({ dir: fullPath, depth: depth + 1 });
+    }
+  }
+  return files;
+}
+
+function loadSkillRegistry(cwd) {
+  const roots = skillRootsForScan(cwd);
+  const items = [];
+  const seenPaths = new Set();
+  for (const root of roots) {
+    for (const file of findSkillFiles(root)) {
+      const pathKey = file.toLowerCase();
+      if (seenPaths.has(pathKey)) continue;
+      seenPaths.add(pathKey);
+      let stat = null;
+      let content = "";
+      try {
+        stat = fs.statSync(file);
+        content = fs.readFileSync(file, "utf8").slice(0, MAX_SKILL_FILE_BYTES);
+      } catch {
+        continue;
+      }
+      const meta = parseSkillFrontmatter(content);
+      const metadata = meta.metadata && typeof meta.metadata === "object" ? meta.metadata : {};
+      const name = String(meta.name || metadata.name || path.basename(path.dirname(file))).trim();
+      const description = String(
+        meta.description ||
+        metadata["short-description"] ||
+        metadata.shortDescription ||
+        meta["short-description"] ||
+        firstMarkdownParagraph(content) ||
+        "本地 SKILL.md",
+      ).trim();
+      const relativePath = path.relative(root, file);
+      items.push({
+        id: normalizeSkillId(name, relativePath),
+        name,
+        description,
+        path: file,
+        root,
+        relativePath,
+        source: "local-skill",
+        status: "installed",
+        enabled: true,
+        size: stat.size,
+        updatedAt: stat.mtime.toISOString(),
+      });
+      if (items.length >= MAX_SKILL_REGISTRY_ITEMS) break;
+    }
+    if (items.length >= MAX_SKILL_REGISTRY_ITEMS) break;
+  }
+  items.sort((a, b) => a.name.localeCompare(b.name) || a.path.localeCompare(b.path));
+  return {
+    roots,
+    items,
+    truncated: items.length >= MAX_SKILL_REGISTRY_ITEMS,
+  };
 }
 
 function mcpOutputSegments(value) {
@@ -3645,6 +3807,7 @@ ipcMain.handle("app:get-environment", async (_event, { projectPath } = {}) => {
 ipcMain.handle("claude:status", async (_event, { projectPath } = {}) => {
   const cwd = projectPath && fs.existsSync(projectPath) ? projectPath : app.getPath("home");
   const claudeCommand = configuredClaudeCommand();
+  const skillRegistry = loadSkillRegistry(cwd);
   const [version, auth, plugins, pluginsJson, mcp, marketplaces, marketplacesJson] = await Promise.all([
     runClaudeCommand(claudeCommand, ["--version"], { cwd, timeoutMs: 20000 }),
     runClaudeCommand(claudeCommand, ["auth", "status"], { cwd, timeoutMs: 30000 }),
@@ -3666,6 +3829,10 @@ ipcMain.handle("claude:status", async (_event, { projectPath } = {}) => {
     plugins: stripAnsi(plugins.stdout || plugins.stderr).trim(),
     pluginItems,
     pluginCommand: statusCommandState(plugins, pluginsJson),
+    skills: skillRegistry.items,
+    skillItems: skillRegistry.items,
+    skillRoots: skillRegistry.roots,
+    skillsTruncated: skillRegistry.truncated,
     mcp: mcpRaw,
     mcpServers: parseMcpServers(mcpRaw),
     mcpCommand: statusCommandState(mcp),

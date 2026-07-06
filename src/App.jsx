@@ -634,6 +634,11 @@ const copy = {
     capabilitySummary: "已启用 {enabled} 个 · 总共 {total} 个",
     installed: "已安装",
     installedLocal: "本地已安装",
+    localSkillRegistry: "本地 Skills registry",
+    localSkillRegistryHint: "来自本机 SKILL.md 扫描，不是静态演示目录。",
+    localSkillRegistryFallback: "未发现本机 SKILL.md，下面仅显示本地能力设置 fallback。",
+    skillPath: "技能路径",
+    skillRoot: "技能根目录",
     marketplaceHint: "市场命令由 Claude Code CLI 支撑。安装前请在 Claude Code 面板获取实时市场输出。",
     marketplaceSourceClaude: "Claude Code 市场",
     marketplaceSourceCustom: "自定义市场",
@@ -654,6 +659,7 @@ const copy = {
     runtimeHealthBackedByCli: "来自 Claude Code CLI 状态刷新 + Claudex 本地设置；不写入 commandRuns。",
     runtimeHealthLocalSetting: "来自 Claudex 本地设置",
     runtimeHealthPluginCount: "{count} 个插件",
+    runtimeHealthSkillCount: "{count} 个技能",
     runtimeHealthMcpCount: "{count} 个 MCP",
     runtimeHealthMarketplaceCount: "{count} 个市场",
     runtimeHealthEvidence: "运行健康证据",
@@ -1291,6 +1297,13 @@ function runtimeHealthSummary(claudeStatus, settings, activeProject, t) {
       issue: pluginIssue,
     },
     {
+      id: "skills",
+      label: t.skills,
+      value: known ? t.runtimeHealthSkillCount.replace("{count}", Array.isArray(claudeStatus.skillItems) ? claudeStatus.skillItems.length : 0) : t.runtimeHealthUnknown,
+      detail: "SKILL.md registry",
+      status: known ? "ok" : "pending",
+    },
+    {
       id: "mcp",
       label: t.mcps,
       value: known ? t.runtimeHealthMcpCount.replace("{count}", Array.isArray(claudeStatus.mcpServers) ? claudeStatus.mcpServers.length : 0) : t.runtimeHealthUnknown,
@@ -1339,6 +1352,7 @@ function runtimeHealthEvidenceText(summary, t) {
 function runtimeHealthTargetForRow(row) {
   if (!row?.id) return "";
   if (row.id === "plugins") return "plugins";
+  if (row.id === "skills") return "skills";
   if (row.id === "mcp") return "mcp";
   if (row.id === "marketplace") return "marketplace";
   if (row.id === "runtime" || row.id === "auth") return "claude";
@@ -1624,6 +1638,21 @@ function mcpServerEvidenceText(server = {}, t) {
   return rows.map(([label, value]) => `${label}: ${value}`).join("\n");
 }
 
+function skillEvidenceText(skill = {}, t) {
+  const rows = [
+    [t.skills, skill.name || skill.id],
+    skill.id && skill.id !== skill.name ? ["ID", skill.id] : null,
+    skill.description ? [t.description, skill.description] : null,
+    skill.status ? [t.status, skill.status] : null,
+    skill.source ? [t.source, skill.source] : null,
+    skill.path ? [t.skillPath, skill.path] : null,
+    skill.root ? [t.skillRoot, skill.root] : null,
+    skill.relativePath ? [t.path, skill.relativePath] : null,
+    skill.updatedAt ? [t.fileUpdatedAt, skill.updatedAt] : null,
+  ].filter(Boolean);
+  return rows.map(([label, value]) => `${label}: ${value}`).join("\n");
+}
+
 function RowCliActionEvidence({ run, t, onOpenOutputs, onRetry }) {
   const [copied, setCopied] = useState(false);
   if (!run) return null;
@@ -1872,6 +1901,9 @@ function structuredQueryMatch(item, query) {
     item?.repo,
     item?.scope,
     item?.status,
+    item?.path,
+    item?.root,
+    item?.relativePath,
     item?.installPath,
     item?.installLocation,
     item?.detail,
@@ -6462,7 +6494,7 @@ function ToolsPanel({
   }
 
   function openRuntimeHealthTargetName(target) {
-    if (target === "plugins" || target === "mcp" || target === "marketplace") {
+    if (target === "plugins" || target === "skills" || target === "mcp" || target === "marketplace") {
       onCapabilities?.(target);
       return;
     }
@@ -7444,7 +7476,7 @@ function SettingsModal({
   }
 
   function openRuntimeHealthTargetName(target) {
-    if (target === "plugins" || target === "mcp" || target === "marketplace") {
+    if (target === "plugins" || target === "skills" || target === "mcp" || target === "marketplace") {
       requestDeepLink(() => onOpenCapabilities?.(target));
       return;
     }
@@ -7972,6 +8004,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
   const [cliActionEvidence, setCliActionEvidence] = useState(null);
   const [confirmingCliCommand, setConfirmingCliCommand] = useState(null);
   const [copiedPluginId, setCopiedPluginId] = useState("");
+  const [copiedSkillId, setCopiedSkillId] = useState("");
   const [copiedMarketplacePluginId, setCopiedMarketplacePluginId] = useState("");
   const [copiedMarketplaceSourceId, setCopiedMarketplaceSourceId] = useState("");
   const [copiedMcpServerKey, setCopiedMcpServerKey] = useState("");
@@ -8000,8 +8033,6 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
       (filter === "disabled" && !item.enabled);
     return matchesQuery && matchesFilter;
   });
-  const enabledCount = capabilityRows.filter((item) => item.enabled).length;
-  const totalCount = capabilityRows.length;
   const tabRows = {
     plugins: visibleRows.filter((item) => item.type === "plugin"),
     skills: visibleRows.filter((item) => item.type === "skill"),
@@ -8011,6 +8042,22 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
   const marketplaceRows = (Array.isArray(cliStatus?.marketplaces) ? cliStatus.marketplaces : []).filter((item) => structuredQueryMatch(item, normalizedQuery));
   const marketplacePluginRows = (Array.isArray(cliStatus?.marketplacePlugins) ? cliStatus.marketplacePlugins : []).filter((item) => structuredQueryMatch(item, normalizedQuery));
   const mcpServerRows = (Array.isArray(cliStatus?.mcpServers) ? cliStatus.mcpServers : []).filter((item) => structuredQueryMatch(item, normalizedQuery));
+  const rawSkillRows = Array.isArray(cliStatus?.skillItems) ? cliStatus.skillItems : Array.isArray(cliStatus?.skills) ? cliStatus.skills : [];
+  const skillRegistryKnown = Boolean(cliStatus);
+  const hasRegisteredSkills = rawSkillRows.length > 0;
+  const skillRegistryRows = rawSkillRows.filter((item) => structuredQueryMatch(item, normalizedQuery));
+  const fallbackSkillRows = skillRegistryKnown && !hasRegisteredSkills ? tabRows.skills : [];
+  const skillTabRows = hasRegisteredSkills ? skillRegistryRows : fallbackSkillRows;
+  const enabledCount = capabilityRows.filter((item) => item.type !== "skill" && item.enabled).length
+    + (hasRegisteredSkills ? rawSkillRows.length : skillRegistryKnown ? capabilityRows.filter((item) => item.type === "skill" && item.enabled).length : 0);
+  const totalCount = capabilityRows.filter((item) => item.type !== "skill").length
+    + (hasRegisteredSkills ? rawSkillRows.length : skillRegistryKnown ? capabilityRows.filter((item) => item.type === "skill").length : 0);
+  const installedCapabilityRows = [
+    ...capabilityRows.filter((item) => item.type !== "skill" && item.enabled),
+    ...(hasRegisteredSkills
+      ? rawSkillRows.map((skill) => ({ ...skill, type: "skill", enabled: true }))
+      : skillRegistryKnown ? capabilityRows.filter((item) => item.type === "skill" && item.enabled) : []),
+  ];
   const customMarketplaceRows = customMarketplaces.filter((item) => structuredQueryMatch({ name: item, repo: item, source: item }, normalizedQuery));
   const marketplaceTabCount = marketplacePluginRows.length + marketplaceRows.length + customMarketplaceRows.length;
   const recentCapabilityRuns = useMemo(() => capabilityRunsNewestFirst(state.commandRuns), [state.commandRuns]);
@@ -8315,6 +8362,19 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
     window.setTimeout(() => setCopiedPluginId((current) => (current === id ? "" : current)), 1200);
   }
 
+  async function copySkillEvidence(skill) {
+    const id = String(skill?.id || skill?.name || skill?.path || "").trim();
+    const evidence = skillEvidenceText(skill, t);
+    if (!id || !evidence) return;
+    try {
+      await navigator.clipboard?.writeText(evidence);
+    } catch (_error) {
+      // Clipboard permissions vary by shell; visible feedback still records the copy intent.
+    }
+    setCopiedSkillId(id);
+    window.setTimeout(() => setCopiedSkillId((current) => (current === id ? "" : current)), 1200);
+  }
+
   async function copyMarketplacePluginEvidence(plugin) {
     const id = String(plugin?.id || plugin?.name || "").trim();
     const evidence = marketplacePluginEvidenceText(plugin, t);
@@ -8403,7 +8463,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
   }
 
   function openRuntimeHealthTargetName(target) {
-    if (target === "plugins" || target === "mcp" || target === "marketplace") {
+    if (target === "plugins" || target === "skills" || target === "mcp" || target === "marketplace") {
       setQuery("");
       setActiveTab(target);
       return;
@@ -8480,10 +8540,10 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
   return (
     <ShellModal title={t.capabilities} subtitle={t.capabilitiesSubtitle} onClose={onClose} closeLabel={surface ? t.backToApp : t.close} className="capability-modal plugin-manager-modal" surface={surface}>
       <div className="installed-capability-strip" aria-label={t.installed}>
-        {capabilityRows.filter((item) => item.enabled).slice(0, 14).map((item) => (
+        {installedCapabilityRows.slice(0, 14).map((item) => (
           <button
             type="button"
-            key={item.id}
+            key={item.path || item.id}
             className={cx("installed-capability-icon", item.type)}
             title={item.name}
             onClick={() => {
@@ -8631,7 +8691,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
       <div className="plugin-manager-tabs" role="tablist" aria-label={t.capabilities}>
         {tabs.map(([id, label]) => {
           const count = id === "plugins" ? installedPluginRows.length || capabilityRows.filter((item) => item.type === "plugin").length
-            : id === "skills" ? capabilityRows.filter((item) => item.type === "skill").length
+            : id === "skills" ? (hasRegisteredSkills ? rawSkillRows.length : skillRegistryKnown ? capabilityRows.filter((item) => item.type === "skill").length : 0)
               : id === "mcp" ? mcpServerRows.length || tabRows.mcp.length
                 : marketplaceTabCount;
           const issue = cliStatusIssueByTab[id];
@@ -9029,7 +9089,77 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                 })}
               </section>
             )}
-            {(activeTab === "mcp" ? tabRows.mcp : activeTab === "skills" ? tabRows.skills : tabRows.plugins).map((item) => (
+            {activeTab === "skills" && (
+              <section className="structured-registry-section skill-registry-section" aria-label={t.localSkillRegistry}>
+                <div className="structured-registry-head">
+                  <div>
+                    <span>{t.localSkillRegistry}</span>
+                    <strong>{hasRegisteredSkills ? `${rawSkillRows.length} ${t.installedLocal}` : t.runtimeHealthUnknown}</strong>
+                    <small>{hasRegisteredSkills ? t.localSkillRegistryHint : skillRegistryKnown ? t.localSkillRegistryFallback : t.runtimeHealthUnknown}</small>
+                  </div>
+                  <button type="button" className="plain-action subtle-action" onClick={refreshCliStatus} disabled={cliWorking} title={cliWorking ? t.workingHint : t.refreshCliStatus}>
+                    <RefreshCw size={13} className={cliBusy ? "spin" : undefined} />
+                    {t.refresh}
+                  </button>
+                </div>
+                {hasRegisteredSkills && skillRegistryRows.length === 0 && <p className="empty-list">{t.noCapabilities}</p>}
+                {hasRegisteredSkills && skillRegistryRows.map((skill) => {
+                  const skillId = String(skill.id || skill.name || skill.path || "").trim();
+                  const skillMeta = [
+                    skill.source ? [t.source, skill.source] : null,
+                    skill.status ? [t.status, skill.status] : null,
+                    skill.path ? [t.skillPath, compactPath(skill.path, 72), skill.path] : null,
+                    skill.root ? [t.skillRoot, compactPath(skill.root, 72), skill.root] : null,
+                    skill.relativePath ? [t.path, compactPath(skill.relativePath, 72), skill.relativePath] : null,
+                    skill.updatedAt ? [t.fileUpdatedAt, formatDate(skill.updatedAt, lang), skill.updatedAt] : null,
+                  ].filter(Boolean);
+                  const copied = copiedSkillId === skillId;
+                  return (
+                    <article
+                      className={cx("structured-plugin-row skill-registry-row", capabilityFocusMatches("skill", skill.id, skill.name, skill.path) && "focused-capability-row")}
+                      key={skill.path || skillId}
+                      data-skill-id={skillId}
+                      data-skill-path={skill.path || ""}
+                    >
+                      <span className="plugin-manager-icon"><Blocks size={17} /></span>
+                      <div className="plugin-manager-copy">
+                        <strong>{skill.name || skillId}</strong>
+                        <small title={skill.description}>{skill.description || t.localSkillRegistry}</small>
+                        {skillMeta.length > 0 && (
+                          <dl className="structured-row-meta skill-row-meta" aria-label={`${skill.name || skillId} skill metadata`}>
+                            {skillMeta.map(([label, value, title]) => (
+                              <div key={`${label}:${value}`}>
+                                <dt>{label}</dt>
+                                <dd title={title || value}>{value}</dd>
+                              </div>
+                            ))}
+                          </dl>
+                        )}
+                      </div>
+                      <em className="plugin-status-badge ok">{t.installedLocal}</em>
+                      <div className="structured-row-actions">
+                        <button type="button" className="plain-action subtle-action" data-skill-action="copy-evidence" onClick={() => copySkillEvidence(skill)} title={copied ? t.copied : t.copyEvidence}>
+                          {copied ? <Check size={13} /> : <Copy size={13} />}
+                          {copied ? t.copied : t.copyEvidence}
+                        </button>
+                      </div>
+                    </article>
+                  );
+                })}
+                {!hasRegisteredSkills && fallbackSkillRows.map((item) => (
+                  <PluginManagerRow
+                    key={item.id}
+                    icon={<Blocks size={17} />}
+                    title={item.name}
+                    subtitle={item.description}
+                    enabled={item.enabled}
+                    onToggle={() => onToggle(item.id, !item.enabled)}
+                    t={t}
+                  />
+                ))}
+              </section>
+            )}
+            {activeTab !== "skills" && (activeTab === "mcp" ? tabRows.mcp : tabRows.plugins).map((item) => (
               <PluginManagerRow
                 key={item.id}
                 icon={item.type === "plugin" ? <Plug size={17} /> : item.type === "skill" ? <Blocks size={17} /> : <SquareTerminal size={17} />}
@@ -9042,7 +9172,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
             ))}
           </>
         )}
-        {activeTab !== "marketplace" && (activeTab === "mcp" ? tabRows.mcp : activeTab === "skills" ? tabRows.skills : tabRows.plugins).length === 0 && activeTab === "skills" && (
+        {activeTab !== "marketplace" && activeTab === "skills" && skillRegistryKnown && !hasRegisteredSkills && skillTabRows.length === 0 && (
           <p className="empty-list">{t.noCapabilities}</p>
         )}
         {activeTab === "plugins" && (
@@ -9229,7 +9359,7 @@ function SettingsBackedStatus({
       ? git?.raw || ""
       : "";
   function openRuntimeHealthTargetName(target) {
-    if (target === "plugins" || target === "mcp" || target === "marketplace") {
+    if (target === "plugins" || target === "skills" || target === "mcp" || target === "marketplace") {
       onOpenCapabilities?.(target);
       return;
     }
@@ -10874,6 +11004,40 @@ export function App() {
         };
       });
 
+    const skillRegistryCommands = (Array.isArray(capabilityCommandStatus?.skillItems) ? capabilityCommandStatus.skillItems : Array.isArray(capabilityCommandStatus?.skills) ? capabilityCommandStatus.skills : [])
+      .filter((skill) => skill?.id || skill?.name || skill?.path)
+      .slice(0, 24)
+      .map((skill) => {
+        const id = skill.id || skill.name || skill.path;
+        const label = skill.name || id;
+        return {
+          id: `capability-skill:${commandIdSegment(id)}`,
+          title: `${t.skills}: ${label}`,
+          subtitle: [
+            skill.description,
+            skill.source,
+            skill.path ? compactPath(skill.path, 70) : "",
+          ].filter(Boolean).join(" · "),
+          group: t.capabilities,
+          keywords: [
+            "skill local registry capability SKILL.md codex",
+            skill.id,
+            skill.name,
+            skill.description,
+            skill.path,
+            skill.root,
+            skill.relativePath,
+            skill.source,
+            skill.status,
+          ].filter(Boolean).join(" "),
+          action: () => openCapabilitiesSurface("skills", {
+            kind: "skill",
+            id,
+            query: label,
+          }),
+        };
+      });
+
     const mcpServerCommands = (Array.isArray(capabilityCommandStatus?.mcpServers) ? capabilityCommandStatus.mcpServers : [])
       .filter((server) => server?.name)
       .slice(0, 16)
@@ -11013,6 +11177,7 @@ export function App() {
       ...subagentCommands,
       ...subagentRunCommands,
       ...installedPluginCommands,
+      ...skillRegistryCommands,
       ...mcpServerCommands,
       ...marketplaceSourceCommands,
       ...customMarketplaceCommands,
@@ -11609,6 +11774,7 @@ export function App() {
     { id: "settings", title: t.settings, subtitle: t.setupProvider, group: t.settings, kbd: "Ctrl+,", keywords: "服务商 api key 模型 设置", action: openSettingsSurface },
     { id: "capabilities", title: t.capabilities, subtitle: t.plugins, group: t.capabilities, keywords: "插件 技能 工具", action: openCapabilitiesSurface },
     { id: "capability-plugins", title: t.plugins, subtitle: t.capabilities, group: t.capabilities, keywords: "plugins installed installed plugins claude code 插件 已安装 capability", action: () => openCapabilitiesSurface("plugins") },
+    { id: "capability-skills", title: t.skills, subtitle: t.localSkillRegistry, group: t.capabilities, keywords: "skills registry local SKILL.md 技能 本地 能力", action: () => openCapabilitiesSurface("skills") },
     { id: "capability-mcp", title: t.mcps, subtitle: t.mcpServers, group: t.capabilities, keywords: "mcp servers tools mcps server 工具 服务器", action: () => openCapabilitiesSurface("mcp") },
     { id: "capability-marketplace", title: t.marketplace, subtitle: t.marketplaceCatalog, group: t.capabilities, keywords: "marketplace catalog install plugin 市场 插件目录 安装", action: () => openCapabilitiesSurface("marketplace") },
     ...settingsSectionCommands,
