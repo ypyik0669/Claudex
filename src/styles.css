@@ -5861,6 +5861,11 @@ kbd {
   padding: 10px;
 }
 
+.subagent-run-card.archived {
+  opacity: 0.68;
+  border-style: dashed;
+}
+
 .subagent-run-head,
 .subagent-run-foot {
   display: flex;

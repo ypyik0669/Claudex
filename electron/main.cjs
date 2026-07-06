@@ -384,6 +384,9 @@ function normalizeSubagentRun(item, store) {
     startedAt,
     endedAt: isoOrEmpty(item?.endedAt),
     artifacts: Array.isArray(item?.artifacts) ? item.artifacts.slice(0, 12) : [],
+    archivedAt: isoOrEmpty(item?.archivedAt),
+    continuedAt: isoOrEmpty(item?.continuedAt),
+    continuedSessionId: String(item?.continuedSessionId || ""),
   };
 }
 
@@ -420,6 +423,35 @@ function upsertSubagentRunEvent(store, run, status) {
     sessionId: run.sessionId || "",
     createdAt: run.startedAt || now(),
   });
+}
+
+function findSubagentRun(store, { runId, requestId } = {}) {
+  const byRunId = String(runId || "");
+  const byRequestId = String(requestId || "");
+  return (store.subagentRuns || []).find((item) => (
+    (byRunId && item.id === byRunId) || (byRequestId && item.requestId === byRequestId)
+  ));
+}
+
+function subagentContinuationMessage(run) {
+  const artifacts = Array.isArray(run?.artifacts) ? run.artifacts : [];
+  const artifactLabels = artifacts
+    .map((artifact, index) => artifact?.label || artifact?.path || artifact?.type || `Artifact ${index + 1}`)
+    .filter(Boolean)
+    .join(", ");
+  return [
+    `子代理结果：${run?.nickname || "Subagent"}`,
+    "",
+    `任务：${run?.task || ""}`,
+    `状态：${run?.status || ""}`,
+    `退出码：${typeof run?.code === "number" ? run.code : "-"}`,
+    run?.cwd ? `工作目录：${run.cwd}` : "",
+    run?.sessionId ? `会话：${run.sessionId}` : "",
+    artifactLabels ? `产物：${artifactLabels}` : "",
+    "",
+    run?.summary || "",
+    run?.stderr ? `[stderr]\n${run.stderr}` : "",
+  ].filter(Boolean).join("\n");
 }
 
 function normalizeCommandRun(item, store) {
@@ -2912,6 +2944,61 @@ ipcMain.handle("subagent:cancel", (_event, { runId, requestId } = {}) => {
     writeStore(store);
   }
   return sanitizeStore(store);
+});
+
+ipcMain.handle("subagent:archive", (_event, { runId, requestId, archived = true } = {}) => {
+  const store = readStore();
+  const run = findSubagentRun(store, { runId, requestId });
+  if (!run) throw new Error("没有找到这个子代理记录。");
+  const normalized = normalizeSubagentRun({
+    ...run,
+    archivedAt: archived ? now() : "",
+  }, store);
+  upsertSubagentRun(store, normalized);
+  writeStore(store);
+  return {
+    ...sanitizeStore(store),
+    subagentRun: normalized,
+  };
+});
+
+ipcMain.handle("subagent:continue", (_event, { runId, requestId, sessionId } = {}) => {
+  const store = readStore();
+  const run = findSubagentRun(store, { runId, requestId });
+  if (!run) throw new Error("没有找到这个子代理记录。");
+  const normalized = normalizeSubagentRun(run, store);
+  const session = store.sessions.find((item) => item.id === sessionId)
+    || store.sessions.find((item) => item.id === normalized.sessionId)
+    || ensureActiveProjectDraftSession(store)
+    || store.sessions[0];
+  if (!session) throw new Error("没有可用的聊天会话。");
+  const continuedAt = now();
+  if (!(normalized.continuedAt && normalized.continuedSessionId === session.id)) {
+    session.messages = sessionMessages(session);
+    session.messages.push({
+      role: "assistant",
+      content: subagentContinuationMessage(normalized),
+      createdAt: continuedAt,
+      source: {
+        type: "subagent",
+        runId: normalized.id,
+        requestId: normalized.requestId,
+      },
+    });
+  }
+  session.updatedAt = continuedAt;
+  const continuedRun = normalizeSubagentRun({
+    ...normalized,
+    continuedAt,
+    continuedSessionId: session.id,
+  }, store);
+  upsertSubagentRun(store, continuedRun);
+  writeStore(store);
+  return {
+    ...sanitizeStore(store),
+    selectedSessionId: session.id,
+    subagentRun: continuedRun,
+  };
 });
 
 ipcMain.handle("app:select-project", async () => {

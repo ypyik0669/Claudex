@@ -517,6 +517,15 @@ const copy = {
     copiedSubagentEvidence: "证据已复制",
     openRunTimeline: "查看 timeline",
     retrySubagent: "重试子代理",
+    continueSubagent: "续写到聊天",
+    subagentContinued: "子代理结果已续写到聊天",
+    subagentContinuedShort: "已续写",
+    archiveSubagent: "关闭记录",
+    restoreSubagent: "恢复记录",
+    subagentArchived: "子代理记录已关闭",
+    subagentRestored: "子代理记录已恢复",
+    showArchivedSubagents: "查看已关闭",
+    hideArchivedSubagents: "隐藏已关闭",
     subagentStarted: "子代理已启动",
     subagentFinished: "子代理已完成",
     subagentFailed: "子代理失败",
@@ -2293,6 +2302,8 @@ function Conversation({
   onDeleteAutomation,
   onRunSubagent,
   onCancelSubagent,
+  onArchiveSubagent,
+  onContinueSubagent,
   draft,
   setDraft,
   environment,
@@ -3127,6 +3138,8 @@ function Conversation({
                 onDeleteAutomation={onDeleteAutomation}
                 onRunSubagent={onRunSubagent}
                 onCancelSubagent={onCancelSubagent}
+                onArchiveSubagent={onArchiveSubagent}
+                onContinueSubagent={onContinueSubagent}
                 onOpenRunTimeline={() => setBottomPanel("outputs")}
                 onCopy={onCopy}
                 onOpenInteractiveClaude={onOpenInteractiveClaude}
@@ -3289,6 +3302,8 @@ function SubagentWorkbench({
   onDeleteAutomation,
   onRunSubagent,
   onCancelSubagent,
+  onArchiveSubagent,
+  onContinueSubagent,
   onOpenRunTimeline,
   onCopy,
   onOpenInteractiveClaude,
@@ -3299,17 +3314,21 @@ function SubagentWorkbench({
   const [nickname, setNickname] = useState("");
   const [running, setRunning] = useState(false);
   const [automationWorkingId, setAutomationWorkingId] = useState("");
-  const runCount = t.subagentCount.replace("{count}", runs.length);
+  const [showArchivedRuns, setShowArchivedRuns] = useState(false);
+  const activeRuns = runs.filter((run) => !run.archivedAt);
+  const archivedRunCount = runs.length - activeRuns.length;
+  const visibleRuns = showArchivedRuns ? runs : activeRuns;
+  const runCount = t.subagentCount.replace("{count}", visibleRuns.length);
   const automationItems = Array.isArray(automations) ? automations : [];
   const activeAutomationCount = automationItems.filter((item) => ["running", "scheduled"].includes(item.status)).length;
   const failedAutomationCount = automationItems.filter((item) => item.status === "failed" || item.lastRun?.status === "failed").length;
-  const runningSubagentCount = runs.filter((run) => run.status === "running").length;
-  const failedSubagentCount = runs.filter((run) => run.status === "error").length;
+  const runningSubagentCount = activeRuns.filter((run) => run.status === "running").length;
+  const failedSubagentCount = activeRuns.filter((run) => run.status === "error").length;
   const taskSummary = t.taskCenterSummary
     .replace("{automations}", automationItems.length)
-    .replace("{subagents}", runs.length);
+    .replace("{subagents}", activeRuns.length);
   const taskStats = [
-    { label: t.taskCenterTotal, value: automationItems.length + runs.length },
+    { label: t.taskCenterTotal, value: automationItems.length + activeRuns.length },
     { label: t.taskCenterActive, value: activeAutomationCount + runningSubagentCount },
     { label: t.taskCenterFailed, value: failedAutomationCount + failedSubagentCount },
   ];
@@ -3554,12 +3573,18 @@ function SubagentWorkbench({
       <div className="task-section-head">
         <div>
           <span>{t.subagents}</span>
-          <strong>{runs.length ? runCount : t.noSubagentsYet}</strong>
+          <strong>{visibleRuns.length ? runCount : t.noSubagentsYet}</strong>
         </div>
+        {archivedRunCount > 0 && (
+          <button type="button" className="plain-action subtle-action" onClick={() => setShowArchivedRuns((current) => !current)}>
+            <Archive size={13} />
+            {showArchivedRuns ? t.hideArchivedSubagents : `${t.showArchivedSubagents} ${archivedRunCount}`}
+          </button>
+        )}
       </div>
       <div className="subagent-run-list">
-        {runs.map((run) => (
-          <article className={cx("subagent-run-card", run.status)} key={run.id}>
+        {visibleRuns.map((run) => (
+          <article className={cx("subagent-run-card", run.status, run.archivedAt && "archived")} key={run.id}>
             <div className="subagent-run-head">
               <div>
                 <strong>{run.nickname || "Subagent"}</strong>
@@ -3615,6 +3640,7 @@ function SubagentWorkbench({
               <span>{formatDate(run.endedAt || run.startedAt)}</span>
               {typeof run.durationMs === "number" && run.durationMs > 0 && <span>{formatDurationMs(run.durationMs)}</span>}
               <span>{t.subagentArtifacts}: {run.artifacts?.length || 0}</span>
+              {run.continuedAt && <span>{t.subagentContinuedShort}: {formatDate(run.continuedAt)}</span>}
               <button type="button" className="plain-action subtle-action" onClick={() => copySubagentEvidence(run)}>
                 <Copy size={13} />
                 {t.copySubagentEvidence}
@@ -3624,10 +3650,20 @@ function SubagentWorkbench({
                 {t.openRunTimeline}
               </button>
               {run.status !== "running" && (
-                <button type="button" className="plain-action subtle-action" onClick={() => onRunSubagent?.(run.task, run.nickname || "Subagent")}>
-                  <RefreshCw size={13} />
-                  {t.retrySubagent}
-                </button>
+                <>
+                  <button type="button" className="plain-action subtle-action" onClick={() => onContinueSubagent?.(run)} disabled={Boolean(run.continuedAt)}>
+                    <MessageSquarePlus size={13} />
+                    {run.continuedAt ? t.subagentContinuedShort : t.continueSubagent}
+                  </button>
+                  <button type="button" className="plain-action subtle-action" onClick={() => onRunSubagent?.(run.task, run.nickname || "Subagent")}>
+                    <RefreshCw size={13} />
+                    {t.retrySubagent}
+                  </button>
+                  <button type="button" className="plain-action subtle-action" onClick={() => onArchiveSubagent?.(run, !run.archivedAt)}>
+                    <Archive size={13} />
+                    {run.archivedAt ? t.restoreSubagent : t.archiveSubagent}
+                  </button>
+                </>
               )}
               {run.status === "running" && (
                 <button type="button" className="plain-action subtle-action" onClick={() => onCancelSubagent?.(run)}>
@@ -3638,7 +3674,7 @@ function SubagentWorkbench({
             </div>
           </article>
         ))}
-        {!runs.length && (
+        {!visibleRuns.length && (
           <div className="empty-panel">
             <Bot size={20} />
             <strong>{t.noSubagentsYet}</strong>
@@ -7746,6 +7782,26 @@ export function App() {
     });
   }
 
+  async function archiveSubagent(run, archived = true) {
+    if (!desktopApi?.archiveSubagent || !run) return;
+    const next = await desktopApi.archiveSubagent({ runId: run.id, requestId: run.requestId, archived });
+    setState(next);
+    showToast(archived ? t.subagentArchived : t.subagentRestored);
+  }
+
+  async function continueSubagent(run) {
+    if (!desktopApi?.continueSubagent || !run || !activeSession) return;
+    const next = await desktopApi.continueSubagent({
+      runId: run.id,
+      requestId: run.requestId,
+      sessionId: activeSession.id,
+    });
+    setState(next);
+    if (next?.selectedSessionId) setActiveSessionId(next.selectedSessionId);
+    setProjectScope("current");
+    showToast(t.subagentContinued);
+  }
+
   async function sendMessage(content) {
     if (!desktopApi || !activeSession) return;
     const requestId = `request_${Date.now()}_${Math.random().toString(16).slice(2)}`;
@@ -8186,6 +8242,8 @@ export function App() {
           onDeleteAutomation={deleteAutomation}
           onRunSubagent={runSubagent}
           onCancelSubagent={cancelSubagent}
+          onArchiveSubagent={archiveSubagent}
+          onContinueSubagent={continueSubagent}
           draft={draft}
           setDraft={setDraft}
           environment={environment}

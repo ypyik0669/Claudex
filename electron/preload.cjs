@@ -19,6 +19,8 @@ const desktopApi = {
   runAutomationNow: (payload) => ipcRenderer.invoke("automation:run-now", payload),
   runSubagent: (payload) => ipcRenderer.invoke("subagent:run", payload),
   cancelSubagent: (payload) => ipcRenderer.invoke("subagent:cancel", payload),
+  archiveSubagent: (payload) => ipcRenderer.invoke("subagent:archive", payload),
+  continueSubagent: (payload) => ipcRenderer.invoke("subagent:continue", payload),
   onSubagentStream: (handler) => {
     const listener = (_event, payload) => handler(payload);
     ipcRenderer.on("subagent:stream-event", listener);
