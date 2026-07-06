@@ -6485,6 +6485,13 @@ button.runtime-health-row {
   white-space: nowrap;
 }
 
+.notice-card-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 6px;
+}
+
 .empty-panel {
   min-height: 180px;
   display: grid;

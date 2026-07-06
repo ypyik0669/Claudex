@@ -160,6 +160,20 @@ async function openSettings(win) {
   `);
 }
 
+async function openNoticePanel(win) {
+  return win.webContents.executeJavaScript(`
+    (function() {
+      if (document.querySelector('.notice-center')) return true;
+      const noticePattern = new RegExp("\\\\u901a\\\\u77e5");
+      const button = [...document.querySelectorAll('.workspace-context-button')]
+        .find((candidate) => noticePattern.test(candidate.textContent || candidate.getAttribute('aria-label') || ''));
+      if (!button) return false;
+      button.click();
+      return true;
+    })();
+  `);
+}
+
 async function runTest() {
   await wait(1600);
   const win = BrowserWindow.getAllWindows()[0];
@@ -183,6 +197,19 @@ async function runTest() {
         /claude-haiku-4-5-20251001/.test(text));
     })();
   `, 15000));
+  assertStep("PASS78_RUNTIME_NOTICE_CREATED", await waitFor(win, `
+    (async function() {
+      const state = await window.claudexDesktop.getState();
+      const notices = state.notices || [];
+      const notice = notices.find((item) => item.source === 'runtime-health');
+      return Boolean(notice &&
+        notice.action === 'runtime-health:plugins' &&
+        /pass78 plugin json failed/.test(notice.detail || '') &&
+        /pass78 marketplace json failed/.test(notice.detail || '') &&
+        !notice.dismissedAt &&
+        notices.filter((item) => item.source === 'runtime-health').length === 1);
+    })();
+  `, 8000));
   assertStep("PASS78_CAPABILITY_ACTIONS", await win.webContents.executeJavaScript(`
     (function() {
       const card = document.querySelector('.capability-modal .runtime-health-card');
@@ -248,6 +275,46 @@ async function runTest() {
         /pass78 marketplace json failed/.test(text));
     })();
   `, 10000));
+  assertStep("PASS78_OPEN_NOTICE_PANEL", await openNoticePanel(win));
+  assertStep("PASS78_NOTICE_CARD_ACTIONABLE", await waitFor(win, `
+    (function() {
+      const card = document.querySelector('.notice-card');
+      const text = card?.textContent || '';
+      return Boolean(card &&
+        /runtime-health/.test(text) &&
+        /pass78 plugin json failed/.test(text) &&
+        card.querySelector('button[data-notice-action="open"]') &&
+        card.querySelector('button[data-notice-action="dismiss"]'));
+    })();
+  `, 8000));
+  assertStep("PASS78_NOTICE_ACTION_DEEP_LINK", await win.webContents.executeJavaScript(`
+    (function() {
+      const button = document.querySelector('.notice-card button[data-notice-action="open"]');
+      if (!button) return false;
+      button.click();
+      return true;
+    })();
+  `));
+  assertStep("PASS78_NOTICE_OPENED_PLUGINS", await waitFor(win, `
+    Boolean(document.querySelector('.structured-registry-section[aria-label*="CLI"]') || document.querySelector('.plugin-manager-list'))
+  `, 10000));
+  assertStep("PASS78_CLOSE_NOTICE_DEEPLINK", await closeSurface(win));
+  assertStep("PASS78_REOPEN_NOTICE_PANEL", await openNoticePanel(win));
+  assertStep("PASS78_DISMISS_NOTICE", await win.webContents.executeJavaScript(`
+    (function() {
+      const button = document.querySelector('.notice-card button[data-notice-action="dismiss"]');
+      if (!button) return false;
+      button.click();
+      return true;
+    })();
+  `));
+  assertStep("PASS78_NOTICE_DISMISSED_IN_STORE", await waitFor(win, `
+    (async function() {
+      const state = await window.claudexDesktop.getState();
+      const notice = (state.notices || []).find((item) => item.source === 'runtime-health');
+      return Boolean(notice && notice.dismissedAt);
+    })();
+  `, 8000));
   await wait(350);
   assertStep("PASS78_OPEN_CLAUDE_TOOL", await openClaudeTool(win));
   assertStep("PASS78_CLAUDE_TOOL_RUNTIME_HEALTH", await waitFor(win, `

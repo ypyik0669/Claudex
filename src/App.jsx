@@ -650,6 +650,7 @@ const copy = {
     runtimeHealthOpenTarget: "打开对应工作台",
     copyRuntimeHealthEvidence: "复制健康证据",
     pinRuntimeHealthEvidence: "固定到证据",
+    runtimeHealthNoticeTitle: "Runtime 健康需要处理",
     noCapabilities: "没有匹配的能力。",
     enabled: "已启用",
     disabled: "已关闭",
@@ -1213,6 +1214,39 @@ function runtimeHealthTargetForRow(row) {
   if (row.id === "marketplace") return "marketplace";
   if (row.id === "runtime" || row.id === "auth") return "claude";
   return "";
+}
+
+function runtimeHealthTargetForIssue(issue) {
+  const commandLine = String(issue?.commandLine || "");
+  if (/plugin\s+marketplace/i.test(commandLine)) return "marketplace";
+  if (/\bmcp\b/i.test(commandLine)) return "mcp";
+  if (/\bplugin\b/i.test(commandLine)) return "plugins";
+  return "claude";
+}
+
+function runtimeHealthIssueSignature(summary) {
+  return (summary?.issues || [])
+    .map((issue) => [
+      issue.commandLine,
+      issue.code,
+      messageExcerpt(issue.error || issue.stderr || issue.stdout || "", 96),
+    ].filter((item) => item !== undefined && item !== null).join(":"))
+    .join("|");
+}
+
+function runtimeHealthNoticePayload(summary, activeProject, t) {
+  if (!summary?.issues?.length) return null;
+  const signature = runtimeHealthIssueSignature(summary);
+  const target = runtimeHealthTargetForIssue(summary.issues[0]);
+  return {
+    level: "error",
+    source: "runtime-health",
+    title: t.runtimeHealthNoticeTitle,
+    detail: runtimeHealthEvidenceText(summary, t),
+    key: `runtime-health:${projectKey(activeProject) || "workspace"}:${signature}`,
+    action: `runtime-health:${target}`,
+    projectPath: activeProject?.path || "",
+  };
 }
 
 function RuntimeHealthCard({
@@ -2955,6 +2989,19 @@ function Conversation({
     { id: "browser", label: t.browser, icon: Globe2 },
   ];
   const toggleBottomPanel = (id) => setBottomPanel(bottomPanel === id ? "" : id);
+  function handleNoticeAction(notice) {
+    const action = String(notice?.action || "");
+    if (action.startsWith("runtime-health:")) {
+      const target = action.split(":")[1] || "";
+      if (["plugins", "mcp", "marketplace"].includes(target)) {
+        onCapabilities?.(target);
+        return;
+      }
+      if (target === "claude") {
+        onActivateTool?.("claude");
+      }
+    }
+  }
 
   return (
     <main className="workspace">
@@ -3230,6 +3277,7 @@ function Conversation({
                 notices={notices}
                 onDismiss={onDismissNotice}
                 onClear={onClearNotices}
+                onAction={handleNoticeAction}
                 t={t}
               />
             )}
@@ -4158,7 +4206,7 @@ function BrowserEvidenceList({ visits = [], t }) {
   );
 }
 
-function NoticeCenter({ notices = [], onDismiss, onClear, t }) {
+function NoticeCenter({ notices = [], onDismiss, onClear, onAction, t }) {
   const active = notices.filter((notice) => !notice.dismissedAt);
   const visible = notices.slice(0, 18);
   return (
@@ -4192,9 +4240,17 @@ function NoticeCenter({ notices = [], onDismiss, onClear, t }) {
                 </small>
               </div>
               {!notice.dismissedAt && (
-                <button type="button" className="plain-action subtle-action" onClick={() => onDismiss?.(notice)}>
-                  {t.noticeDismiss}
-                </button>
+                <div className="notice-card-actions">
+                  {notice.action && (
+                    <button type="button" className="plain-action subtle-action" data-notice-action="open" onClick={() => onAction?.(notice)}>
+                      <PanelRight size={13} />
+                      {t.runtimeHealthOpenTarget}
+                    </button>
+                  )}
+                  <button type="button" className="plain-action subtle-action" data-notice-action="dismiss" onClick={() => onDismiss?.(notice)}>
+                    {t.noticeDismiss}
+                  </button>
+                </div>
               )}
             </article>
           ))}
@@ -6627,6 +6683,14 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
     });
   }
 
+  function recordRuntimeHealthNotice(summary) {
+    const payload = runtimeHealthNoticePayload(summary, activeProject, t);
+    if (!payload) return;
+    const alreadyKnown = (state.notices || []).some((notice) => notice.key === payload.key);
+    if (alreadyKnown) return;
+    onNotice?.(payload);
+  }
+
   async function refreshCliStatus() {
     if (!desktopApi?.getClaudeStatus) return;
     setCliBusy(true);
@@ -6634,6 +6698,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
     try {
       const result = await desktopApi.getClaudeStatus({ projectPath: activeProject?.path });
       setCliStatus(result);
+      recordRuntimeHealthNotice(runtimeHealthSummary(result, state.settings, activeProject, t));
     } catch (error) {
       const message = error.message || String(error);
       setCliError(message);
