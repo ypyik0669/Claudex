@@ -433,6 +433,64 @@ function upsertAutomationActionRunEvent(store, automation, action, detail = "") 
   });
 }
 
+function threadProjectForEvent(store, session = {}) {
+  return {
+    name: session?.project || store.activeProject?.name || "本地工作区",
+    path: session?.projectPath || store.activeProject?.path || "",
+  };
+}
+
+function upsertThreadActionRunEvent(store, session, action, detail = "", options = {}) {
+  const labels = {
+    rename: "重命名",
+    pin: "置顶",
+    unpin: "取消置顶",
+    archive: "归档",
+    restore: "恢复",
+    fork: "Fork",
+    delete: "删除",
+    resume: "继续",
+  };
+  const actionLabel = labels[action] || action || "更新";
+  const eventId = `thread:${session?.id || "unknown"}:${action}:${Date.now()}`;
+  const title = sessionDisplayTitleForStore(session);
+  const project = threadProjectForEvent(store, session);
+  const targetSession = options.targetSession || null;
+  const messageCount = sessionMessages(session).length;
+  const actionDetail = detail || [
+    project?.name || project?.path || "本地工作区",
+    `${messageCount} 条消息`,
+    targetSession?.id ? `目标聊天: ${targetSession.id}` : "",
+  ].filter(Boolean).join(" · ");
+  const stdout = [
+    `action=${action}`,
+    `sessionId=${session?.id || ""}`,
+    `title=${title}`,
+    `project=${project?.name || ""}`,
+    project?.path ? `projectPath=${project.path}` : "",
+    `messageCount=${messageCount}`,
+    session?.claudeSessionId ? `claudeSessionId=${session.claudeSessionId}` : "",
+    targetSession?.id ? `targetSessionId=${targetSession.id}` : "",
+    targetSession?.title ? `targetTitle=${sessionDisplayTitleForStore(targetSession)}` : "",
+  ].filter(Boolean).join("\n");
+  return upsertRunEvent(store, {
+    id: eventId,
+    type: "thread-action",
+    status: "ok",
+    title: `聊天：${actionLabel} · ${title}`,
+    detail: actionDetail,
+    commandLine: "",
+    cwd: project?.path || "",
+    code: null,
+    durationMs: 0,
+    stdout,
+    stderr: "",
+    project,
+    sessionId: session?.id || "",
+    createdAt: now(),
+  });
+}
+
 function normalizeSubagentRun(item, store) {
   const startedAt = isoOrEmpty(item?.startedAt) || now();
   const status = ["running", "done", "error", "cancelled"].includes(item?.status) ? item.status : "done";
@@ -3336,20 +3394,27 @@ ipcMain.handle("chat:update-session", (_event, { sessionId, title, pinned, archi
   const session = store.sessions.find((item) => item.id === sessionId);
   if (!session) throw new Error("没有找到这个聊天。");
   const updatedAt = now();
+  const previousTitle = sessionDisplayTitleForStore(session);
   if (typeof title === "string") {
     const nextTitle = title.trim();
     if (nextTitle && nextTitle !== session.title) {
       session.title = nextTitle;
       session.renamedAt = updatedAt;
+      upsertThreadActionRunEvent(store, session, "rename", [
+        `原标题: ${previousTitle}`,
+        `新标题: ${sessionDisplayTitleForStore(session)}`,
+      ].join(" · "));
     }
   }
   if (typeof pinned === "boolean" && session.pinned !== pinned) {
     session.pinned = pinned;
     session.pinnedAt = pinned ? updatedAt : "";
+    upsertThreadActionRunEvent(store, session, pinned ? "pin" : "unpin");
   }
   if (typeof archived === "boolean" && session.archived !== archived) {
     session.archived = archived;
     session.archivedAt = archived ? updatedAt : "";
+    upsertThreadActionRunEvent(store, session, archived ? "archive" : "restore");
   }
   session.updatedAt = updatedAt;
   ensureActiveProjectDraftSession(store);
@@ -3359,9 +3424,14 @@ ipcMain.handle("chat:update-session", (_event, { sessionId, title, pinned, archi
 
 ipcMain.handle("chat:delete-session", (_event, sessionId) => {
   const store = readStore();
-  const before = store.sessions.length;
-  store.sessions = store.sessions.filter((session) => session.id !== sessionId);
-  if (store.sessions.length === before) throw new Error("没有找到这个聊天。");
+  const session = store.sessions.find((item) => item.id === sessionId);
+  if (!session) throw new Error("没有找到这个聊天。");
+  upsertThreadActionRunEvent(store, session, "delete", [
+    threadProjectForEvent(store, session)?.name || "本地工作区",
+    `${sessionMessages(session).length} 条消息`,
+    "原聊天已从本地列表删除，审计事件保留",
+  ].filter(Boolean).join(" · "));
+  store.sessions = store.sessions.filter((item) => item.id !== sessionId);
   ensureActiveProjectDraftSession(store);
   writeStore(store);
   return sanitizeStore(store);
@@ -3391,6 +3461,11 @@ ipcMain.handle("chat:fork-session", (_event, sessionId) => {
     messages: sessionMessages(source).map((message) => ({ ...message })),
   };
   store.sessions.unshift(fork);
+  upsertThreadActionRunEvent(store, source, "fork", [
+    `源聊天: ${source.id}`,
+    `目标聊天: ${fork.id}`,
+    `${sessionMessages(source).length} 条消息`,
+  ].join(" · "), { targetSession: fork });
   writeStore(store);
   return {
     ...sanitizeStore(store),

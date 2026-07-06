@@ -721,6 +721,7 @@ const copy = {
     timelineEventRawType: "Raw 类型",
     timelineAutomationAction: "自动化操作",
     timelineSubagentAction: "子代理操作",
+    timelineThreadAction: "聊天操作",
     selectedRunEvidence: "选中证据",
     selectedRunEvidenceHint: "点击 timeline 行后，这里固定显示关联到本地 store/CLI 的完整证据。",
     automationRunHistoryShort: "最近 3 次",
@@ -2409,6 +2410,7 @@ function runTimelineTypeLabel(event, evidence, t) {
   const raw = runTimelineTypeRaw(event, evidence);
   if (raw === "automation-action") return t.timelineAutomationAction;
   if (raw === "subagent-action") return t.timelineSubagentAction;
+  if (raw === "thread-action") return t.timelineThreadAction;
   return raw;
 }
 
@@ -10260,6 +10262,7 @@ export function App() {
 
   function applySessionState(next, preferredId = "", scope = projectScope) {
     setState(next);
+    if (Array.isArray(next?.runEvents)) setRunEvents((current) => mergeRunEvents(current, next.runEvents));
     setActiveSessionId(selectSessionIdForProject(next, t, next.activeProject || activeProject, preferredId, scope));
   }
 
@@ -10365,6 +10368,31 @@ export function App() {
         setActiveSessionId(session.id);
       }
       focusComposer();
+      recordRunEvent({
+        id: `thread:${session.id}:resume:${Date.now()}`,
+        type: "thread-action",
+        status: "ok",
+        title: `聊天：${t.resumeThread} · ${sessionDisplayTitle(session, t)}`,
+        detail: [
+          projectLabel(targetProject, t),
+          t.threadMessageCount.replace("{count}", sessionMessages(session).length),
+        ].filter(Boolean).join(" · "),
+        commandLine: "",
+        cwd: targetProject.path || "",
+        code: null,
+        durationMs: 0,
+        stdout: [
+          "action=resume",
+          `sessionId=${session.id}`,
+          `title=${sessionDisplayTitle(session, t)}`,
+          `project=${targetProject.name || ""}`,
+          targetProject.path ? `projectPath=${targetProject.path}` : "",
+          `messageCount=${sessionMessages(session).length}`,
+        ].filter(Boolean).join("\n"),
+        project: targetProject,
+        projectPath: targetProject.path || "",
+        sessionId: session.id,
+      });
       showToast(t.threadResumed);
     } catch (error) {
       showToast(error.message || String(error));
@@ -10496,6 +10524,8 @@ export function App() {
           keywords: [
             "run timeline evidence output command stdout stderr artifact",
             event.type === "automation-action" ? "automation action create pause resume delete schedule task center 自动化 创建 暂停 恢复 删除 证据" : "",
+            event.type === "subagent-action" ? "subagent action archive restore task center 子代理 关闭 恢复 证据" : "",
+            event.type === "thread-action" ? "thread action rename pin unpin archive restore fork delete resume chat history 聊天 操作 重命名 置顶 归档 恢复 Fork 删除 继续 证据" : "",
             event.id,
             event.type,
             event.title,
