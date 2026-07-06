@@ -4185,6 +4185,7 @@ function Conversation({
                 onCopy={onCopy}
                 onOpenInteractiveClaude={onOpenInteractiveClaude}
                 onOpenClaudePanel={() => onActivateTool("claude")}
+                onOpenAutomation={onOpenAutomation}
                 focus={taskCenterFocus}
                 t={t}
               />
@@ -4399,6 +4400,7 @@ function SubagentWorkbench({
   onCopy,
   onOpenInteractiveClaude,
   onOpenClaudePanel,
+  onOpenAutomation,
   focus,
   t,
 }) {
@@ -4407,6 +4409,7 @@ function SubagentWorkbench({
   const [running, setRunning] = useState(false);
   const [automationWorkingId, setAutomationWorkingId] = useState("");
   const [showArchivedRuns, setShowArchivedRuns] = useState(false);
+  const taskInputRef = useRef(null);
   const activeRuns = runs.filter((run) => !run.archivedAt);
   const archivedRunCount = runs.length - activeRuns.length;
   const visibleRuns = showArchivedRuns ? runs : activeRuns;
@@ -4709,13 +4712,23 @@ function SubagentWorkbench({
             <Clock3 size={20} />
             <strong>{t.noAutomationTasks}</strong>
             <p>{t.emptyScheduleHint}</p>
+            <div className="empty-panel-actions">
+              <button type="button" className="plain-action subtle-action" onClick={onOpenAutomation}>
+                <Clock3 size={13} />
+                {t.scheduled}
+              </button>
+              <button type="button" className="plain-action subtle-action" onClick={onOpenClaudePanel}>
+                <Bot size={13} />
+                {t.claudeCodeTool}
+              </button>
+            </div>
           </div>
         )}
       </section>
       <form className="subagent-form" onSubmit={submit}>
         <label>
           <span>{t.subagentTask}</span>
-          <textarea value={task} onChange={(event) => setTask(event.target.value)} placeholder={t.subagentTaskPlaceholder} />
+          <textarea ref={taskInputRef} value={task} onChange={(event) => setTask(event.target.value)} placeholder={t.subagentTaskPlaceholder} />
         </label>
         <label>
           <span>{t.subagentNickname}</span>
@@ -4874,6 +4887,16 @@ function SubagentWorkbench({
             <Bot size={20} />
             <strong>{t.noSubagentsYet}</strong>
             <p>{t.subagentWorkbenchHint}</p>
+            <div className="empty-panel-actions">
+              <button type="button" className="plain-action subtle-action" onClick={() => taskInputRef.current?.focus()}>
+                <Bot size={13} />
+                {t.runSubagent}
+              </button>
+              <button type="button" className="plain-action subtle-action" onClick={onOpenInteractiveClaude}>
+                <SquareTerminal size={13} />
+                {t.interactiveClaude}
+              </button>
+            </div>
           </div>
         )}
       </div>
