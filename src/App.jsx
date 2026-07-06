@@ -4529,7 +4529,14 @@ function SubagentWorkbench({
                     <MessageSquarePlus size={13} />
                     {run.continuedAt ? t.subagentContinuedShort : t.continueSubagent}
                   </button>
-                  <button type="button" className="plain-action subtle-action" onClick={() => onRunSubagent?.(run.task, run.nickname || "Subagent")}>
+                  <button
+                    type="button"
+                    className="plain-action subtle-action"
+                    onClick={() => onRunSubagent?.(run.task, run.nickname || "Subagent", {
+                      projectPath: run.project?.path || run.cwd || "",
+                      sessionId: run.sessionId || "",
+                    })}
+                  >
                     <RefreshCw size={13} />
                     {t.retrySubagent}
                   </button>
@@ -9609,9 +9616,11 @@ export function App() {
     showToast(succeeded ? t.automationSucceeded : t.automationFailed);
   }
 
-  async function runSubagent(task, nickname = "") {
+  async function runSubagent(task, nickname = "", context = {}) {
     if (!desktopApi?.runSubagent || !task.trim()) return;
     const requestId = `subagent_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+    const projectPath = context?.projectPath || activeProject?.path || "";
+    const sessionId = context?.sessionId || activeSession?.id || "";
     setBottomPanel("subagents");
     recordRunEvent({
       id: requestId,
@@ -9619,11 +9628,13 @@ export function App() {
       status: "running",
       title: `${t.subagents}: ${nickname || "Subagent"}`,
       detail: messageExcerpt(task, 120),
+      projectPath,
+      sessionId,
     });
     showToast(t.subagentStarted);
     const next = await desktopApi.runSubagent({
-      projectPath: activeProject?.path || "",
-      sessionId: activeSession?.id || "",
+      projectPath,
+      sessionId,
       task,
       nickname,
       requestId,
@@ -9638,6 +9649,8 @@ export function App() {
       status: ok ? "ok" : run?.status === "cancelled" ? "cancelled" : "error",
       title: `${t.subagents}: ${run?.nickname || nickname || "Subagent"}`,
       detail: run?.summary || run?.stderr || messageExcerpt(task, 120),
+      projectPath: run?.project?.path || projectPath,
+      sessionId: run?.sessionId || sessionId,
     });
     showToast(ok ? t.subagentFinished : t.subagentFailed);
   }
