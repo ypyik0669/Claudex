@@ -1795,9 +1795,30 @@ select:focus-visible,
 }
 
 .environment-subsection summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
   cursor: pointer;
   color: #b8bbb8;
   font-size: 12px;
+}
+
+.environment-subsection summary button {
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.035);
+  color: var(--muted);
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  padding: 3px 7px;
+}
+
+.environment-subsection summary button:hover,
+.environment-subsection summary button:focus-visible {
+  border-color: rgba(255, 255, 255, 0.18);
+  color: var(--ink);
 }
 
 .environment-subsection p {
@@ -1805,6 +1826,41 @@ select:focus-visible,
   color: var(--muted);
   font-size: 12px;
   line-height: 1.45;
+}
+
+.environment-evidence-list {
+  display: grid;
+  gap: 6px;
+  list-style: none;
+  margin: 8px 0 0;
+  padding: 0;
+}
+
+.environment-evidence-list li {
+  display: grid;
+  gap: 2px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.025);
+  padding: 7px 8px;
+}
+
+.environment-evidence-list strong,
+.environment-evidence-list span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.environment-evidence-list strong {
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 650;
+}
+
+.environment-evidence-list span {
+  color: var(--muted);
+  font-size: 11px;
 }
 
 .context-summary {

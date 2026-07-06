@@ -4426,11 +4426,14 @@ function RunTimeline({
 function EnvironmentOverview({
   environment,
   activeProject,
+  subagentRuns = [],
+  sourceRefs = [],
   ideOptions,
   selectedIdeId,
   setSelectedIdeId,
   onOpenIde,
   onRefreshEnvironment,
+  onOpenBottomPanel,
   t,
 }) {
   const git = environment?.git;
@@ -4442,6 +4445,17 @@ function EnvironmentOverview({
   const gitRootLabel = gitRootPath ? compactPath(gitRootPath, 28) : t.gitUnavailable;
   const gitRelativePath = String(git?.relativePath || "").trim();
   const gitRelativeLabel = gitRelativePath && gitRelativePath !== "." ? gitRelativePath : t.activeProject;
+  const activeKey = String(activeProject?.path || activeProject?.name || "").trim().toLowerCase();
+  const matchesActiveProject = (project = {}) => {
+    const itemKey = String(project?.path || project?.name || "").trim().toLowerCase();
+    return !activeKey || !itemKey || itemKey === activeKey;
+  };
+  const projectSubagents = (subagentRuns || [])
+    .filter((run) => !run.archivedAt && matchesActiveProject(run.project))
+    .slice(0, 3);
+  const projectSources = (sourceRefs || [])
+    .filter((source) => matchesActiveProject(source.project))
+    .slice(0, 3);
   return (
     <section className="environment-card" aria-label={t.environment}>
       <div className="environment-card-head">
@@ -4511,12 +4525,58 @@ function EnvironmentOverview({
         </button>
       </div>
       <details className="environment-subsection">
-        <summary>{t.subagents}</summary>
-        <p>{t.noSubagentsYet}</p>
+        <summary>
+          <span>{t.subagents}</span>
+          <button
+            type="button"
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              onOpenBottomPanel?.("subagents");
+            }}
+          >
+            {projectSubagents.length ? t.subagentCount.replace("{count}", projectSubagents.length) : t.noSubagentsYet}
+          </button>
+        </summary>
+        {projectSubagents.length ? (
+          <ul className="environment-evidence-list">
+            {projectSubagents.map((run) => (
+              <li key={run.id || run.requestId}>
+                <strong>{run.nickname || titleFromUserContent(run.task || t.subagentTask)}</strong>
+                <span>{subagentStatusLabel(run.status, t)} · {formatDate(run.endedAt || run.startedAt || run.createdAt)}</span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p>{t.noSubagentsYet}</p>
+        )}
       </details>
       <details className="environment-subsection">
-        <summary>{t.sources}</summary>
-        <p>{t.noSourcesYet}</p>
+        <summary>
+          <span>{t.sources}</span>
+          <button
+            type="button"
+            onClick={(event) => {
+              event.preventDefault();
+              event.stopPropagation();
+              onOpenBottomPanel?.("sources");
+            }}
+          >
+            {projectSources.length ? t.sourceCount.replace("{count}", projectSources.length) : t.noSourcesYet}
+          </button>
+        </summary>
+        {projectSources.length ? (
+          <ul className="environment-evidence-list">
+            {projectSources.map((source) => (
+              <li key={`${source.project?.path || source.project?.name || ""}:${source.path}`}>
+                <strong title={source.path}>{source.name || source.path}</strong>
+                <span>{formatBytes(source.size)} · {t.sourceLastOpened} {formatDate(source.lastOpenedAt)}</span>
+              </li>
+            ))}
+          </ul>
+        ) : (
+          <p>{t.noSourcesYet}</p>
+        )}
       </details>
     </section>
   );
@@ -4602,6 +4662,8 @@ function ToolsPanel({
   onOpenBottomPanel,
   onRunEvent,
   onSourceRefs,
+  subagentRuns = [],
+  sourceRefs = [],
   commandRuns = [],
   onCommandRuns,
   browserVisits = [],
@@ -5438,6 +5500,9 @@ function ToolsPanel({
             setSelectedIdeId={setSelectedIdeId}
             onOpenIde={onOpenIde}
             onRefreshEnvironment={onRefreshEnvironment}
+            onOpenBottomPanel={onOpenBottomPanel}
+            subagentRuns={subagentRuns}
+            sourceRefs={sourceRefs}
             t={t}
           />
         </details>
@@ -9054,6 +9119,8 @@ export function App() {
           onOpenBottomPanel={openBottomPanel}
           onRunEvent={recordRunEvent}
           onSourceRefs={(sourceRefs) => setState((current) => ({ ...current, sourceRefs }))}
+          subagentRuns={state.subagentRuns}
+          sourceRefs={state.sourceRefs}
           commandRuns={state.commandRuns}
           onCommandRuns={(commandRuns) => setState((current) => ({ ...current, commandRuns }))}
           browserVisits={state.browserVisits}
