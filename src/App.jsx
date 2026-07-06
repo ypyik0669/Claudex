@@ -487,6 +487,7 @@ const copy = {
     noticeOpenAction: "打开对应工作台",
     noticeSource: "来源",
     noticeLevelError: "错误",
+    errorActions: "错误处理动作",
     noticeLevelWarning: "警告",
     noticeLevelInfo: "信息",
     noSourcesYet: "暂无来源",
@@ -3149,12 +3150,31 @@ function Conversation({
                         {message.role === "user" ? t.you : message.role === "error" ? t.requestError : t.assistant}
                       </strong>
                       <time>{formatDate(message.createdAt, lang)}</time>
-                      <button type="button" onClick={() => onCopy(message.content)} title={t.copy} aria-label={t.copy}>
+                      <button type="button" data-error-action={message.role === "error" ? "copy" : undefined} onClick={() => onCopy(message.content)} title={t.copy} aria-label={t.copy}>
                         <Copy size={13} />
                       </button>
-                      {message.role === "error" && <button type="button" onClick={onSettings}>{t.openSettings}</button>}
                     </div>
                     <p>{message.content}</p>
+                    {message.role === "error" && (
+                      <div className="message-error-actions" role="group" aria-label={t.errorActions}>
+                        <button type="button" data-error-action="retry" onClick={onRetry} disabled={busy} title={busy ? t.workingHint : t.retry}>
+                          <RefreshCw size={13} />
+                          {t.retry}
+                        </button>
+                        <button type="button" data-error-action="terminal" onClick={onOpenTerminal}>
+                          <SquareTerminal size={13} />
+                          {t.openTerminal}
+                        </button>
+                        <button type="button" data-error-action="interactive-claude" onClick={onOpenInteractiveClaude}>
+                          <Bot size={13} />
+                          {t.openInteractiveClaude}
+                        </button>
+                        <button type="button" data-error-action="settings" onClick={onSettings}>
+                          <Settings size={13} />
+                          {t.openSettings}
+                        </button>
+                      </div>
+                    )}
                     {message.permissionDenials?.length > 0 && (
                       <div className="permission-notice">
                         <span>{t.permissionDeniedNotice}</span>

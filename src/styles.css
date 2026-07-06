@@ -1331,6 +1331,37 @@ select:focus-visible,
   white-space: pre-wrap;
 }
 
+.message-error-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 10px;
+}
+
+.message-error-actions button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  border: 1px solid rgba(239, 100, 97, 0.26);
+  border-radius: var(--radius-sm);
+  background: rgba(239, 100, 97, 0.08);
+  color: #f1c7c5;
+  padding: 5px 8px;
+  font-size: 12px;
+}
+
+.message-error-actions button:hover,
+.message-error-actions button:focus-visible {
+  border-color: rgba(239, 100, 97, 0.48);
+  background: rgba(239, 100, 97, 0.14);
+  color: #ffe7e5;
+}
+
+.message-error-actions button:disabled {
+  cursor: default;
+  opacity: 0.55;
+}
+
 .message-content p.streaming-status {
   display: inline-flex;
   align-items: center;
