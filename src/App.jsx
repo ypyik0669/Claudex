@@ -12351,6 +12351,79 @@ export function App() {
         action: () => openRunTimeline(entry.id),
       })));
 
+    const automationRecoveryCommands = automationItemsForCommands
+      .filter((automation) => {
+        if (!automation?.id) return false;
+        const entries = automationRunEntries(automation);
+        return automation.status === "failed"
+          || automation.lastRun?.status === "failed"
+          || entries.some((entry) => entry?.status === "failed" || entry?.status === "error" || (typeof entry?.code === "number" && entry.code !== 0));
+      })
+      .slice(0, 16)
+      .flatMap((automation) => {
+        const entries = automationRunEntries(automation);
+        const failedEntry = entries.find((entry) => entry?.status === "failed" || entry?.status === "error" || (typeof entry?.code === "number" && entry.code !== 0))
+          || automation.lastRun
+          || entries[0]
+          || {};
+        const automationId = commandIdSegment(automation.id);
+        const entryId = commandIdSegment(failedEntry.id || automation.id);
+        const recoveryKeywords = [
+          "automation recovery retry failed failure run now copy evidence timeline task center",
+          automation.id,
+          automation.prompt,
+          automation.status,
+          automation.threadId,
+          automation.project?.name,
+          automation.project?.path,
+          failedEntry.id,
+          failedEntry.status,
+          failedEntry.error,
+          failedEntry.detail,
+          failedEntry.summary,
+          failedEntry.stdout,
+          failedEntry.stderr,
+          failedEntry.sessionId,
+        ].filter(Boolean).join(" ");
+        const subtitle = [
+          automationProjectLabel(automation, t),
+          automationStatusLabel(failedEntry.status || automation.status, t),
+          failedEntry.error || failedEntry.detail || failedEntry.summary,
+        ].filter(Boolean).join(" · ");
+        return [
+          automation.status !== "running" && {
+            id: `automation-recovery:run-now:${automationId}`,
+            title: `${t.runNow}: ${messageExcerpt(automation.prompt, 64)}`,
+            subtitle,
+            group: t.taskCenter,
+            priority: 18,
+            keywords: recoveryKeywords,
+            action: () => {
+              openTaskCenterFocus("automation", automation.id, { filter: "failed", expandEvidence: true, expandHistory: true });
+              void runAutomationNow(automation);
+            },
+          },
+          failedEntry.id && {
+            id: `automation-recovery:copy:${entryId}`,
+            title: `${t.copyAutomationEvidence}: ${messageExcerpt(automation.prompt, 64)}`,
+            subtitle,
+            group: t.taskCenter,
+            priority: 16,
+            keywords: recoveryKeywords,
+            action: () => copyMessage(automationEvidenceText(automation, failedEntry, t, state.sessions)),
+          },
+          failedEntry.id && {
+            id: `automation-recovery:timeline:${entryId}`,
+            title: `${t.openRunTimeline}: ${messageExcerpt(automation.prompt, 64)}`,
+            subtitle,
+            group: t.taskCenter,
+            priority: 14,
+            keywords: recoveryKeywords,
+            action: () => openRunTimeline(failedEntry.id),
+          },
+        ].filter(Boolean);
+      });
+
     const subagentCommands = subagentRunsForCommands
       .filter((run) => run?.id || run?.requestId)
       .slice(0, 16)
@@ -12425,6 +12498,91 @@ export function App() {
           ].filter(Boolean).join(" "),
           action: () => openRunTimeline(runId),
         };
+      });
+
+    const subagentRecoveryCommands = subagentRunsForCommands
+      .filter((run) => (run?.id || run?.requestId) && run?.status !== "running" && ["error", "failed", "cancelled"].includes(run?.status))
+      .slice(0, 16)
+      .flatMap((run) => {
+        const runKey = run.id || run.requestId;
+        const runId = run.requestId || run.id;
+        const projectPath = run.project?.path || run.cwd || "";
+        const artifactSearchParts = Array.isArray(run.artifacts)
+          ? run.artifacts.map((artifact) => [
+            artifact?.label,
+            artifact?.path,
+            artifact?.type,
+            subagentArtifactContent(artifact),
+          ].filter(Boolean).join(" "))
+          : [];
+        const subtitle = [
+          subagentStatusLabel(run.status, t),
+          run.summary || run.stderr || messageExcerpt(run.task, 72),
+          projectPath ? compactPath(projectPath, 52) : projectLabel(run.project, t),
+        ].filter(Boolean).join(" · ");
+        const recoveryKeywords = [
+          "subagent recovery retry continue failed failure cancelled copy evidence timeline task center",
+          run.id,
+          run.requestId,
+          run.nickname,
+          run.task,
+          run.status,
+          run.summary,
+          run.stdout,
+          run.stderr,
+          run.sessionId,
+          run.project?.name,
+          run.project?.path,
+          run.cwd,
+          ...artifactSearchParts,
+        ].filter(Boolean).join(" ");
+        return [
+          run.task && {
+            id: `subagent-recovery:retry:${commandIdSegment(runKey)}`,
+            title: `${t.retrySubagent}: ${run.nickname || "Subagent"}`,
+            subtitle,
+            group: t.taskCenter,
+            priority: 18,
+            keywords: recoveryKeywords,
+            action: () => {
+              openTaskCenterFocus("subagent", runKey, { filter: "failed", expandEvidence: true, expandArtifacts: true });
+              void runSubagent(run.task, run.nickname || "Subagent", {
+                projectPath,
+                sessionId: run.sessionId || "",
+              });
+            },
+          },
+          !run.continuedAt && {
+            id: `subagent-recovery:continue:${commandIdSegment(runKey)}`,
+            title: `${t.continueSubagent}: ${run.nickname || "Subagent"}`,
+            subtitle,
+            group: t.taskCenter,
+            priority: 17,
+            keywords: recoveryKeywords,
+            action: () => {
+              openTaskCenterFocus("subagent", runKey, { filter: "failed", expandEvidence: true, expandArtifacts: true });
+              void continueSubagent(run);
+            },
+          },
+          {
+            id: `subagent-recovery:copy:${commandIdSegment(runKey)}`,
+            title: `${t.copySubagentEvidence}: ${run.nickname || "Subagent"}`,
+            subtitle,
+            group: t.taskCenter,
+            priority: 16,
+            keywords: recoveryKeywords,
+            action: () => copyMessage(subagentRunEvidenceText(run, t)),
+          },
+          runId && {
+            id: `subagent-recovery:timeline:${commandIdSegment(runId)}`,
+            title: `${t.openRunTimeline}: ${run.nickname || "Subagent"}`,
+            subtitle,
+            group: t.taskCenter,
+            priority: 14,
+            keywords: recoveryKeywords,
+            action: () => openRunTimeline(runId),
+          },
+        ].filter(Boolean);
       });
 
     const capabilityFilterLabels = {
@@ -12808,8 +12966,10 @@ export function App() {
       ...taskFilterCommands,
       ...automationCommands,
       ...automationRunCommands,
+      ...automationRecoveryCommands,
       ...subagentCommands,
       ...subagentRunCommands,
+      ...subagentRecoveryCommands,
       ...capabilityFilterCommands,
       ...installedPluginCommands,
       ...skillRegistryCommands,
