@@ -510,6 +510,7 @@ const copy = {
     noticeLevelInfo: "信息",
     noSourcesYet: "暂无来源",
     sourceCount: "{count} 个来源",
+    sourceBadgeDetail: "来源 {total} · 当前项目 {project} · 其他项目 {external} · 最近 {latest}",
     sourceLastOpened: "最近读取",
     sourceBackedByWorkspace: "来自真实 Workspace 文件读取记录",
     noSubagentsYet: "还没有子代理运行记录",
@@ -2310,6 +2311,44 @@ function sourceRefKey(source = {}) {
   return source.id || [source.project?.path, source.project?.name, source.path].filter(Boolean).join(":") || source.path || "";
 }
 
+function sourceRefsContextSummary({ sourceRefs = [], activeProject, t } = {}) {
+  const refs = Array.isArray(sourceRefs) ? sourceRefs.filter((source) => source?.path) : [];
+  const total = refs.length;
+  const activeKey = String(activeProject?.path || activeProject?.name || "").trim().toLowerCase();
+  const matchesActiveProject = (source = {}) => {
+    const sourceKey = String(source.project?.path || source.project?.name || "").trim().toLowerCase();
+    return Boolean(activeKey && sourceKey && sourceKey === activeKey);
+  };
+  const projectCount = activeKey ? refs.filter(matchesActiveProject).length : 0;
+  const externalCount = Math.max(0, total - projectCount);
+  const latestValue = refs
+    .map((source) => source.lastOpenedAt || source.updatedAt || "")
+    .filter(Boolean)
+    .sort()
+    .at(-1) || "";
+  const latestLabel = latestValue ? formatDate(latestValue) : "-";
+  const detail = t.sourceBadgeDetail
+    .replace("{total}", total)
+    .replace("{project}", projectCount)
+    .replace("{external}", externalCount)
+    .replace("{latest}", latestLabel);
+
+  if (total > 0) {
+    return {
+      status: "info",
+      badge: String(total),
+      label: String(total),
+      detail,
+    };
+  }
+  return {
+    status: "",
+    badge: "",
+    label: activeProject?.path ? t.files : "",
+    detail: t.noSourcesYet,
+  };
+}
+
 function browserVisitKey(visit = {}) {
   return visit.id || visit.url || browserVisitFinalUrl(visit);
 }
@@ -4031,6 +4070,11 @@ function Conversation({
     git,
     t,
   }), [git, t]);
+  const sourcesContext = useMemo(() => sourceRefsContextSummary({
+    sourceRefs,
+    activeProject,
+    t,
+  }), [sourceRefs, activeProject, t]);
   const gitRootPath = String(git?.root || "").trim();
   const gitRelativePath = String(git?.relativePath || "").trim();
   const gitRootLabel = gitRootPath ? compactPath(gitRootPath, 78) : t.gitUnavailable;
@@ -4569,7 +4613,16 @@ function Conversation({
       badge: changesContext.badge,
       status: changesContext.status,
     },
-    { id: "sources", label: t.sources, icon: Folder, meta: activeProject?.path ? t.files : "" },
+    {
+      id: "sources",
+      label: t.sources,
+      icon: Folder,
+      meta: sourcesContext.label,
+      titleMeta: sourcesContext.detail || sourcesContext.label,
+      ariaMeta: sourcesContext.detail || sourcesContext.label,
+      badge: sourcesContext.badge,
+      status: sourcesContext.status,
+    },
     {
       id: "subagents",
       label: t.subagents,
