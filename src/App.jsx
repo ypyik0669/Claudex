@@ -7347,6 +7347,8 @@ function ToolRail({
   const latestWorkspaceFailed = latestWorkspaceRun && typeof latestWorkspaceRun.code === "number" && latestWorkspaceRun.code !== 0;
   const latestClaudeRun = useMemo(() => commandRunsToHistory(commandRuns, "claude")[0], [commandRuns]);
   const latestClaudeFailed = latestClaudeRun && typeof latestClaudeRun.code === "number" && latestClaudeRun.code !== 0;
+  const latestCapabilityRun = useMemo(() => commandRunsToHistory(commandRuns, "capability")[0], [commandRuns]);
+  const latestCapabilityFailed = latestCapabilityRun && typeof latestCapabilityRun.code === "number" && latestCapabilityRun.code !== 0;
   const openWorkspaceRailTarget = () => {
     if (latestWorkspaceFailed && latestWorkspaceRun?.id) {
       onOpenRunTimeline?.(latestWorkspaceRun.id);
@@ -7360,6 +7362,13 @@ function ToolRail({
       return;
     }
     onActivateTool("claude");
+  };
+  const openCapabilityRailTarget = () => {
+    if (latestCapabilityFailed && latestCapabilityRun?.id) {
+      onOpenRunTimeline?.(latestCapabilityRun.id);
+      return;
+    }
+    onCapabilities?.("plugins");
   };
   const runtimeSummary = runtimeHealthSummary(capabilityStatus, settings, activeProject, t);
   const runtimeIssueCount = Array.isArray(runtimeSummary?.issues) ? runtimeSummary.issues.length : 0;
@@ -7433,10 +7442,10 @@ function ToolRail({
       id: "capabilities",
       label: t.pluginsAndMcp,
       icon: Blocks,
-      badge: pluginIssueCount ? countBadge(pluginIssueCount) : countBadge(capabilityCount),
-      status: pluginIssueCount ? "error" : capabilityStatus ? "ready" : "idle",
-      detail: pluginIssueCount ? t.capabilityStatusIssueCount.replace("{count}", pluginIssueCount) : t.capabilitySummary.replace("{enabled}", capabilityCount).replace("{total}", capabilityCount),
-      action: () => onCapabilities?.("plugins"),
+      badge: latestCapabilityFailed ? "!" : pluginIssueCount ? countBadge(pluginIssueCount) : countBadge(capabilityCount),
+      status: latestCapabilityFailed || pluginIssueCount ? "error" : capabilityStatus ? "ready" : "idle",
+      detail: latestCapabilityFailed ? t.commandFailed : pluginIssueCount ? t.capabilityStatusIssueCount.replace("{count}", pluginIssueCount) : t.capabilitySummary.replace("{enabled}", capabilityCount).replace("{total}", capabilityCount),
+      action: openCapabilityRailTarget,
     },
     {
       id: "notices",
