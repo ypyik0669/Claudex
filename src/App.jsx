@@ -13078,10 +13078,21 @@ export function App() {
     if (!desktopApi?.updateSession || !session) return;
     try {
       const nextArchived = !session.archived;
+      const targetProject = {
+        name: session.project || activeProject?.name || t.localWorkspace,
+        path: session.projectPath || "",
+      };
+      const currentKey = String(activeProject?.path || activeProject?.name || "").trim().toLowerCase();
+      const targetKey = String(targetProject.path || targetProject.name || "").trim().toLowerCase();
       const next = await desktopApi.updateSession({ sessionId: session.id, archived: nextArchived });
       const nextScope = nextArchived ? projectScope : "current";
-      if (!nextArchived && projectScope === "archived") setProjectScope("current");
-      applySessionState(next, nextArchived && session.id === activeSession?.id ? "" : session.id, nextScope);
+      enterThreadWorkspace(nextScope);
+      if (!nextArchived && desktopApi?.setActiveProject && targetKey && targetKey !== currentKey) {
+        const projectState = await desktopApi.setActiveProject(targetProject);
+        applySessionState(projectState, session.id, "current");
+      } else {
+        applySessionState(next, nextArchived && session.id === activeSession?.id ? "" : session.id, nextScope);
+      }
       showToast(nextArchived ? t.threadArchived : t.restoreThread);
     } catch (error) {
       showToast(error.message || String(error));
