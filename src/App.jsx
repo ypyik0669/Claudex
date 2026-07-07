@@ -501,6 +501,7 @@ const copy = {
     noticeOpenAction: "打开对应工作台",
     noticeSource: "来源",
     noticeLevelError: "错误",
+    noticeBadgeDetail: "未处理 {total} · 错误 {errors} · 警告 {warnings}",
     errorActions: "错误处理动作",
     noticeLevelWarning: "警告",
     noticeLevelInfo: "信息",
@@ -4112,6 +4113,16 @@ function Conversation({
     }
   }
   const activeNotices = useMemo(() => (notices || []).filter((notice) => !notice.dismissedAt), [notices]);
+  const activeNoticeErrors = activeNotices.filter((notice) => notice?.level === "error").length;
+  const activeNoticeWarnings = activeNotices.filter((notice) => notice?.level === "warning").length;
+  const activeNoticeStatus = activeNoticeErrors ? "error" : activeNoticeWarnings ? "warning" : "";
+  const activeNoticeLabel = activeNotices.length ? t.noticeCount.replace("{count}", activeNotices.length) : "";
+  const activeNoticeDetail = activeNotices.length
+    ? t.noticeBadgeDetail
+      .replace("{total}", activeNotices.length)
+      .replace("{errors}", activeNoticeErrors)
+      .replace("{warnings}", activeNoticeWarnings)
+    : "";
   const automationItemsForUi = useMemo(() => (Array.isArray(automations) ? automations : []), [automations]);
   const taskFailureBucketsForUi = useMemo(() => taskCenterFailureBuckets(automationItemsForUi, subagentRuns), [automationItemsForUi, subagentRuns]);
   const failedTaskCount = taskFailureBucketsForUi.total;
@@ -4369,7 +4380,16 @@ function Conversation({
   const contextTabs = [
     { id: "environment", label: t.environment, icon: HardDrive, meta: projectPathMissing ? t.projectPathMissing : branchLabel },
     { id: "outputs", label: t.outputs, icon: FileText, meta: busy ? t.commandRunning : "" },
-    { id: "notices", label: t.notices, icon: AlertTriangle, meta: activeNotices.length ? String(activeNotices.length) : "" },
+    {
+      id: "notices",
+      label: t.notices,
+      icon: AlertTriangle,
+      meta: activeNoticeLabel,
+      titleMeta: activeNoticeDetail || activeNoticeLabel,
+      ariaMeta: activeNoticeDetail || activeNoticeLabel,
+      badge: activeNotices.length ? String(activeNotices.length) : "",
+      status: activeNoticeStatus,
+    },
     { id: "changes", label: t.changes, icon: GitBranch, meta: gitChangesLabel },
     { id: "sources", label: t.sources, icon: Folder, meta: activeProject?.path ? t.files : "" },
     {

@@ -813,6 +813,10 @@ select:focus-visible,
   color: #efb0a9;
 }
 
+.workspace-context-button.status-warning {
+  color: #e5c078;
+}
+
 .context-tab-badge {
   min-width: 16px;
   height: 16px;
@@ -866,6 +870,18 @@ select:focus-visible,
   border-color: rgba(211, 106, 92, 0.42);
   background: rgba(211, 106, 92, 0.13);
   color: #ffd5d0;
+}
+
+.workspace-context-button.status-warning.active {
+  border-color: rgba(210, 161, 74, 0.42);
+  background: rgba(210, 161, 74, 0.12);
+  color: #ffe0a6;
+}
+
+.workspace-context-button.status-warning .context-tab-badge {
+  border-color: rgba(210, 161, 74, 0.36);
+  background: rgba(210, 161, 74, 0.2);
+  color: #ffe0a6;
 }
 
 .workspace-context-button span {
@@ -8084,10 +8100,26 @@ button.runtime-health-row {
   color: #efb0a9;
 }
 
+.bottom-panel-tabs button.status-warning {
+  color: #e5c078;
+}
+
 .bottom-panel-tabs button.status-error.active {
   border-color: rgba(211, 106, 92, 0.32);
   background: rgba(211, 106, 92, 0.12);
   color: #ffd5d0;
+}
+
+.bottom-panel-tabs button.status-warning.active {
+  border-color: rgba(210, 161, 74, 0.32);
+  background: rgba(210, 161, 74, 0.12);
+  color: #ffe0a6;
+}
+
+.bottom-panel-tabs button.status-warning .context-tab-badge {
+  border-color: rgba(210, 161, 74, 0.36);
+  background: rgba(210, 161, 74, 0.18);
+  color: #ffe0a6;
 }
 
 .bottom-panel-tabs .context-tab-badge {
