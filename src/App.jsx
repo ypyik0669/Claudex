@@ -3007,18 +3007,26 @@ function capabilityTraceSource(item = {}, kind = "") {
       .map((value) => summarizePanelPluginField(value))
       .join(" ");
   }
+  if (kind === "skill") {
+    return [item.source, item.root, item.path, item.relativePath]
+      .filter(Boolean)
+      .map((value) => summarizePanelPluginField(value))
+      .join(" ");
+  }
   return summarizePanelPluginField(item.source || item.repo || item.installLocation || item.installPath || item.detail || "");
 }
 
 function capabilityTraceStatus(item = {}, kind = "") {
   if (kind === "marketplace-plugin") return item.installed ? "installed" : "available";
   if (kind === "plugin") return item.status || (item.enabled ? "enabled" : "disabled");
+  if (kind === "skill") return item.status || "local-skill";
   return item.status || "";
 }
 
 function capabilityTraceEnabled(item = {}, kind = "") {
   if (kind === "marketplace-plugin") return item.installed ? "true" : "false";
   if (kind === "plugin") return item.enabled ? "true" : "false";
+  if (kind === "skill") return String(skillStatusKind(item) === "enabled");
   return "";
 }
 
@@ -12347,12 +12355,18 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                     skill.updatedAt ? [t.fileUpdatedAt, formatDate(skill.updatedAt, lang), skill.updatedAt] : null,
                   ].filter(Boolean);
                   const copied = copiedSkillId === skillId;
+                  const skillTraceContext = {
+                    id: skillId,
+                    name: skill.name || skillId,
+                    projectPath: skill.root || activeProject?.path || "",
+                  };
                   return (
                     <article
                       className={cx("structured-plugin-row skill-registry-row", capabilityFocusMatches("skill", skill.id, skill.name, skill.path) && "focused-capability-row")}
                       key={skill.path || skillId}
                       data-skill-id={skillId}
                       data-skill-path={skill.path || ""}
+                      {...surfaceTraceAttributes("skill", "open", skill, skillTraceContext)}
                     >
                       <span className="plugin-manager-icon"><Blocks size={17} /></span>
                       <div className="plugin-manager-copy">
@@ -12371,15 +12385,35 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                       </div>
                       <em className="plugin-status-badge ok">{t.installedLocal}</em>
                       <div className="structured-row-actions">
-                        <button type="button" className="plain-action subtle-action" data-skill-action="open-workspace" onClick={() => openSkillWorkspaceFile(skill)} disabled={!skill.relativePath || !skill.root}>
+                        <button
+                          type="button"
+                          className="plain-action subtle-action"
+                          data-skill-action="open-workspace"
+                          onClick={() => openSkillWorkspaceFile(skill)}
+                          disabled={!skill.relativePath || !skill.root}
+                          {...surfaceTraceAttributes("skill", "open-file", skill, skillTraceContext)}
+                        >
                           <FileText size={13} />
                           {t.openSkillFile}
                         </button>
-                        <button type="button" className="plain-action subtle-action" data-skill-action="pin-evidence" onClick={() => pinSkillEvidence(skill)}>
+                        <button
+                          type="button"
+                          className="plain-action subtle-action"
+                          data-skill-action="pin-evidence"
+                          onClick={() => pinSkillEvidence(skill)}
+                          {...surfaceTraceAttributes("skill", "pin", skill, skillTraceContext)}
+                        >
                           <Pin size={13} />
                           {t.pinSkillEvidence}
                         </button>
-                        <button type="button" className="plain-action subtle-action" data-skill-action="copy-evidence" onClick={() => copySkillEvidence(skill)} title={copied ? t.copied : t.copyEvidence}>
+                        <button
+                          type="button"
+                          className="plain-action subtle-action"
+                          data-skill-action="copy-evidence"
+                          onClick={() => copySkillEvidence(skill)}
+                          title={copied ? t.copied : t.copyEvidence}
+                          {...surfaceTraceAttributes("skill", "copy", skill, skillTraceContext)}
+                        >
                           {copied ? <Check size={13} /> : <Copy size={13} />}
                           {copied ? t.copied : t.copyEvidence}
                         </button>
@@ -15374,6 +15408,11 @@ export function App() {
             skill.path ? compactPath(skill.path, 70) : "",
           ].filter(Boolean).join(" · "),
           group: t.capabilities,
+          dataAttributes: capabilityTraceAttributes("skill", "open", skill, {
+            id,
+            name: label,
+            projectPath: skill.root || activeProject?.path || "",
+          }),
           keywords: [
             "skill local registry capability SKILL.md codex",
             skill.id,
@@ -15405,6 +15444,11 @@ export function App() {
             skill.root ? compactPath(skill.root, 70) : "",
           ].filter(Boolean).join(" · "),
           group: t.capabilities,
+          dataAttributes: capabilityTraceAttributes("skill", "open-file", skill, {
+            id,
+            name: label,
+            projectPath: skill.root || activeProject?.path || "",
+          }),
           keywords: [
             "open skill file workspace SKILL.md local registry",
             skill.id,
@@ -15437,6 +15481,11 @@ export function App() {
           ].filter(Boolean).join(" · "),
           group: t.capabilities,
           target: "clipboard",
+          dataAttributes: capabilityTraceAttributes("skill", "copy", skill, {
+            id,
+            name: label,
+            projectPath: skill.root || activeProject?.path || "",
+          }),
           priority: 18,
           keywords: [
             "copy evidence skill local registry SKILL.md clipboard capability",
@@ -15472,6 +15521,11 @@ export function App() {
           ].filter(Boolean).join(" · "),
           group: t.capabilities,
           target: "timeline",
+          dataAttributes: capabilityTraceAttributes("skill", "pin", skill, {
+            id,
+            name: label,
+            projectPath: skill.root || activeProject?.path || "",
+          }),
           priority: 19,
           keywords: [
             "pin evidence skill local registry SKILL.md timeline outputs capability",
