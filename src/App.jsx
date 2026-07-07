@@ -12546,6 +12546,7 @@ function CommandPalette({ commands, t, onClose }) {
               data-command-id={command.id}
               data-command-group={command.group || ""}
               data-command-target={command.target || ""}
+              {...(command.dataAttributes || {})}
               data-command-active={active ? "true" : "false"}
               role="option"
               aria-selected={active}
@@ -13555,6 +13556,19 @@ export function App() {
       ...sessionMessages(session).map((message) => message.content),
     ].filter(Boolean);
 
+    const threadCommandScope = (session) => session.archived ? "archived" : "current";
+    const threadCommandTraceAttributes = (session, action = "") => ({
+      "data-command-thread-id": session.id || "",
+      "data-command-thread-project": session.project || "",
+      "data-command-thread-project-path": session.projectPath || "",
+      "data-command-thread-scope": threadCommandScope(session),
+      "data-command-thread-action": action,
+      "data-command-thread-pinned": session.pinned ? "true" : "false",
+      "data-command-thread-archived": session.archived ? "true" : "false",
+      "data-command-thread-message-count": String(sessionMessages(session).length),
+      "data-command-thread-claude-session-id": session.claudeSessionId || "",
+    });
+
     const threadCommands = threadCommandSessions
       .map((session) => {
         const title = sessionDisplayTitle(session, t);
@@ -13564,6 +13578,8 @@ export function App() {
           title: `${t.activeThread}: ${title}`,
           subtitle: meta,
           group: t.chats,
+          target: "thread",
+          dataAttributes: threadCommandTraceAttributes(session),
           keywords: [
             "thread chat session resume history",
             ...threadSearchParts(session, title),
@@ -13595,6 +13611,8 @@ export function App() {
           title: `${spec.label}: ${title}`,
           subtitle: meta,
           group: t.chats,
+          target: "thread-action",
+          dataAttributes: threadCommandTraceAttributes(session, spec.id),
           keywords: [
             `${spec.verb} ${title}`,
             `${spec.label} ${title}`,
