@@ -1239,6 +1239,7 @@ function capabilityActionFocusForCommand(args, context = {}) {
       kind: "marketplace-source",
       id: idText,
       query: idText,
+      action: "update",
     };
   }
   const action = parts[1].toLowerCase();
@@ -1250,6 +1251,7 @@ function capabilityActionFocusForCommand(args, context = {}) {
       kind: "marketplace-plugin",
       id: identifier,
       query: panelPluginNameFromId(identifier),
+      action: "install",
     };
   }
   if (["enable", "disable", "update"].includes(action)) {
@@ -1258,6 +1260,7 @@ function capabilityActionFocusForCommand(args, context = {}) {
       kind: "plugin",
       id: identifier,
       query: panelPluginNameFromId(identifier),
+      action,
     };
   }
   return null;
@@ -11127,8 +11130,10 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
     activeTab === "skills" ? t.searchSkills : activeTab === "marketplace" ? t.searchMarketplace : t.searchPlugins;
   const focusedCapabilityKind = String(focus?.kind || "").trim();
   const focusedCapabilityId = String(focus?.id || "").trim();
+  const focusedCapabilityAction = String(focus?.action || "").trim();
   const actionFocusedCapabilityKind = String(capabilityActionFocus?.kind || "").trim();
   const actionFocusedCapabilityId = String(capabilityActionFocus?.id || "").trim();
+  const actionFocusedCapabilityAction = String(capabilityActionFocus?.action || "").trim();
   const hasFocusedCapability = Boolean(
     (focusedCapabilityKind && focusedCapabilityId) ||
     (actionFocusedCapabilityKind && actionFocusedCapabilityId),
@@ -11150,6 +11155,27 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
   function capabilityFocusAttributes(focused) {
     return {
       "data-capability-focused": focused ? "true" : "false",
+      "aria-current": focused ? "true" : undefined,
+    };
+  }
+
+  function capabilityActionFocusMatches(kind, action, ...ids) {
+    const normalizedIds = ids.map((id) => String(id || "").trim()).filter(Boolean);
+    if (!normalizedIds.length || !action) return false;
+    return [
+      [focusedCapabilityKind, focusedCapabilityId, focusedCapabilityAction],
+      [actionFocusedCapabilityKind, actionFocusedCapabilityId, actionFocusedCapabilityAction],
+    ].some(([focusKind, focusId, focusAction]) => (
+      focusKind === kind &&
+      focusAction === action &&
+      Boolean(focusId) &&
+      normalizedIds.includes(String(focusId || "").trim())
+    ));
+  }
+
+  function capabilityActionFocusAttributes(focused) {
+    return {
+      "data-capability-action-focused": focused ? "true" : "false",
       "aria-current": focused ? "true" : undefined,
     };
   }
@@ -11688,10 +11714,11 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
   useEffect(() => {
     if (!hasFocusedCapability) return undefined;
     const timer = window.setTimeout(() => {
-      document.querySelector(".focused-capability-row")?.scrollIntoView?.({ block: "center", behavior: "smooth" });
+      (document.querySelector('[data-capability-action-focused="true"]') || document.querySelector(".focused-capability-row"))
+        ?.scrollIntoView?.({ block: "center", behavior: "smooth" });
     }, 120);
     return () => window.clearTimeout(timer);
-  }, [focus?.nonce, capabilityActionFocus?.nonce, hasFocusedCapability, focusedCapabilityKind, focusedCapabilityId, actionFocusedCapabilityKind, actionFocusedCapabilityId, activeTab, cliStatus, normalizedQuery]);
+  }, [focus?.nonce, capabilityActionFocus?.nonce, hasFocusedCapability, focusedCapabilityKind, focusedCapabilityId, focusedCapabilityAction, actionFocusedCapabilityKind, actionFocusedCapabilityId, actionFocusedCapabilityAction, activeTab, cliStatus, normalizedQuery]);
   return (
     <ShellModal title={t.capabilities} subtitle={t.capabilitiesSubtitle} onClose={onClose} closeLabel={surface ? t.backToApp : t.close} className="capability-modal plugin-manager-modal" surface={surface}>
       <div className="installed-capability-strip" aria-label={t.installed}>
@@ -11898,6 +11925,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                 {marketplaceRows.length === 0 && <p className="empty-list">{t.noCliOutputYet}</p>}
                 {marketplaceRows.map((item) => {
                   const sourceFocused = capabilityFocusMatches("marketplace-source", item.name);
+                  const sourceCopyFocused = capabilityActionFocusMatches("marketplace-source", "copy", item.name);
                   const sourceRetry = sourceFocused && recentMarketplaceActionRun && recentMarketplaceActionRun.code !== 0
                     ? () => requestCapabilityClaude("plugin marketplace update", `${t.updatePlugin}: ${t.marketplace}`, marketplaceUpdateReviewRows())
                     : null;
@@ -11937,6 +11965,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                           type="button"
                           className="plain-action subtle-action"
                           data-marketplace-source-action="copy-evidence"
+                          {...capabilityActionFocusAttributes(sourceCopyFocused)}
                           {...surfaceTraceAttributes("marketplace-source", "copy", item, { id: item.name, name: item.name })}
                           onClick={() => copyMarketplaceSourceEvidence(item)}
                           disabled={cliWorking}
@@ -11992,6 +12021,9 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                 {marketplacePluginRows.slice(0, 80).map((item) => {
                   const recentRun = findRecentPluginActionRun(recentCapabilityRuns, [item.id, item.name], ["install", "update"]);
                   const pluginFocused = capabilityFocusMatches("marketplace-plugin", item.id, item.name);
+                  const pluginInstallFocused = capabilityActionFocusMatches("marketplace-plugin", "install", item.id, item.name);
+                  const pluginOpenInstalledFocused = capabilityActionFocusMatches("marketplace-plugin", "open-installed", item.id, item.name);
+                  const pluginCopyFocused = capabilityActionFocusMatches("marketplace-plugin", "copy", item.id, item.name);
                   const installedPlugin = findPluginByIdentifiers(allInstalledPluginRows, [item.id, item.name]);
                   const toolDetails = Array.isArray(item.toolDetails) ? item.toolDetails : [];
                   const pluginRetry = pluginFocused && recentRun && recentRun.code !== 0
@@ -12040,6 +12072,8 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                       <button
                         type="button"
                         className="plain-action"
+                        data-marketplace-plugin-action="install"
+                        {...capabilityActionFocusAttributes(pluginInstallFocused)}
                         {...surfaceTraceAttributes("marketplace-plugin", "install", item, { id: item.id || item.name })}
                         onClick={() => requestCapabilityClaude(`plugin install ${item.id}`, `${t.installFromMarketplace}: ${item.name || item.id}`, marketplaceInstallReviewRows(item))}
                         disabled={cliWorking || item.installed}
@@ -12059,6 +12093,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                           type="button"
                           className="plain-action subtle-action"
                           data-marketplace-plugin-action="open-installed"
+                          {...capabilityActionFocusAttributes(pluginOpenInstalledFocused)}
                           {...surfaceTraceAttributes("marketplace-plugin", "open-installed", item, { id: item.id || item.name })}
                           onClick={() => openInstalledPluginRow(installedPlugin, item.id)}
                         >
@@ -12070,6 +12105,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                         type="button"
                         className="plain-action subtle-action"
                         data-marketplace-plugin-action="copy-evidence"
+                        {...capabilityActionFocusAttributes(pluginCopyFocused)}
                         {...surfaceTraceAttributes("marketplace-plugin", "copy", item, { id: item.id || item.name })}
                         onClick={() => copyMarketplacePluginEvidence(item)}
                         disabled={cliWorking}
@@ -12182,6 +12218,10 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                 {installedPluginRows.map((plugin) => {
                   const recentRun = findRecentPluginActionRun(recentCapabilityRuns, [plugin.id, plugin.name], ["enable", "disable", "update", "install"]);
                   const pluginFocused = capabilityFocusMatches("plugin", plugin.id, plugin.name);
+                  const pluginDisableFocused = capabilityActionFocusMatches("plugin", "disable", plugin.id, plugin.name);
+                  const pluginEnableFocused = capabilityActionFocusMatches("plugin", "enable", plugin.id, plugin.name);
+                  const pluginUpdateFocused = capabilityActionFocusMatches("plugin", "update", plugin.id, plugin.name);
+                  const pluginCopyFocused = capabilityActionFocusMatches("plugin", "copy", plugin.id, plugin.name);
                   const toolDetails = Array.isArray(plugin.toolDetails) ? plugin.toolDetails : [];
                   const pluginRetryArgs = pluginFocused && recentRun && recentRun.code !== 0
                     ? pluginActionArgsFromRun(recentRun, plugin.id)
@@ -12241,6 +12281,8 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                         <button
                           type="button"
                           className="plain-action subtle-action"
+                          data-plugin-action="disable"
+                          {...capabilityActionFocusAttributes(pluginDisableFocused)}
                           {...surfaceTraceAttributes("plugin", "disable", plugin, { id: plugin.id || plugin.name })}
                           onClick={() => requestCapabilityClaude(`plugin disable ${plugin.id}`, `${t.disablePlugin}: ${plugin.id}`, pluginActionReviewRows(plugin, t.disablePlugin))}
                           disabled={cliWorking}
@@ -12252,6 +12294,8 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                         <button
                           type="button"
                           className="plain-action subtle-action"
+                          data-plugin-action="enable"
+                          {...capabilityActionFocusAttributes(pluginEnableFocused)}
                           {...surfaceTraceAttributes("plugin", "enable", plugin, { id: plugin.id || plugin.name })}
                           onClick={() => requestCapabilityClaude(`plugin enable ${plugin.id}`, `${t.enablePlugin}: ${plugin.id}`, pluginActionReviewRows(plugin, t.enablePlugin))}
                           disabled={cliWorking}
@@ -12263,6 +12307,8 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                       <button
                         type="button"
                         className="plain-action subtle-action"
+                        data-plugin-action="update"
+                        {...capabilityActionFocusAttributes(pluginUpdateFocused)}
                         {...surfaceTraceAttributes("plugin", "update", plugin, { id: plugin.id || plugin.name })}
                         onClick={() => requestCapabilityClaude(`plugin update ${plugin.id}`, `${t.updatePlugin}: ${plugin.id}`, pluginActionReviewRows(plugin, t.updatePlugin))}
                         disabled={cliWorking}
@@ -12274,6 +12320,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                         type="button"
                         className="plain-action subtle-action"
                         data-plugin-action="copy-evidence"
+                        {...capabilityActionFocusAttributes(pluginCopyFocused)}
                         {...surfaceTraceAttributes("plugin", "copy", plugin, { id: plugin.id || plugin.name })}
                         onClick={() => copyPluginEvidence(plugin)}
                         title={copiedPluginId === plugin.id ? t.copied : t.copyEvidence}
@@ -12327,6 +12374,10 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                   const rowKey = mcpServerKey(server);
                   const rowRecording = cliAction === "mcp list";
                   const mcpFocused = capabilityFocusMatches("mcp", server.name, rowKey);
+                  const mcpOpenClaudeFocused = capabilityActionFocusMatches("mcp", "open-claude", server.name, rowKey);
+                  const mcpCopyRawFocused = capabilityActionFocusMatches("mcp", "copy-raw", server.name, rowKey);
+                  const mcpCopyFocused = capabilityActionFocusMatches("mcp", "copy", server.name, rowKey);
+                  const mcpRefreshFocused = capabilityActionFocusMatches("mcp", "refresh", server.name, rowKey);
                   const toolDetails = Array.isArray(server.toolDetails) ? server.toolDetails : [];
                   const rowMeta = [
                     typeof server.tools === "number" ? [t.tools, String(server.tools)] : null,
@@ -12378,6 +12429,8 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                         <button
                           type="button"
                           className="plain-action subtle-action"
+                          data-mcp-server-action="open-claude"
+                          {...capabilityActionFocusAttributes(mcpOpenClaudeFocused)}
                           {...surfaceTraceAttributes("mcp", "open-claude", server, { id: server.name, name: server.name })}
                           onClick={onOpenClaudePanel}
                         >
@@ -12387,6 +12440,8 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                         <button
                           type="button"
                           className="plain-action subtle-action"
+                          data-mcp-server-action="copy-raw"
+                          {...capabilityActionFocusAttributes(mcpCopyRawFocused)}
                           {...surfaceTraceAttributes("mcp", "copy-raw", server, { id: server.name, name: server.name })}
                           onClick={() => copyMcpServerRaw(server)}
                           title={server.raw || server.detail || server.name}
@@ -12398,6 +12453,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                           type="button"
                           className="plain-action subtle-action"
                           data-mcp-server-action="copy-evidence"
+                          {...capabilityActionFocusAttributes(mcpCopyFocused)}
                           {...surfaceTraceAttributes("mcp", "copy", server, { id: server.name, name: server.name })}
                           onClick={() => copyMcpServerEvidence(server)}
                           title={copiedMcpEvidenceKey === rowKey ? t.copied : t.copyEvidence}
@@ -12408,6 +12464,8 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                         <button
                           type="button"
                           className="plain-action subtle-action"
+                          data-mcp-server-action="refresh"
+                          {...capabilityActionFocusAttributes(mcpRefreshFocused)}
                           {...surfaceTraceAttributes("mcp", "refresh", server, { id: server.name, name: server.name })}
                           onClick={() => runCapabilityClaude("mcp list")}
                           disabled={cliWorking}
@@ -15675,6 +15733,52 @@ export function App() {
           }),
         };
       });
+    const installedPluginActionCommands = (Array.isArray(capabilityCommandStatus?.pluginItems) ? capabilityCommandStatus.pluginItems : [])
+      .filter((plugin) => plugin?.id || plugin?.name)
+      .flatMap((plugin) => {
+        const id = plugin.id || plugin.name;
+        const specs = [
+          plugin.enabled
+            ? { action: "disable", label: t.disablePlugin, keywords: "disable plugin installed turn off 禁用 插件" }
+            : { action: "enable", label: t.enablePlugin, keywords: "enable plugin installed turn on 启用 插件" },
+          { action: "update", label: t.updatePlugin, keywords: "update plugin installed upgrade refresh 更新 插件" },
+        ];
+        return specs.map((spec) => ({
+          id: `capability-plugin-action:${spec.action}:${commandIdSegment(id)}`,
+          title: `${spec.label}: ${id}`,
+          subtitle: [
+            t.capabilities,
+            plugin.enabled ? t.pluginStatusEnabled : t.pluginStatusDisabled,
+            plugin.version && plugin.version !== "unknown" ? `${t.version}: ${plugin.version}` : "",
+            plugin.source,
+          ].filter(Boolean).join(" · "),
+          group: t.capabilities,
+          target: "plugin-action",
+          dataAttributes: capabilityTraceAttributes("plugin", spec.action, plugin, { id }),
+          priority: spec.action === "update" ? 17 : 16,
+          keywords: [
+            "capability command palette focus action button plugin review confirmation",
+            spec.keywords,
+            spec.label,
+            id,
+            plugin.name,
+            plugin.marketplace,
+            plugin.version,
+            plugin.scope,
+            plugin.status,
+            plugin.source,
+            plugin.tools,
+            plugin.permissions,
+            plugin.error,
+          ].filter(Boolean).join(" "),
+          action: () => openCapabilitiesSurface("plugins", {
+            kind: "plugin",
+            id,
+            query: id,
+            action: spec.action,
+          }),
+        }));
+      });
     const installedPluginEvidenceCommands = (Array.isArray(capabilityCommandStatus?.pluginItems) ? capabilityCommandStatus.pluginItems : [])
       .filter((plugin) => plugin?.id || plugin?.name)
       .map((plugin) => {
@@ -15921,6 +16025,44 @@ export function App() {
           kind: "mcp",
           id: server.name,
           query: server.name,
+        }),
+      }));
+    const mcpServerActionCommands = (Array.isArray(capabilityCommandStatus?.mcpServers) ? capabilityCommandStatus.mcpServers : [])
+      .filter((server) => server?.name)
+      .map((server) => ({
+        id: `capability-mcp-action:refresh:${commandIdSegment(server.name)}`,
+        title: `${t.recordMcpStatus}: ${server.name}`,
+        subtitle: [
+          mcpStatusLabel(server.status, t),
+          typeof server.tools === "number" ? `${t.tools}: ${server.tools}` : "",
+          server.transport,
+          server.source || server.detail,
+        ].filter(Boolean).join(" · "),
+        group: t.capabilities,
+        target: "mcp-action",
+        dataAttributes: capabilityTraceAttributes("mcp", "refresh", server, { id: server.name, name: server.name }),
+        priority: 17,
+        keywords: [
+          "mcp server refresh record status capability command palette focus action button",
+          t.recordMcpStatus,
+          t.refresh,
+          server.name,
+          server.status,
+          server.detail,
+          server.raw,
+          server.tools,
+          server.toolsSummary,
+          Array.isArray(server.toolNames) ? server.toolNames.join(" ") : server.toolNames,
+          Array.isArray(server.toolDetails) ? server.toolDetails.map((tool) => [tool?.name, tool?.description, tool?.schema].filter(Boolean).join(" ")).join(" ") : "",
+          server.transport,
+          server.source,
+          server.error,
+        ].filter(Boolean).join(" "),
+        action: () => openCapabilitiesSurface("mcp", {
+          kind: "mcp",
+          id: server.name,
+          query: server.name,
+          action: "refresh",
         }),
       }));
     const mcpServerEvidenceCommands = (Array.isArray(capabilityCommandStatus?.mcpServers) ? capabilityCommandStatus.mcpServers : [])
@@ -16210,6 +16352,7 @@ export function App() {
             id,
             query: id,
             marketplaceFilter: "available",
+            action: "install",
             confirmCommand: {
               args: commandLine,
               label: `${t.installFromMarketplace}: ${plugin.name || id}`,
@@ -16249,12 +16392,14 @@ export function App() {
       ...subagentRecoveryCommands,
       ...capabilityFilterCommands,
       ...installedPluginCommands,
+      ...installedPluginActionCommands,
       ...installedPluginEvidenceCommands,
       ...skillRegistryCommands,
       ...skillOpenFileCommands,
       ...skillCopyEvidenceCommands,
       ...skillPinEvidenceCommands,
       ...mcpServerCommands,
+      ...mcpServerActionCommands,
       ...mcpServerEvidenceCommands,
       ...marketplaceSourceCommands,
       ...marketplaceSourceEvidenceCommands,

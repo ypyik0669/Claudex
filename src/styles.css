@@ -5130,6 +5130,14 @@ button.runtime-health-row {
   gap: 6px;
 }
 
+.structured-row-actions [data-capability-action-focused="true"],
+.marketplace-card-actions [data-capability-action-focused="true"],
+.marketplace-source-actions [data-capability-action-focused="true"] {
+  border-color: rgba(96, 165, 250, 0.72);
+  background: rgba(96, 165, 250, 0.1);
+  box-shadow: 0 0 0 1px rgba(96, 165, 250, 0.2);
+}
+
 .structured-row-meta {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
