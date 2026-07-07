@@ -13534,13 +13534,16 @@ function ScheduledModal({
   const [copiedAutomationRunId, setCopiedAutomationRunId] = useState("");
   const [highlightedAutomationId, setHighlightedAutomationId] = useState("");
   const scheduleItemRefs = useRef(new Map());
+  const focusedScheduleAutomationId = String(focus?.automationId || "").trim();
+  const focusedScheduleAction = String(focus?.action || "").trim();
+  const scheduleActionFocused = (item, action) => Boolean(item?.id && item.id === focusedScheduleAutomationId && focusedScheduleAction === action);
 
   useEffect(() => {
-    const automationId = String(focus?.automationId || "").trim();
+    const automationId = focusedScheduleAutomationId;
     if (!automationId || !focus?.nonce) return undefined;
     const itemNode = scheduleItemRefs.current.get(automationId);
     if (!itemNode) return undefined;
-    const action = String(focus?.action || "").trim();
+    const action = focusedScheduleAction;
     const scheduleActionTarget = action
       ? itemNode.querySelector(`[data-automation-schedule-action="${action}"]`)
       : null;
@@ -13562,7 +13565,7 @@ function ScheduledModal({
       window.clearTimeout(focusTimer);
       window.clearTimeout(clearTimer);
     };
-  }, [focus?.automationId, focus?.action, focus?.nonce, items.length]);
+  }, [focusedScheduleAutomationId, focusedScheduleAction, focus?.nonce, items.length]);
 
   async function handleAction(id, action) {
     setWorkingId(id);
@@ -13775,6 +13778,7 @@ function ScheduledModal({
                     type="button"
                     data-automation-schedule-action="run-now"
                     {...taskSurfaceTraceAttributes({ kind: "automation", action: "run-now", surface: "scheduled", item, entry: traceEntry })}
+                    {...taskActionFocusAttributes(scheduleActionFocused(item, "run-now"))}
                     onClick={() => handleAction(item.id, () => onRunNow?.(item))}
                     disabled={workingId === item.id || item.status === "running"}
                     title={t.runNow}
@@ -13786,6 +13790,7 @@ function ScheduledModal({
                     type="button"
                     data-automation-schedule-action={item.enabled ? "pause" : "resume"}
                     {...taskSurfaceTraceAttributes({ kind: "automation", action: item.enabled ? "pause" : "resume", surface: "scheduled", item, entry: traceEntry })}
+                    {...taskActionFocusAttributes(scheduleActionFocused(item, item.enabled ? "pause" : "resume"))}
                     onClick={() => handleAction(item.id, () => onToggleEnabled?.(item, !item.enabled))}
                     disabled={!item.schedule?.runAt || workingId === item.id || item.status === "running"}
                     title={item.enabled ? t.pauseAutomation : t.resumeAutomation}
@@ -13798,6 +13803,7 @@ function ScheduledModal({
                       type="button"
                       data-automation-schedule-action="copy-evidence"
                       {...taskSurfaceTraceAttributes({ kind: "automation", action: "copy-evidence", surface: "scheduled", item, entry: item.lastRun })}
+                      {...taskActionFocusAttributes(scheduleActionFocused(item, "copy-evidence"))}
                       onClick={() => copyAutomationEvidence(item)}
                       title={copiedAutomationRunId === item.lastRun.id ? t.copied : t.copyAutomationEvidence}
                     >
@@ -13810,6 +13816,7 @@ function ScheduledModal({
                       type="button"
                       data-automation-schedule-action="timeline"
                       {...taskSurfaceTraceAttributes({ kind: "automation", action: "timeline", surface: "scheduled", item, entry: item.lastRun })}
+                      {...taskActionFocusAttributes(scheduleActionFocused(item, "timeline"))}
                       onClick={() => onOpenRunTimeline?.(item.lastRun.id)}
                       title={t.openRunTimeline}
                     >
@@ -13822,6 +13829,7 @@ function ScheduledModal({
                     className="danger-action"
                     data-automation-schedule-action="delete"
                     {...taskSurfaceTraceAttributes({ kind: "automation", action: "delete", surface: "scheduled", item, entry: traceEntry })}
+                    {...taskActionFocusAttributes(scheduleActionFocused(item, "delete"))}
                     onClick={() => handleAction(item.id, () => onDelete?.(item))}
                     disabled={workingId === item.id}
                     title={t.delete}

@@ -230,9 +230,11 @@ async function scheduledFocusState(win, automationId, action) {
         itemFocused: item?.getAttribute('data-automation-focused') || '',
         focusAction: item?.getAttribute('data-automation-focus-action') || '',
         activeAction: active?.getAttribute('data-automation-schedule-action') || '',
+        buttonFocused: button?.getAttribute('data-task-action-focused') || '',
         buttonSurface: button?.getAttribute('data-task-surface') || '',
         buttonAction: button?.getAttribute('data-task-action') || '',
         buttonId: button?.getAttribute('data-task-id') || '',
+        focusedActionCount: Array.from(document.querySelectorAll('.scheduled-modal [data-task-action-focused="true"]')).length,
         text: item?.textContent || '',
       };
     })();
@@ -273,6 +275,8 @@ async function assertScheduledAction(win, spec) {
     focus.itemFocused === "true" &&
     focus.focusAction === spec.action &&
     focus.activeAction === spec.action &&
+    focus.buttonFocused === "true" &&
+    focus.focusedActionCount === 1 &&
     focus.buttonSurface === "scheduled" &&
     focus.buttonAction === spec.action &&
     focus.buttonId === spec.automationId

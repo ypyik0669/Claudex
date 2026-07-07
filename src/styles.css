@@ -6400,6 +6400,7 @@ button.runtime-health-row {
 .automation-recovery-actions [data-task-action-focused="true"],
 .automation-task-actions [data-task-action-focused="true"],
 .automation-history-actions [data-task-action-focused="true"],
+.schedule-item-actions [data-task-action-focused="true"],
 .subagent-run-actions [data-task-action-focused="true"],
 .subagent-recovery-actions [data-task-action-focused="true"] {
   border-color: rgba(96, 165, 250, 0.62);
