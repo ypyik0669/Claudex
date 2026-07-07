@@ -9046,6 +9046,12 @@ button.git-summary-chip:hover,
   color: #f0c3a2;
 }
 
+.git-change-item.kind-conflict .git-change-status {
+  border-color: rgba(211, 106, 92, 0.34);
+  background: rgba(211, 106, 92, 0.16);
+  color: #efb0aa;
+}
+
 .git-change-item.selected {
   outline: 1px solid rgba(209, 131, 87, 0.32);
 }

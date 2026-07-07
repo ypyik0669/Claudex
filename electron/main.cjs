@@ -2422,7 +2422,16 @@ function parseDiffGitPath(value) {
 }
 
 function parseGitDiffFileHeader(line) {
-  const match = /^diff --git\s+(.+?)\s+(.+)$/.exec(String(line || ""));
+  const value = String(line || "");
+  const combinedMatch = /^diff --(?:cc|combined)\s+(.+)$/.exec(value);
+  if (combinedMatch) {
+    const filePath = parseDiffGitPath(combinedMatch[1]);
+    return {
+      path: filePath,
+      previousPath: "",
+    };
+  }
+  const match = /^diff --git\s+(.+?)\s+(.+)$/.exec(value);
   if (!match) return null;
   const previousPath = parseDiffGitPath(match[1]);
   const nextPath = parseDiffGitPath(match[2]);
