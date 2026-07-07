@@ -12247,11 +12247,31 @@ function CommandPalette({ commands, t, onClose }) {
     .sort((a, b) => b.score - a.score || a.index - b.index)
     .map((item) => item.command);
   const visibleCommands = filtered.slice(0, COMMAND_PALETTE_VISIBLE_LIMIT);
+  function runCommand(command) {
+    if (!command) return;
+    onClose();
+    command.action();
+  }
   return (
     <ShellModal title={t.commandPalette} onClose={onClose} closeLabel={t.close} className="command-modal">
       <label className="command-search">
         <Search size={16} />
-        <input ref={inputRef} value={commandQuery} onChange={(event) => setCommandQuery(event.target.value)} placeholder={t.commandHint} />
+        <input
+          ref={inputRef}
+          value={commandQuery}
+          onChange={(event) => setCommandQuery(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && !event.nativeEvent?.isComposing) {
+              event.preventDefault();
+              runCommand(visibleCommands[0]);
+            }
+            if (event.key === "Escape") {
+              event.preventDefault();
+              onClose();
+            }
+          }}
+          placeholder={t.commandHint}
+        />
       </label>
       <div className="command-list">
         {visibleCommands.map((command) => (
@@ -12261,10 +12281,7 @@ function CommandPalette({ commands, t, onClose }) {
             data-command-id={command.id}
             data-command-group={command.group || ""}
             data-command-target={command.target || ""}
-            onClick={() => {
-              onClose();
-              command.action();
-            }}
+            onClick={() => runCommand(command)}
           >
             <div className="command-copy">
               <strong>{command.title}</strong>
