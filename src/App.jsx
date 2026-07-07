@@ -936,6 +936,7 @@ const copy = {
     gitPushUnavailableNoUpstream: "无 upstream，先在终端设置远端。",
     gitActionRunning: "Git 操作中",
     recentGitAction: "最近 Git 操作",
+    focusedGitAction: "聚焦 Git 操作",
     recentFailedGitAction: "最近失败 Git 操作",
     recentSuccessfulGitAction: "最近成功 Git 操作",
     gitActionEvidenceHint: "来自 run timeline / workspace command 的本地证据",
@@ -4481,6 +4482,7 @@ function Conversation({
     || (runTimelineEvents || []).find((event) => event.type === "git-command" && event.status !== "running")
     || null
   ), [focusedGitActionEvent, runTimelineEvents]);
+  const gitActionEvidenceLabel = focusedGitActionEvent ? t.focusedGitAction : t.recentGitAction;
   const latestGitActionRun = latestGitActionEvent ? findCommandRunForEvent(latestGitActionEvent, commandRuns) : null;
   const latestGitActionEvidence = useMemo(() => gitLatestActionEvidenceText({
     event: latestGitActionEvent,
@@ -5382,9 +5384,9 @@ function Conversation({
                   </div>
                 </section>
                 {latestGitActionEvent && (
-                  <section className={cx("git-latest-action", latestGitActionEvent.status)} aria-label={t.recentGitAction}>
+                  <section className={cx("git-latest-action", latestGitActionEvent.status)} aria-label={gitActionEvidenceLabel}>
                     <div>
-                      <span>{t.recentGitAction}</span>
+                      <span>{gitActionEvidenceLabel}</span>
                       <strong>{latestGitActionEvent.title || "Git"}</strong>
                       <p>{latestGitActionEvent.detail || t.gitActionEvidenceHint}</p>
                     </div>
