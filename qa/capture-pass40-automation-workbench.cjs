@@ -3,7 +3,30 @@ const os = require("os");
 const path = require("path");
 const { app, BrowserWindow } = require("electron");
 
-const REPO_DIR = path.join(__dirname, "..");
+function findRepoDir() {
+  const candidates = [
+    process.env.CLAUDEX_REPO_DIR,
+    process.cwd(),
+    __dirname,
+    path.join(__dirname, ".."),
+  ].filter(Boolean);
+  for (const candidate of candidates) {
+    let current = path.resolve(candidate);
+    while (current && current !== path.dirname(current)) {
+      if (
+        fs.existsSync(path.join(current, "package.json")) &&
+        fs.existsSync(path.join(current, "electron", "main.cjs"))
+      ) {
+        return current;
+      }
+      current = path.dirname(current);
+    }
+  }
+  throw new Error("Unable to locate Claudex repo root");
+}
+
+const REPO_DIR = findRepoDir();
+process.chdir(REPO_DIR);
 const USER_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "claudex-pass40-data-"));
 const FAKE_BIN_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "claudex-pass40-bin-"));
 const PROJECT_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "claudex-pass40-project-"));
@@ -50,7 +73,7 @@ writeJson(DATA_FILE, {
   version: 1,
   settings: {
     provider: "anthropic",
-    model: "claude-sonnet-4-5-20250929",
+    model: "claude-haiku-4-5-20251001",
     baseUrl: "https://api.example.invalid",
     temperature: 0.2,
     timeoutMs: 600000,
