@@ -4231,6 +4231,10 @@ function Conversation({
   const selectedGitFile = selectedGitDiffPath
     ? gitFiles.find((item) => item.path === selectedGitDiffPath || item.previousPath === selectedGitDiffPath)
     : null;
+  const topGitFiles = gitFiles.slice(0, 12);
+  const gitFilesForView = selectedGitFile && !topGitFiles.some((item) => item.path === selectedGitFile.path && item.status === selectedGitFile.status)
+    ? [...topGitFiles, selectedGitFile]
+    : topGitFiles;
   const selectedGitCanStage = gitAvailable && gitFileCanStage(selectedGitFile);
   const selectedGitCanUnstage = gitAvailable && gitFileCanUnstage(selectedGitFile);
   const selectedGitCanOpenWorkspace = Boolean(selectedGitFile?.path && !/D/.test(selectedGitFile.status || ""));
@@ -4248,6 +4252,10 @@ function Conversation({
   const displayedGitDiffText = selectedGitDiffPath ? selectedGitFileDiff?.text || "" : gitDiffText;
   const gitHunks = useMemo(() => buildGitHunks(displayedGitDiffText), [displayedGitDiffText]);
   const selectedGitHunk = selectedGitHunkId ? gitHunks.find((item) => item.id === selectedGitHunkId) : null;
+  const topGitHunks = gitHunks.slice(0, 16);
+  const gitHunksForView = selectedGitHunk && !topGitHunks.some((item) => item.id === selectedGitHunk.id)
+    ? [...topGitHunks, selectedGitHunk]
+    : topGitHunks;
   const focusedGitDiffText = selectedGitHunk ? selectedGitHunk.text : displayedGitDiffText;
   const [copiedGitEvidence, setCopiedGitEvidence] = useState(false);
   const copiedGitEvidenceTimer = useRef(null);
@@ -5475,7 +5483,7 @@ function Conversation({
                           <span className="git-change-status">Σ</span>
                           <strong>{t.allChanges}</strong>
                         </button>
-                        {gitFiles.slice(0, 12).map((item) => (
+                        {gitFilesForView.map((item) => (
                           <button
                             type="button"
                             className={cx("git-change-item", item.kind && `kind-${item.kind}`, selectedGitDiffPath === item.path && "selected")}
@@ -5610,7 +5618,7 @@ function Conversation({
                             <strong>{t.allHunks}</strong>
                             <span>{`+${gitHunks.reduce((sum, item) => sum + (item.additions || 0), 0)} -${gitHunks.reduce((sum, item) => sum + (item.deletions || 0), 0)}`}</span>
                           </button>
-                          {gitHunks.slice(0, 16).map((hunk, index) => (
+                          {gitHunksForView.map((hunk, index) => (
                             <button
                               type="button"
                               className={cx("git-hunk-item", selectedGitHunkId === hunk.id && "selected")}
@@ -13251,7 +13259,6 @@ export function App() {
 
     const gitFileCommands = (Array.isArray(environment?.git?.files) ? environment.git.files : [])
       .filter((file) => file?.path || file?.previousPath)
-      .slice(0, 24)
       .map((file) => {
         const filePath = file.path || file.previousPath || "";
         const previousLabel = file.previousPath && file.previousPath !== filePath ? `${file.previousPath} -> ${filePath}` : "";
@@ -13286,7 +13293,6 @@ export function App() {
       : projectLabel(activeProject, t);
     const gitOpenFileCommands = (Array.isArray(environment?.git?.files) ? environment.git.files : [])
       .filter((file) => file?.path && !/D/.test(file.status || ""))
-      .slice(0, 24)
       .map((file) => {
         const filePath = file.path || "";
         const previousLabel = file.previousPath && file.previousPath !== filePath ? `${file.previousPath} -> ${filePath}` : "";
@@ -13321,7 +13327,6 @@ export function App() {
 
     const gitHunkCommands = (Array.isArray(environment?.git?.diff?.fileDiffs) ? environment.git.diff.fileDiffs : [])
       .filter((fileDiff) => fileDiff?.text && (fileDiff.path || fileDiff.previousPath))
-      .slice(0, 16)
       .flatMap((fileDiff) => {
         const filePath = fileDiff.path || fileDiff.previousPath || "";
         return buildGitHunks(fileDiff.text)
@@ -13346,8 +13351,7 @@ export function App() {
             ].filter(Boolean).join(" "),
             action: () => openGitFileDiff(filePath, hunk.id),
           }));
-      })
-      .slice(0, 36);
+      });
 
     const sourceRefCommands = (Array.isArray(state.sourceRefs) ? state.sourceRefs : [])
       .filter((source) => source?.path || source?.name || source?.id)

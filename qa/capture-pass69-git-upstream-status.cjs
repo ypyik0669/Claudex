@@ -135,8 +135,9 @@ app.whenReady().then(async () => {
   assertStep("PASS69_READY", await waitFor(win, "Boolean(document.querySelector('.app-grid'))", 15000));
   assertStep("PASS69_CHANGES_CLICK", await win.webContents.executeJavaScript(`
     (function() {
-      const button = Array.from(document.querySelectorAll('.workspace-context-button, .bottom-panel-tabs button'))
-        .find((item) => /\\u53d8\\u66f4/.test(item.textContent || '') || (item.getAttribute('aria-label') || '').includes('\\u53d8\\u66f4'));
+      const button = document.querySelector('.workspace-context-button[data-context-tab="changes"]')
+        || Array.from(document.querySelectorAll('.bottom-panel-tabs button[role="tab"]'))
+          .find((item) => /\\u53d8\\u66f4/.test(item.textContent || '') || (item.getAttribute('aria-label') || '').includes('\\u53d8\\u66f4'));
       if (!button) return false;
       button.click();
       return true;
@@ -144,13 +145,13 @@ app.whenReady().then(async () => {
   `));
   assertStep("PASS69_NO_UPSTREAM_VISIBLE", await waitFor(win, `
     (function() {
-      const panel = document.querySelector('.git-selected-evidence-panel')?.textContent || '';
-      const repoActions = document.querySelector('.git-repo-actions')?.textContent || '';
-      const header = document.querySelector('.bottom-panel-grid')?.textContent || '';
-      return /无 upstream/.test(panel) &&
-        /origin/.test(panel) &&
-        /无 upstream/.test(header) &&
-        /无 upstream，先在终端设置远端/.test(repoActions);
+      const panels = Array.from(document.querySelectorAll('.git-selected-evidence-panel')).map((item) => item.textContent || '');
+      const repoActions = Array.from(document.querySelectorAll('.git-repo-actions')).map((item) => item.textContent || '');
+      const headers = Array.from(document.querySelectorAll('.bottom-panel-grid')).map((item) => item.textContent || '');
+      window.__pass69UpstreamDebug = { panels, repoActions, headers };
+      return panels.some((panel) => /无 upstream/.test(panel) && /origin/.test(panel)) &&
+        headers.some((header) => /无 upstream/.test(header)) &&
+        repoActions.some((text) => /无 upstream，先在终端设置远端/.test(text));
     })()
   `, 10000));
   assertStep("PASS69_PUSH_DISABLED_WITH_REASON", await win.webContents.executeJavaScript(`
@@ -173,6 +174,20 @@ app.whenReady().then(async () => {
   app.exit(0);
 }).catch((error) => {
   console.error("PASS69_FAILED", error?.stack || error);
+  try {
+    const win = BrowserWindow.getAllWindows()[0];
+    if (win) {
+      win.webContents.executeJavaScript("window.__pass69UpstreamDebug || null")
+        .then((debug) => console.error("PASS69_DEBUG", JSON.stringify(debug, null, 2)))
+        .finally(() => {
+          cleanup();
+          app.exit(1);
+        });
+      return;
+    }
+  } catch (_debugError) {
+    // best-effort diagnostics
+  }
   cleanup();
   app.exit(1);
 });
