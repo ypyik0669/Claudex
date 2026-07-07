@@ -12240,7 +12240,9 @@ function CommandPalette({ commands, t, onClose }) {
   const [activeCommandIndex, setActiveCommandIndex] = useState(0);
   const inputRef = useRef(null);
   const listRef = useRef(null);
+  const restoreFocusRef = useRef(null);
   useEffect(() => {
+    restoreFocusRef.current = document.activeElement;
     inputRef.current?.focus();
   }, []);
   const filtered = commands
@@ -12258,15 +12260,23 @@ function CommandPalette({ commands, t, onClose }) {
   useEffect(() => {
     listRef.current?.querySelector('[data-command-active="true"]')?.scrollIntoView({ block: "nearest" });
   }, [activeCommandIndex, commandQuery]);
+  function closePalette(options = {}) {
+    const shouldRestoreFocus = options?.restoreFocus !== false;
+    const restoreTarget = restoreFocusRef.current;
+    onClose();
+    if (shouldRestoreFocus && restoreTarget?.isConnected && typeof restoreTarget.focus === "function") {
+      window.setTimeout(() => restoreTarget.focus({ preventScroll: true }), 0);
+    }
+  }
   function runCommand(command) {
     if (!command) return;
-    onClose();
+    closePalette({ restoreFocus: false });
     command.action();
   }
   const activeCommand = visibleCommands[activeCommandIndex] || null;
   const activeCommandOptionId = activeCommand ? `command-option-${commandIdSegment(activeCommand.id)}` : undefined;
   return (
-    <ShellModal title={t.commandPalette} onClose={onClose} closeLabel={t.close} className="command-modal">
+    <ShellModal title={t.commandPalette} onClose={closePalette} closeLabel={t.close} className="command-modal">
       <label className="command-search">
         <Search size={16} />
         <input
@@ -12302,7 +12312,7 @@ function CommandPalette({ commands, t, onClose }) {
             }
             if (event.key === "Escape") {
               event.preventDefault();
-              onClose();
+              closePalette();
             }
           }}
           placeholder={t.commandHint}
@@ -15598,6 +15608,11 @@ export function App() {
         if (isShortcutHelpKey(event)) {
           event.preventDefault();
           setShortcutsOpen(true);
+          return;
+        }
+        if (isPrimaryShortcut(event, "k")) {
+          event.preventDefault();
+          setCommandsOpen(true);
           return;
         }
         if (isEditableNavigationShortcut(event)) {
