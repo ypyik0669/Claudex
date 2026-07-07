@@ -1606,6 +1606,41 @@ function marketplacePluginRiskSummary(plugin) {
   return summarizeStructuredList(explicit, " · ");
 }
 
+function marketplacePluginName(plugin) {
+  return String(plugin?.name || plugin?.id || plugin?.slug || plugin?.packageName || "").trim();
+}
+
+function marketplacePluginAuthor(plugin, manifest) {
+  const author = plugin?.author || plugin?.owner || plugin?.publisher || manifest?.owner || manifest?.author;
+  return typeof author === "string" ? author : author?.name || "";
+}
+
+function marketplacePluginSource(plugin) {
+  return plugin?.source || plugin?.repository || plugin?.repo || plugin?.url || plugin?.homepage || "";
+}
+
+function marketplacePluginCatalogItem(plugin, manifest, marketplace, root, installedIds) {
+  const name = marketplacePluginName(plugin);
+  if (!name) return null;
+  const idText = `${name}@${marketplace.name}`;
+  const installed = installedIds.has(idText.toLowerCase()) || installedIds.has(name.toLowerCase());
+  return {
+    id: idText,
+    name,
+    marketplace: marketplace.name,
+    version: String(plugin.version || manifest?.version || "unknown"),
+    description: String(plugin.description || plugin.summary || manifest?.description || manifest?.metadata?.description || ""),
+    category: String(plugin.category || plugin.type || ""),
+    author: String(marketplacePluginAuthor(plugin, manifest) || ""),
+    homepage: String(plugin.homepage || plugin.url || ""),
+    source: marketplacePluginSourceSummary(marketplacePluginSource(plugin)),
+    permissions: marketplacePluginPermissionsSummary(plugin),
+    risk: marketplacePluginRiskSummary(plugin),
+    installLocation: root,
+    installed,
+  };
+}
+
 function marketplaceManifestRootCandidates(marketplace) {
   return [
     marketplace?.installLocation,
@@ -1631,6 +1666,51 @@ function readMarketplaceManifest(marketplace) {
   return { manifest: null, root: "" };
 }
 
+function marketplacePluginManifestRoot(manifestFile) {
+  const dir = path.dirname(manifestFile);
+  return path.basename(dir) === ".claude-plugin" ? path.dirname(dir) : dir;
+}
+
+function readMarketplacePluginManifests(root) {
+  const manifests = [];
+  const queue = [{ dir: root, depth: 0 }];
+  const seenFiles = new Set();
+  let inspectedDirs = 0;
+  while (queue.length && manifests.length < 240 && inspectedDirs < 1200) {
+    const { dir, depth } = queue.shift();
+    inspectedDirs += 1;
+    let entries = [];
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      if (entry.isFile() && entry.name === "plugin.json") {
+        const file = path.join(dir, entry.name);
+        if (seenFiles.has(file)) continue;
+        seenFiles.add(file);
+        const plugin = readJsonFileSafe(file);
+        if (plugin && typeof plugin === "object") {
+          manifests.push({
+            plugin,
+            root: marketplacePluginManifestRoot(file),
+            manifestPath: file,
+          });
+          if (manifests.length >= 240) break;
+        }
+      }
+    }
+    if (depth >= 5 || manifests.length >= 240) continue;
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      if (IGNORED_DIRS.has(entry.name) || IGNORED_DIR_PATTERNS.some((pattern) => pattern.test(entry.name))) continue;
+      queue.push({ dir: path.join(dir, entry.name), depth: depth + 1 });
+    }
+  }
+  return manifests;
+}
+
 function loadMarketplacePluginCatalog(marketplaces, installedPlugins) {
   const installedIds = new Set();
   for (const plugin of installedPlugins || []) {
@@ -1639,31 +1719,25 @@ function loadMarketplacePluginCatalog(marketplaces, installedPlugins) {
     if (plugin.name && plugin.marketplace) installedIds.add(`${plugin.name}@${plugin.marketplace}`.toLowerCase());
   }
   const catalog = [];
+  const seenCatalogIds = new Set();
+  function addCatalogItem(plugin, manifest, marketplace, root) {
+    const item = marketplacePluginCatalogItem(plugin, manifest, marketplace, root, installedIds);
+    if (!item?.id || seenCatalogIds.has(item.id.toLowerCase())) return false;
+    seenCatalogIds.add(item.id.toLowerCase());
+    catalog.push(item);
+    return catalog.length >= 240;
+  }
   for (const marketplace of marketplaces || []) {
+    const roots = marketplaceManifestRootCandidates(marketplace);
     const { manifest, root } = readMarketplaceManifest(marketplace);
     const plugins = Array.isArray(manifest?.plugins) ? manifest.plugins : [];
     for (const plugin of plugins) {
-      const name = String(plugin.name || "").trim();
-      if (!name) continue;
-      const idText = `${name}@${marketplace.name}`;
-      const author = typeof plugin.author === "string" ? plugin.author : plugin.author?.name || manifest?.owner?.name || "";
-      const installed = installedIds.has(idText.toLowerCase()) || installedIds.has(name.toLowerCase());
-      catalog.push({
-        id: idText,
-        name,
-        marketplace: marketplace.name,
-        version: String(plugin.version || manifest?.version || "unknown"),
-        description: String(plugin.description || manifest?.description || manifest?.metadata?.description || ""),
-        category: String(plugin.category || ""),
-        author: String(author || ""),
-        homepage: String(plugin.homepage || ""),
-        source: marketplacePluginSourceSummary(plugin.source),
-        permissions: marketplacePluginPermissionsSummary(plugin),
-        risk: marketplacePluginRiskSummary(plugin),
-        installLocation: root,
-        installed,
-      });
-      if (catalog.length >= 240) return catalog;
+      if (addCatalogItem(plugin, manifest, marketplace, root)) return catalog;
+    }
+    for (const candidateRoot of roots) {
+      for (const pluginManifest of readMarketplacePluginManifests(candidateRoot)) {
+        if (addCatalogItem(pluginManifest.plugin, pluginManifest.plugin, marketplace, pluginManifest.root)) return catalog;
+      }
     }
   }
   return catalog;
