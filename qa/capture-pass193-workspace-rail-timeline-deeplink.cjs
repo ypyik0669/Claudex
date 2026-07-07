@@ -197,6 +197,7 @@ async function runTest() {
       const active = document.querySelector('.bottom-panel-tabs button[data-bottom-tab="outputs"].active');
       const row = document.querySelector('.run-timeline-row.selected.error');
       const panel = document.querySelector('.selected-run-evidence-panel.error');
+      const retry = panel?.querySelector('[data-run-recovery-action="retry-workspace"]');
       const text = panel?.textContent || '';
       return Boolean(
         active &&
@@ -206,7 +207,9 @@ async function runTest() {
         /pass193 workspace failed rail evidence/.test(text) &&
         /${COMMAND_LINE}/.test(text) &&
         panel.querySelector('[data-run-event-type="workspace-command"]') &&
-        panel.querySelector('[data-run-recovery-action="retry-workspace"]') &&
+        retry &&
+        retry.getAttribute('data-run-recovery-action-focused') === 'true' &&
+        document.activeElement === retry &&
         panel.querySelector('[data-run-recovery-action="terminal"]')
       );
     })();

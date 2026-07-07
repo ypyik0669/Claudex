@@ -199,6 +199,7 @@ async function runTest() {
       const active = document.querySelector('.bottom-panel-tabs button[data-bottom-tab="outputs"].active');
       const row = document.querySelector('.run-timeline-row.selected.error');
       const panel = document.querySelector('.selected-run-evidence-panel.error');
+      const retry = panel?.querySelector('[data-run-recovery-action="retry-capability"]');
       const text = panel?.textContent || '';
       return Boolean(
         active &&
@@ -209,7 +210,9 @@ async function runTest() {
         /pass195 mcp list stdout before failure/.test(text) &&
         /claude mcp list/.test(text) &&
         panel.querySelector('[data-run-event-type="capability-command"]') &&
-        panel.querySelector('[data-run-recovery-action="retry-capability"]') &&
+        retry &&
+        retry.getAttribute('data-run-recovery-action-focused') === 'true' &&
+        document.activeElement === retry &&
         panel.querySelector('[data-run-recovery-action="open-claude-panel"]')
       );
     })();

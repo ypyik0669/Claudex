@@ -246,13 +246,18 @@ async function runTest() {
   assertStep("PASS138_NOTICE_COMMAND_OPENS_RUN_EVIDENCE", await waitFor(win, `
     (function() {
       const active = document.querySelector('.workspace-context-button.active')?.textContent || '';
-      const selected = document.querySelector('.selected-run-evidence-panel')?.textContent || '';
+      const panel = document.querySelector('.selected-run-evidence-panel');
+      const retry = panel?.querySelector('[data-run-recovery-action="retry-workspace"]');
+      const selected = panel?.textContent || '';
       return /\\u8f93\\u51fa/.test(active) &&
         /Pass138 command failure/.test(selected) &&
         /pass138 notice target detail/.test(selected) &&
         /node pass138-fail\.js/.test(selected) &&
         /pass138 stdout before failure/.test(selected) &&
-        /pass138 stderr failure evidence/.test(selected);
+        /pass138 stderr failure evidence/.test(selected) &&
+        retry &&
+        retry.getAttribute('data-run-recovery-action-focused') === 'true' &&
+        document.activeElement === retry;
     })();
   `, 10000));
 

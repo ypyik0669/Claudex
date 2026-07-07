@@ -200,6 +200,7 @@ async function runTest() {
       const active = document.querySelector('.bottom-panel-tabs button[data-bottom-tab="outputs"].active');
       const row = document.querySelector('.run-timeline-row.selected.error');
       const panel = document.querySelector('.selected-run-evidence-panel.error');
+      const retry = panel?.querySelector('[data-run-recovery-action="retry-claude"]');
       const text = panel?.textContent || '';
       return Boolean(
         active &&
@@ -210,7 +211,9 @@ async function runTest() {
         /pass194 doctor failed stdout/.test(text) &&
         /claude doctor/.test(text) &&
         panel.querySelector('[data-run-event-type="claude-command"]') &&
-        panel.querySelector('[data-run-recovery-action="retry-claude"]') &&
+        retry &&
+        retry.getAttribute('data-run-recovery-action-focused') === 'true' &&
+        document.activeElement === retry &&
         panel.querySelector('[data-run-recovery-action="interactive-claude"]')
       );
     })();

@@ -1208,6 +1208,15 @@ function capabilityRetryArgsFromRun(run) {
   return safeCapabilityRetryArgsFromRun(run) || mutatingCapabilityRetryArgsFromRun(run);
 }
 
+function commandRunRecoveryFocusAction(run) {
+  if (!run || run.cancelled || run.code === 0) return "";
+  const kind = String(run.kind || "").trim();
+  if (kind === "workspace" && workspaceCommandFromRun(run)) return "retry-workspace";
+  if (kind === "claude" && claudeArgsFromRun(run)) return "retry-claude";
+  if (kind === "capability" && capabilityRetryArgsFromRun(run)) return "retry-capability";
+  return "";
+}
+
 function capabilityRetryFocusForArgs(args) {
   const actionFocus = capabilityActionFocusForCommand(args);
   if (actionFocus) return actionFocus;
@@ -3776,6 +3785,7 @@ function commandRunToHistoryEntry(run) {
   if (!run) return null;
   return {
     id: run.id || run.requestId || `${run.kind || "command"}_${run.endedAt || run.startedAt || Date.now()}`,
+    kind: run.kind || "workspace",
     commandLine: run.command || run.commandLine || "",
     cwd: run.cwd || run.project?.path || "",
     code: run.code,
@@ -5746,11 +5756,17 @@ function Conversation({
 
   function handleNoticeAction(notice) {
     const noticeRunEventId = String(notice?.runEventId || "").trim();
-    if (noticeRunEventId) {
-      onOpenRunTimeline?.(noticeRunEventId);
+    const action = String(notice?.action || "");
+    if (action.startsWith("capability-recovery:")) {
+      const eventId = decodeActionSuffix(action, "capability-recovery:") || noticeRunEventId;
+      onOpenRunTimeline?.(eventId, { action: "retry-capability" });
       return;
     }
-    const action = String(notice?.action || "");
+    if (noticeRunEventId) {
+      const run = findCommandRunForEvent({ id: noticeRunEventId }, commandRuns);
+      onOpenRunTimeline?.(noticeRunEventId, { action: commandRunRecoveryFocusAction(run) });
+      return;
+    }
     if (action.startsWith("git-run:")) {
       const eventId = decodeActionSuffix(action, "git-run:");
       if (eventId) setSelectedRunEventId(eventId);
@@ -5759,12 +5775,8 @@ function Conversation({
     }
     if (action.startsWith("run:")) {
       const eventId = decodeActionSuffix(action, "run:");
-      onOpenRunTimeline?.(eventId);
-      return;
-    }
-    if (action.startsWith("capability-recovery:")) {
-      const eventId = decodeActionSuffix(action, "capability-recovery:");
-      onOpenRunTimeline?.(eventId);
+      const run = findCommandRunForEvent({ id: eventId }, commandRuns);
+      onOpenRunTimeline?.(eventId, { action: commandRunRecoveryFocusAction(run) });
       return;
     }
     if (action.startsWith("capability:")) {
@@ -8601,21 +8613,21 @@ function ToolRail({
   const latestCapabilityFailed = latestCapabilityRun && typeof latestCapabilityRun.code === "number" && latestCapabilityRun.code !== 0;
   const openWorkspaceRailTarget = () => {
     if (latestWorkspaceFailed && latestWorkspaceRun?.id) {
-      onOpenRunTimeline?.(latestWorkspaceRun.id);
+      onOpenRunTimeline?.(latestWorkspaceRun.id, { action: commandRunRecoveryFocusAction(latestWorkspaceRun) });
       return;
     }
     onActivateTool("workspace");
   };
   const openClaudeRailTarget = () => {
     if (latestClaudeFailed && latestClaudeRun?.id) {
-      onOpenRunTimeline?.(latestClaudeRun.id);
+      onOpenRunTimeline?.(latestClaudeRun.id, { action: commandRunRecoveryFocusAction(latestClaudeRun) });
       return;
     }
     onActivateTool("claude");
   };
   const openCapabilityRailTarget = () => {
     if (latestCapabilityFailed && latestCapabilityRun?.id) {
-      onOpenRunTimeline?.(latestCapabilityRun.id);
+      onOpenRunTimeline?.(latestCapabilityRun.id, { action: commandRunRecoveryFocusAction(latestCapabilityRun) });
       return;
     }
     onCapabilities?.("plugins");
@@ -17805,7 +17817,8 @@ export function App() {
       return;
     }
     if (noticeRunEventId) {
-      openRunTimeline(noticeRunEventId);
+      const run = findCommandRunForEvent({ id: noticeRunEventId }, state.commandRuns);
+      openRunTimeline(noticeRunEventId, { action: commandRunRecoveryFocusAction(run) });
       return;
     }
     if (action.startsWith("git-run:")) {
@@ -17815,11 +17828,9 @@ export function App() {
       return;
     }
     if (action.startsWith("run:")) {
-      openRunTimeline(decodeActionSuffix(action, "run:"));
-      return;
-    }
-    if (action.startsWith("capability-recovery:")) {
-      openRunTimeline(decodeActionSuffix(action, "capability-recovery:"));
+      const eventId = decodeActionSuffix(action, "run:");
+      const run = findCommandRunForEvent({ id: eventId }, state.commandRuns);
+      openRunTimeline(eventId, { action: commandRunRecoveryFocusAction(run) });
       return;
     }
     if (action.startsWith("workspace:file:")) {
