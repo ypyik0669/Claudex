@@ -3557,6 +3557,32 @@ function gitActionHandoffDetail({ action, result, message = "", branchLabel = ""
   return parts.filter(Boolean).join(" · ");
 }
 
+function gitLatestActionEvidenceText({ event, run, activeProject, t }) {
+  if (!event && !run) return "";
+  const commandLine = String(event?.commandLine || run?.commandLine || run?.command || "").trim();
+  const cwd = String(event?.cwd || run?.cwd || run?.project?.path || event?.project?.path || activeProject?.path || "").trim();
+  const stdout = String(run?.stdout || event?.stdout || "").trim();
+  const stderr = String(run?.stderr || event?.stderr || "").trim();
+  const output = gitCommandOutput(run) || [stdout, stderr].filter(Boolean).join("\n").trim();
+  const code = typeof event?.code === "number" ? event.code : typeof run?.code === "number" ? run.code : "-";
+  const durationMs = typeof event?.durationMs === "number" ? event.durationMs : run?.durationMs;
+  const lines = [
+    `${t.recentGitAction}: ${event?.title || run?.title || "Git"}`,
+    `${t.scheduleStatus}: ${runTimelineStatusLabel(event?.status || run?.status, t)}`,
+    `${t.activeProject}: ${projectLabel(event?.project || run?.project || activeProject, t)}`,
+    `${t.commandLine}: ${commandLine || "-"}`,
+    `${t.commandCwd}: ${cwd || "-"}`,
+    `${t.commandExit}: ${code}`,
+    `${t.commandDuration}: ${formatDurationMs(durationMs)}`,
+    "",
+    event?.detail || "",
+    stdout ? `\n${t.commandStdout}\n${stdout}` : "",
+    stderr ? `\n${t.commandStderr}\n${stderr}` : "",
+    !stdout && !stderr && output ? `\n${t.gitEvidence}\n${output}` : "",
+  ];
+  return lines.filter((line, index) => index < 8 || String(line || "").trim()).join("\n");
+}
+
 function gitEvidenceText({
   t,
   activeProject,
@@ -4421,6 +4447,27 @@ function Conversation({
     (runEvents || []).find((event) => event.type === "git-command" && event.status !== "running") || null
   ), [runEvents]);
   const latestGitActionRun = latestGitActionEvent ? findCommandRunForEvent(latestGitActionEvent, commandRuns) : null;
+  const latestGitActionEvidence = useMemo(() => gitLatestActionEvidenceText({
+    event: latestGitActionEvent,
+    run: latestGitActionRun,
+    activeProject,
+    t,
+  }), [latestGitActionEvent, latestGitActionRun, activeProject, t]);
+  const [copiedLatestGitAction, setCopiedLatestGitAction] = useState(false);
+  const copiedLatestGitActionTimer = useRef(null);
+  useEffect(() => () => {
+    if (copiedLatestGitActionTimer.current) window.clearTimeout(copiedLatestGitActionTimer.current);
+  }, []);
+  useEffect(() => {
+    setCopiedLatestGitAction(false);
+  }, [latestGitActionEvidence]);
+  async function copyLatestGitActionEvidence() {
+    if (!latestGitActionEvidence) return;
+    await onCopy?.(latestGitActionEvidence);
+    setCopiedLatestGitAction(true);
+    if (copiedLatestGitActionTimer.current) window.clearTimeout(copiedLatestGitActionTimer.current);
+    copiedLatestGitActionTimer.current = window.setTimeout(() => setCopiedLatestGitAction(false), 1200);
+  }
   const [selectedRunEventId, setSelectedRunEventId] = useState("");
   const fallbackSelectedRunEvent = useMemo(() => fallbackRunEventForId(selectedRunEventId, {
     commandRuns,
@@ -5330,6 +5377,18 @@ function Conversation({
                       <pre>{messageExcerpt(gitCommandOutput(latestGitActionRun) || latestGitActionRun.commandLine, 220)}</pre>
                     )}
                     <div className="git-latest-action-controls">
+                      {latestGitActionEvidence && (
+                        <button
+                          type="button"
+                          className="plain-action subtle-action"
+                          data-git-action="copy-latest-evidence"
+                          onClick={copyLatestGitActionEvidence}
+                          title={copiedLatestGitAction ? t.copied : t.copyGitEvidence}
+                        >
+                          {copiedLatestGitAction ? <Check size={13} /> : <Copy size={13} />}
+                          {copiedLatestGitAction ? t.copied : t.copyGitEvidence}
+                        </button>
+                      )}
                       <button
                         type="button"
                         className="plain-action subtle-action"
