@@ -270,6 +270,31 @@ async function runTest() {
   assertStep("PASS208_SAFE_RETRY_COMMAND_VISIBLE", await commandVisible(win, `capability-recovery:retry:${SAFE_RUN_ID}`, /重试|retry/i, "outputs"));
   const beforeSafeRetry = readCommandLog();
   assertStep("PASS208_CLICK_SAFE_RETRY", await clickCommandById(win, `capability-recovery:retry:${SAFE_RUN_ID}`));
+  assertStep("PASS208_SAFE_RETRY_ACTION_FOCUSED", await waitFor(win, `
+    (function() {
+      const panel = document.querySelector('.selected-run-evidence-panel.error');
+      const retry = panel?.querySelector('[data-run-recovery-action="retry-capability"]');
+      const text = panel?.textContent || '';
+      return Boolean(
+        panel &&
+        retry &&
+        retry.getAttribute('data-run-recovery-action-focused') === 'true' &&
+        document.activeElement === retry &&
+        /mcp list/.test(text) &&
+        /pass208 mcp list failed before retry/.test(text) &&
+        !document.querySelector('.plugin-cli-confirm')
+      );
+    })();
+  `, 10000));
+  assertStep("PASS208_SAFE_RETRY_NOT_RUN_BEFORE_EVIDENCE_RETRY", !/mcp list/.test(readCommandLog().slice(beforeSafeRetry.length)));
+  assertStep("PASS208_CLICK_SAFE_EVIDENCE_RETRY", await win.webContents.executeJavaScript(`
+    (function() {
+      const retry = document.querySelector('.selected-run-evidence-panel [data-run-recovery-action="retry-capability"]');
+      if (!retry || retry.disabled) return false;
+      retry.click();
+      return true;
+    })();
+  `));
   assertStep("PASS208_SAFE_RETRY_RAN", await waitForLogGrowth(/mcp list/, beforeSafeRetry, 12000));
   assertStep("PASS208_SAFE_RETRY_NO_CONFIRM", await win.webContents.executeJavaScript("!document.querySelector('.plugin-cli-confirm')"));
   assertStep("PASS208_SAFE_RETRY_PERSISTED", await waitFor(win, `

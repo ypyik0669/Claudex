@@ -285,10 +285,14 @@ async function runTest() {
       const active = document.querySelector('.bottom-panel-tabs button[data-bottom-tab="outputs"].active') ||
         document.querySelector('.workspace-context-button.active');
       const panel = document.querySelector('.selected-run-evidence-panel.error');
+      const retry = panel?.querySelector('[data-run-recovery-action="retry-capability"]');
       const text = panel?.textContent || '';
       return Boolean(active &&
         /\\u8f93\\u51fa|Outputs/i.test(active.textContent || '') &&
         panel &&
+        retry &&
+        retry.getAttribute('data-run-recovery-action-focused') === 'true' &&
+        document.activeElement === retry &&
         panel.querySelector('[data-run-event-type="capability-cli"]') &&
         /plugin disable ${PLUGIN_ID}/.test(text) &&
         /pass209 disable failed for notice recovery/.test(text) &&

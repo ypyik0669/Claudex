@@ -5363,6 +5363,17 @@ function Conversation({
     ].filter(Boolean).map((value) => String(value).trim());
     return selectedIds.includes(focusedId) ? artifactIndex : "";
   })();
+  const selectedRunFocusedRecoveryAction = (() => {
+    const focusedId = String(runTimelineFocus?.id || "").trim();
+    const action = String(runTimelineFocus?.action || "").trim();
+    if (!focusedId || !action || !selectedRunEvent) return "";
+    const selectedIds = [
+      selectedRunEvent.id,
+      selectedRunEvent.requestId,
+      runTimelineEventId(selectedRunEvent, selectedRunEvidence),
+    ].filter(Boolean).map((value) => String(value).trim());
+    return selectedIds.includes(focusedId) ? action : "";
+  })();
   const runTimelineEventsForView = useMemo(() => {
     if (!selectedRunEvent || runTimelineEvents.some((event) => event.id === selectedRunEvent.id)) return runTimelineEvents;
     return [selectedRunEvent, ...runTimelineEvents];
@@ -6091,6 +6102,7 @@ function Conversation({
                       onOpenWorkspaceFile={onOpenWorkspaceFile}
                       t={t}
                       focusedArtifactIndex={selectedRunFocusedArtifactIndex}
+                      focusedRecoveryAction={selectedRunFocusedRecoveryAction}
                     />
                   </div>
                 )}
@@ -8282,7 +8294,20 @@ function RunEvidenceDetails({ event, evidence, onCopy, onOpenWorkspaceFile, t, p
   );
 }
 
-function SelectedRunEvidencePanel({ event, evidence, recoveryActions = [], onCopy, onOpenWorkspaceFile, t, focusedArtifactIndex = "" }) {
+function SelectedRunEvidencePanel({ event, evidence, recoveryActions = [], onCopy, onOpenWorkspaceFile, t, focusedArtifactIndex = "", focusedRecoveryAction = "" }) {
+  useEffect(() => {
+    const action = String(focusedRecoveryAction || "").trim();
+    if (!action) return undefined;
+    const timer = window.setTimeout(() => {
+      const target = [...document.querySelectorAll(".selected-run-evidence-panel [data-run-recovery-action]")]
+        .find((candidate) => candidate.getAttribute("data-run-recovery-action") === action);
+      target?.scrollIntoView?.({ block: "center", behavior: "smooth" });
+      if (target && typeof target.focus === "function") {
+        target.focus({ preventScroll: true });
+      }
+    }, 80);
+    return () => window.clearTimeout(timer);
+  }, [focusedRecoveryAction, event?.id, event?.requestId]);
   if (!event || !evidence) return null;
   const traceAttributes = runTimelineTraceAttributes(event, evidence);
   return (
@@ -8304,6 +8329,7 @@ function SelectedRunEvidencePanel({ event, evidence, recoveryActions = [], onCop
                     type="button"
                     className="plain-action subtle-action"
                     data-run-recovery-action={action.key}
+                    data-run-recovery-action-focused={focusedRecoveryAction === action.key ? "true" : "false"}
                     key={action.key}
                     onClick={action.onClick}
                     disabled={action.disabled}
@@ -14836,7 +14862,6 @@ export function App() {
         const event = commandRunTimelineEvent(run, t);
         if (!event) return [];
         const retryArgs = capabilityRetryArgsFromRun(run);
-        const safeRetryArgs = safeCapabilityRetryArgsFromRun(run);
         const mutatingRetryArgs = mutatingCapabilityRetryArgsFromRun(run);
         const evidence = runTimelineEvidenceForEvent(event, {
           commandRuns: state.commandRuns,
@@ -14889,7 +14914,7 @@ export function App() {
                 openCapabilityRetryActionFocus(mutatingRetryArgs);
                 return;
               }
-              void runPersistedCapabilityCommand(safeRetryArgs || retryArgs);
+              openRunTimeline(event.id, { action: "retry-capability" });
             },
           },
           {
@@ -17719,6 +17744,7 @@ export function App() {
     setRunTimelineFocus({
       id: focusedId,
       artifactIndex: options.artifactIndex === 0 ? "0" : String(options.artifactIndex ?? "").trim(),
+      action: String(options.action || "").trim(),
       nonce: Date.now(),
     });
     openBottomPanel("outputs");
@@ -17773,11 +17799,15 @@ export function App() {
 
   function openNoticeTarget(notice = {}) {
     const noticeRunEventId = String(notice?.runEventId || "").trim();
+    const action = String(notice?.action || "");
+    if (action.startsWith("capability-recovery:")) {
+      openRunTimeline(decodeActionSuffix(action, "capability-recovery:") || noticeRunEventId, { action: "retry-capability" });
+      return;
+    }
     if (noticeRunEventId) {
       openRunTimeline(noticeRunEventId);
       return;
     }
-    const action = String(notice?.action || "");
     if (action.startsWith("git-run:")) {
       const eventId = decodeActionSuffix(action, "git-run:");
       setRunTimelineFocus({ id: eventId, nonce: Date.now() });
