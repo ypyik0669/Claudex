@@ -164,8 +164,21 @@ function assertStep(name, ok) {
 }
 
 async function openPanel(win, labelPattern) {
+  const tabByPattern = {
+    "\\u8f93\\u51fa": "outputs",
+    "\\u53d8\\u66f4": "changes",
+    "\\u901a\\u77e5": "notices",
+  }[labelPattern] || "";
   return win.webContents.executeJavaScript(`
     (function() {
+      const tab = ${JSON.stringify(tabByPattern)};
+      if (tab) {
+        const tabButton = document.querySelector('[data-context-tab="' + tab + '"], [data-bottom-tab="' + tab + '"]');
+        if (tabButton) {
+          tabButton.click();
+          return true;
+        }
+      }
       const pattern = new RegExp(${JSON.stringify(labelPattern)});
       const button = [...document.querySelectorAll('.workspace-context-button, .bottom-panel-tabs button')]
         .find((candidate) => pattern.test(candidate.textContent || '') || pattern.test(candidate.getAttribute('aria-label') || ''));
@@ -196,16 +209,19 @@ async function runTest() {
   `, 10000));
 
   assertStep("PASS137_OPEN_CHANGES", await openPanel(win, "\\u53d8\\u66f4"));
-  assertStep("PASS137_SELECT_UNTRACKED", await win.webContents.executeJavaScript(`
+  assertStep("PASS137_SELECT_UNTRACKED", await waitFor(win, `
     (function() {
       window.confirm = () => true;
-      const button = [...document.querySelectorAll('.git-change-item')]
-        .find((candidate) => /${TARGET_FILE}/.test(candidate.textContent || ''));
-      if (!button) return false;
-      button.click();
-      return true;
+      if (!window.__pass137SelectedUntracked) {
+        const button = [...document.querySelectorAll('.git-change-item')]
+          .find((candidate) => /${TARGET_FILE}/.test(candidate.textContent || ''));
+        if (!button) return false;
+        button.click();
+        window.__pass137SelectedUntracked = true;
+      }
+      return /${TARGET_FILE}/.test(document.querySelector('.git-change-item.selected')?.textContent || '');
     })();
-  `));
+  `, 10000));
   assertStep("PASS137_SELECTED_STAGE_ACTION_VISIBLE", await waitFor(win, `
     (function() {
       const selected = document.querySelector('.git-change-item.selected')?.textContent || '';

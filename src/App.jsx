@@ -503,6 +503,7 @@ const copy = {
     noticeClearAll: "全部标记已处理",
     noticeOpenAction: "打开对应工作台",
     noticeOpenEvidence: "查看证据",
+    noticeOpenChangesEvidence: "查看变更证据",
     noticeSource: "来源",
     noticeLevelError: "错误",
     noticeBadgeDetail: "未处理 {total} · 错误 {errors} · 警告 {warnings}",
@@ -2465,14 +2466,16 @@ function noticeLevelLabel(level, t) {
 
 function noticeActionTargetKind(notice = {}) {
   const action = String(notice?.action || "");
-  if (String(notice?.runEventId || "").trim() || action.startsWith("run:") || action.startsWith("git-run:")) return "timeline";
+  if (action.startsWith("git-run:")) return "changes";
+  if (String(notice?.runEventId || "").trim() || action.startsWith("run:")) return "timeline";
   return "surface";
 }
 
 function noticeActionLabel(notice = {}, t) {
-  return noticeActionTargetKind(notice) === "timeline"
-    ? (t.noticeOpenEvidence || t.noticeOpenAction || t.runtimeHealthOpenTarget)
-    : (t.noticeOpenAction || t.runtimeHealthOpenTarget);
+  const target = noticeActionTargetKind(notice);
+  if (target === "changes") return t.noticeOpenChangesEvidence || t.noticeOpenEvidence || t.noticeOpenAction || t.runtimeHealthOpenTarget;
+  if (target === "timeline") return t.noticeOpenEvidence || t.noticeOpenAction || t.runtimeHealthOpenTarget;
+  return t.noticeOpenAction || t.runtimeHealthOpenTarget;
 }
 
 function decodeActionSuffix(action, prefix) {
