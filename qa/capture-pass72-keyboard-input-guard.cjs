@@ -93,7 +93,7 @@ app.whenReady().then(async () => {
       if (!textarea) return false;
       textarea.focus();
       const results = [];
-      for (const key of ['p', 't', 'k']) {
+      for (const key of ['p', 't']) {
         const event = new KeyboardEvent('keydown', { key, code: 'Key' + key.toUpperCase(), ctrlKey: true, bubbles: true, cancelable: true });
         const notCancelled = textarea.dispatchEvent(event);
         await new Promise((resolve) => setTimeout(resolve, 120));
@@ -106,6 +106,30 @@ app.whenReady().then(async () => {
         });
       }
       return results.every((item) => item.prevented && !item.projectModal && !item.commandModal && !item.rightPanelOpen);
+    })();
+  `));
+
+  assertStep("PASS72_COMPOSER_COMMAND_PALETTE_ALLOWED", await waitFor(win, `
+    (async function() {
+      if (!window.__pass72ComposerPalette) {
+        window.__pass72ComposerPalette = true;
+        const textarea = document.querySelector('.prompt-box textarea');
+        if (!textarea) return false;
+        textarea.focus();
+        const event = new KeyboardEvent('keydown', { key: 'k', code: 'KeyK', ctrlKey: true, bubbles: true, cancelable: true });
+        window.__pass72ComposerPalettePrevented = !textarea.dispatchEvent(event) || event.defaultPrevented;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 120));
+      return window.__pass72ComposerPalettePrevented === true &&
+        Boolean(document.querySelector('.command-modal .command-search input'));
+    })();
+  `, 5000));
+
+  assertStep("PASS72_CLOSE_COMPOSER_COMMAND_PALETTE", await win.webContents.executeJavaScript(`
+    (function() {
+      document.querySelector('.command-modal .command-search input')
+        ?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+      return true;
     })();
   `));
 
@@ -154,7 +178,7 @@ app.whenReady().then(async () => {
       if (!textarea) return false;
       textarea.focus();
       const results = [];
-      for (const key of ['p', 't', 'k']) {
+      for (const key of ['p', 't']) {
         const event = new KeyboardEvent('keydown', { key, code: 'Key' + key.toUpperCase(), ctrlKey: true, bubbles: true, cancelable: true });
         const notCancelled = textarea.dispatchEvent(event);
         await new Promise((resolve) => setTimeout(resolve, 120));
@@ -167,6 +191,30 @@ app.whenReady().then(async () => {
         });
       }
       return results.every((item) => item.prevented && !item.projectModal && !item.commandModal && !item.browserSelected);
+    })();
+  `));
+
+  assertStep("PASS72_EDITOR_COMMAND_PALETTE_ALLOWED", await waitFor(win, `
+    (async function() {
+      if (!window.__pass72EditorPalette) {
+        window.__pass72EditorPalette = true;
+        const textarea = document.querySelector('.file-editor textarea');
+        if (!textarea) return false;
+        textarea.focus();
+        const event = new KeyboardEvent('keydown', { key: 'k', code: 'KeyK', ctrlKey: true, bubbles: true, cancelable: true });
+        window.__pass72EditorPalettePrevented = !textarea.dispatchEvent(event) || event.defaultPrevented;
+      }
+      await new Promise((resolve) => setTimeout(resolve, 120));
+      return window.__pass72EditorPalettePrevented === true &&
+        Boolean(document.querySelector('.command-modal .command-search input'));
+    })();
+  `, 5000));
+
+  assertStep("PASS72_CLOSE_EDITOR_COMMAND_PALETTE", await win.webContents.executeJavaScript(`
+    (function() {
+      document.querySelector('.command-modal .command-search input')
+        ?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
+      return true;
     })();
   `));
 

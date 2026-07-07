@@ -7886,21 +7886,28 @@ function ToolRail({
         <PanelRight size={17} />
       </button>
       <div className="tool-rail-stack" role="list" aria-label={t.tools}>
-        {items.map(({ id, label, icon: Icon, badge, status, detail, action }) => (
-          <button
-            type="button"
-            key={id}
-            className={cx("tool-rail-button rail-button", selectedTool === id && "active", status)}
-            data-tool={id}
-            data-tool-rail-status={status}
-            onClick={action}
-            title={[label, detail, badge && badge !== "●" ? badge : ""].filter(Boolean).join(" · ")}
-            aria-label={[label, detail].filter(Boolean).join(": ")}
-          >
-            <Icon size={17} />
-            {badge && <em>{badge}</em>}
-          </button>
-        ))}
+        {items.map(({ id, label, icon: Icon, badge, status, detail, action }) => {
+          const active = selectedTool === id;
+          const controls = ["workspace", "claude", "browser", "terminal"].includes(id) ? `${id}-tool-detail` : "";
+          return (
+            <button
+              type="button"
+              key={id}
+              className={cx("tool-rail-button rail-button", active && "active", status)}
+              data-tool={id}
+              data-tool-active={active ? "true" : "false"}
+              data-tool-rail-status={status}
+              aria-pressed={active}
+              aria-controls={controls || undefined}
+              onClick={action}
+              title={[label, detail, badge && badge !== "●" ? badge : ""].filter(Boolean).join(" · ")}
+              aria-label={[label, detail].filter(Boolean).join(": ")}
+            >
+              <Icon size={17} />
+              {badge && <em>{badge}</em>}
+            </button>
+          );
+        })}
       </div>
       <div className="tool-rail-footer">
         <button type="button" className="tool-rail-button rail-button" onClick={onCapabilities} title={t.capabilities} aria-label={t.capabilities}>
@@ -15602,6 +15609,13 @@ export function App() {
     setSelectedTool(tool);
   }
 
+  function toggleRightPanel() {
+    setRightPanelVisible((visible) => {
+      if (!visible && !selectedTool) setSelectedTool("workspace");
+      return !visible;
+    });
+  }
+
   useEffect(() => {
     const onKeyDown = (event) => {
       if (isEditableTarget(event.target)) {
@@ -15613,6 +15627,11 @@ export function App() {
         if (isPrimaryShortcut(event, "k")) {
           event.preventDefault();
           setCommandsOpen(true);
+          return;
+        }
+        if ((event.ctrlKey || event.metaKey) && event.key === "\\") {
+          event.preventDefault();
+          toggleRightPanel();
           return;
         }
         if (isEditableNavigationShortcut(event)) {
@@ -15648,7 +15667,7 @@ export function App() {
       // Cmd/Ctrl+\：打开/关闭右侧面板
       if ((event.ctrlKey || event.metaKey) && event.key === "\\") {
         event.preventDefault();
-        setRightPanelVisible((v) => !v);
+        toggleRightPanel();
       }
       // Cmd/Ctrl+Shift+F：搜索聊天
       if ((event.ctrlKey || event.metaKey) && event.shiftKey && event.key.toLowerCase() === "f") {
@@ -15851,7 +15870,7 @@ export function App() {
           sidebarVisible={sidebarVisible}
           onToggleSidebar={() => setSidebarVisible((current) => !current)}
           rightPanelVisible={rightPanelVisible}
-          onToggleTools={() => setRightPanelVisible((current) => !current)}
+          onToggleTools={toggleRightPanel}
           bottomPanel={bottomPanel}
           setBottomPanel={setBottomPanel}
           onActivateTool={activateTool}
