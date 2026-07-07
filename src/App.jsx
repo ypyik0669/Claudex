@@ -2472,7 +2472,7 @@ function noticeLevelLabel(level, t) {
 function noticeActionTargetKind(notice = {}) {
   const action = String(notice?.action || "");
   if (action.startsWith("git-run:")) return "changes";
-  if (String(notice?.runEventId || "").trim() || action.startsWith("run:")) return "timeline";
+  if (String(notice?.runEventId || "").trim() || action.startsWith("run:") || action.startsWith("capability-recovery:")) return "timeline";
   return "surface";
 }
 
@@ -4916,6 +4916,11 @@ function Conversation({
     }
     if (action.startsWith("run:")) {
       const eventId = decodeActionSuffix(action, "run:");
+      onOpenRunTimeline?.(eventId);
+      return;
+    }
+    if (action.startsWith("capability-recovery:")) {
+      const eventId = decodeActionSuffix(action, "capability-recovery:");
       onOpenRunTimeline?.(eventId);
       return;
     }
@@ -10172,14 +10177,15 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
     setActiveTab(id);
   }
 
-  function recordCapabilityNotice(title, detail, key = "", focus = null) {
+  function recordCapabilityNotice(title, detail, key = "", focus = null, options = {}) {
     onNotice?.({
       level: "error",
       source: "plugin/mcp",
       title,
       detail,
       key: key || `capability:${title}:${detail}`,
-      action: capabilityActionFromFocus(focus),
+      action: options.action || capabilityActionFromFocus(focus),
+      runEventId: String(options.runEventId || "").trim(),
       projectPath: activeProject?.path || "",
     });
   }
@@ -10277,7 +10283,10 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
         onOpenBottomPanel?.("outputs");
       }
       setCliError(message);
-      recordCapabilityNotice(`${t.marketplace}: ${t.fetchMarketplace}`, message, "capability:fetch-marketplace", { tab: "marketplace" });
+      recordCapabilityNotice(`${t.marketplace}: ${t.fetchMarketplace}`, message, "capability:fetch-marketplace", { tab: "marketplace" }, {
+        action: `capability-recovery:${encodeActionPart(requestId)}`,
+        runEventId: requestId,
+      });
       setMarketplaceOutput(result?.stdout || result?.stderr || message);
     } finally {
       setMarketplaceBusy(false);
@@ -10360,7 +10369,10 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
         onOpenBottomPanel?.("outputs");
       }
       setCliError(message);
-      recordCapabilityNotice(`${t.pluginActions}: ${nextArgs}`, message, `capability:action:${nextArgs}`, nextActionFocus);
+      recordCapabilityNotice(`${t.pluginActions}: ${nextArgs}`, message, `capability:action:${nextArgs}`, nextActionFocus, {
+        action: `capability-recovery:${encodeActionPart(requestId)}`,
+        runEventId: requestId,
+      });
       if (nextActionFocus && manualCapabilityTabSwitchRef.current === actionTabSwitchGeneration) {
         setActiveTab(nextActionFocus.tab);
         setFilter("all");
@@ -14844,6 +14856,10 @@ export function App() {
     }
     if (action.startsWith("run:")) {
       openRunTimeline(decodeActionSuffix(action, "run:"));
+      return;
+    }
+    if (action.startsWith("capability-recovery:")) {
+      openRunTimeline(decodeActionSuffix(action, "capability-recovery:"));
       return;
     }
     if (action.startsWith("workspace:file:")) {
