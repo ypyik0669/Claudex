@@ -3100,6 +3100,20 @@ function taskArtifactTraceAttributes({ action, surface = "task-center", run = {}
   };
 }
 
+function taskCommandArtifactTraceAttributes({ action, run = {}, artifact = {}, index = 0, label = "" }) {
+  const artifactPath = subagentArtifactPathValue(artifact);
+  const projectPath = subagentArtifactProjectPath(artifact, run?.project?.path || run?.cwd || "");
+  return {
+    ...taskCommandTraceAttributes({ kind: "subagent", action, item: run }),
+    "data-command-task-artifact-index": taskTraceAttrValue(index),
+    "data-command-task-artifact-label": taskTraceAttrValue(label),
+    "data-command-task-artifact-path": taskTraceAttrValue(artifactPath),
+    "data-command-task-artifact-project-path": taskTraceAttrValue(projectPath),
+    "data-command-task-artifact-type": taskTraceAttrValue(artifact?.type),
+    "data-command-task-artifact-openable": String(isOpenableSubagentArtifact(artifact)),
+  };
+}
+
 function runTimelineArtifactTraceAttributes({ action, event = {}, evidence = {}, artifact = {}, index = 0, label = "" }) {
   const eventId = runTimelineEventId(event, evidence);
   const projectPath = subagentArtifactProjectPath(artifact, runTimelineProjectPath(event, evidence));
@@ -15165,6 +15179,84 @@ export function App() {
         };
       });
 
+    const subagentArtifactCommands = subagentRunsForCommands
+      .filter((run) => (run?.id || run?.requestId) && Array.isArray(run.artifacts) && run.artifacts.length > 0)
+      .flatMap((run) => {
+        const runKey = run.id || run.requestId;
+        const projectPath = run.project?.path || run.cwd || activeProject?.path || "";
+        return run.artifacts.flatMap((artifact, index) => {
+          const label = subagentArtifactLabel(artifact, index, t);
+          const artifactPath = subagentArtifactPathValue(artifact);
+          const artifactProjectPath = subagentArtifactProjectPath(artifact, projectPath);
+          const artifactProjectLabel = subagentArtifactProjectLabel(artifact, run.project?.name || run.nickname || t.subagents, t);
+          const content = subagentArtifactContent(artifact);
+          const searchable = [
+            "subagent artifact command palette open copy workspace evidence",
+            "子代理 产物 命令面板 打开 复制 工作区 证据",
+            run.id,
+            run.requestId,
+            run.nickname,
+            run.task,
+            run.status,
+            run.summary,
+            run.project?.name,
+            run.project?.path,
+            run.cwd,
+            label,
+            artifactPath,
+            artifact?.type,
+            artifactProjectPath,
+            content,
+          ].filter(Boolean).join(" ");
+          const subtitle = [
+            run.nickname || t.subagents,
+            artifactPath || artifact?.type,
+            artifactProjectPath ? compactPath(artifactProjectPath, 56) : "",
+          ].filter(Boolean).join(" · ");
+          const commands = [{
+            id: `subagent-artifact-copy:${commandIdSegment(runKey)}:${index}`,
+            title: `${t.copySubagentArtifact}: ${label}`,
+            subtitle,
+            group: t.taskCenter,
+            target: "clipboard",
+            priority: 13,
+            dataAttributes: taskCommandArtifactTraceAttributes({
+              action: "artifact-copy",
+              run,
+              artifact,
+              index,
+              label,
+            }),
+            keywords: searchable,
+            action: () => copyMessage(subagentArtifactEvidenceText(artifact, index, t)),
+          }];
+          if (isOpenableSubagentArtifact(artifact)) {
+            commands.unshift({
+              id: `subagent-artifact-open:${commandIdSegment(runKey)}:${index}`,
+              title: `${t.openSubagentArtifact}: ${label}`,
+              subtitle,
+              group: t.taskCenter,
+              target: "workspace",
+              priority: 14,
+              dataAttributes: taskCommandArtifactTraceAttributes({
+                action: "artifact-open",
+                run,
+                artifact,
+                index,
+                label,
+              }),
+              keywords: searchable,
+              action: () => openWorkspaceFile(artifactPath, {
+                projectPath: artifactProjectPath,
+                projectLabel: artifactProjectLabel,
+                force: true,
+              }),
+            });
+          }
+          return commands;
+        });
+      });
+
     const subagentRecoveryCommands = subagentRunsForCommands
       .filter(subagentNeedsRecovery)
       .flatMap((run) => {
@@ -15923,6 +16015,7 @@ export function App() {
       ...scheduledActionCommands,
       ...subagentCommands,
       ...subagentRunCommands,
+      ...subagentArtifactCommands,
       ...subagentRecoveryCommands,
       ...capabilityFilterCommands,
       ...installedPluginCommands,
