@@ -13039,9 +13039,11 @@ export function App() {
 
   async function createSession() {
     if (!desktopApi) return;
+    enterThreadWorkspace("current");
     const next = await desktopApi.createSession();
-    applySessionState(next, next.sessions[0]?.id || "");
+    applySessionState(next, next.sessions[0]?.id || "", "current");
     setDraft("");
+    focusComposer();
   }
 
   async function createSessionForSend() {
