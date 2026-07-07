@@ -13333,7 +13333,6 @@ export function App() {
       .flatMap((fileDiff) => {
         const filePath = fileDiff.path || fileDiff.previousPath || "";
         return buildGitHunks(fileDiff.text)
-          .slice(0, 6)
           .map((hunk, index) => ({
             id: `git-hunk:${commandIdSegment(filePath)}:${commandIdSegment(hunk.id || String(index))}`,
             title: `${t.focusHunk}: ${filePath}`,
