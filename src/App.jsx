@@ -10355,6 +10355,7 @@ function SettingsModal({
   onOpenProjects,
   surface = false,
   initialSection = "general",
+  runtimeHealthFocus = null,
 }) {
   const initialForm = {
     provider: state.settings.provider,
@@ -10648,6 +10649,7 @@ function SettingsModal({
                 onOpenRow={openRuntimeHealthTarget}
                 onOpenIssue={openRuntimeHealthIssue}
                 busy={settingsStatusBusy}
+                focus={runtimeHealthFocus}
               />
             )}
             <div className="settings-grid runtime-control-grid">
@@ -13627,6 +13629,7 @@ export function App() {
   const [capabilityInitialTab, setCapabilityInitialTab] = useState("plugins");
   const [capabilityFocus, setCapabilityFocus] = useState({ tab: "plugins", kind: "", id: "", query: "", filter: "", marketplaceFilter: "", nonce: 0 });
   const [runtimeHealthFocus, setRuntimeHealthFocus] = useState({ action: "", target: "", command: "", nonce: 0 });
+  const [settingsRuntimeHealthFocus, setSettingsRuntimeHealthFocus] = useState({ action: "", target: "", command: "", nonce: 0 });
   const [capabilityCommandStatus, setCapabilityCommandStatus] = useState(null);
   const [projectsOpen, setProjectsOpen] = useState(false);
   const [commandsOpen, setCommandsOpen] = useState(false);
@@ -16980,8 +16983,23 @@ export function App() {
   const [browserOpenRequest, setBrowserOpenRequest] = useState({ url: "", id: "", nonce: 0 });
   const [workspaceOpenRequest, setWorkspaceOpenRequest] = useState({ path: "", projectPath: "", projectLabel: "", force: false, nonce: 0 });
 
-  function openSettingsSurface(initialSection = "general") {
+  function runtimeHealthFocusState(focus = {}) {
+    return {
+      action: String(focus.action || "").trim(),
+      target: String(focus.target || "").trim(),
+      command: String(focus.command || "").trim(),
+      nonce: Date.now(),
+    };
+  }
+
+  function emptyRuntimeHealthFocusState() {
+    return { action: "", target: "", command: "", nonce: 0 };
+  }
+
+  function openSettingsSurface(initialSection = "general", options = {}) {
     const nextSection = settingsSectionCommandSpecs(t).some((section) => section.id === initialSection) ? initialSection : "general";
+    const requestedRuntimeHealthFocus = options?.runtimeHealthFocus;
+    setSettingsRuntimeHealthFocus(requestedRuntimeHealthFocus ? runtimeHealthFocusState(requestedRuntimeHealthFocus) : emptyRuntimeHealthFocusState());
     setCapabilitiesOpen(false);
     setProjectsOpen(false);
     setScheduledOpen(false);
@@ -17004,13 +17022,12 @@ export function App() {
   }
 
   function openRuntimeHealthActionFocus(focus = {}) {
-    setRuntimeHealthFocus({
-      action: String(focus.action || "").trim(),
-      target: String(focus.target || "").trim(),
-      command: String(focus.command || "").trim(),
-      nonce: Date.now(),
-    });
+    setRuntimeHealthFocus(runtimeHealthFocusState(focus));
     openCapabilitiesSurface("plugins");
+  }
+
+  function openSettingsRuntimeHealthActionFocus(focus = {}) {
+    openSettingsSurface("general", { runtimeHealthFocus: focus });
   }
 
   function openProjectsSurface() {
@@ -17459,6 +17476,67 @@ export function App() {
     ].filter(Boolean).join(" "),
     action: () => openRuntimeHealthActionFocus({ action: spec.action }),
   }));
+  const settingsRuntimeHealthIssueCommands = Array.from(
+    new Map((runtimeHealthSummaryForCommands.issues || [])
+      .map((issue) => [runtimeHealthTargetForIssue(issue), issue])
+      .filter(([target]) => Boolean(target))).entries(),
+  ).map(([target, issue]) => ({
+    id: `settings-runtime-health-issue:${commandIdSegment(target)}`,
+    title: `${t.settings}: ${t.runtimeHealthOpenTarget}: ${issue.label}`,
+    subtitle: [`claude ${issue.commandLine}`, issue.error || issue.stderr || issue.stdout, target].filter(Boolean).join(" · "),
+    group: t.settings,
+    target: "settings-runtime-health-issue",
+    priority: 24,
+    dataAttributes: {
+      "data-command-runtime-health-surface": "settings",
+      "data-command-runtime-health-action": "open-issue",
+      "data-command-runtime-health-target": target,
+      "data-command-runtime-health-command": issue.commandLine,
+    },
+    keywords: [
+      "settings runtime health issue open focus action status cli",
+      t.settings,
+      t.runtimeHealth,
+      t.runtimeHealthOpenTarget,
+      issue.label,
+      issue.commandLine,
+      issue.error,
+      issue.stderr,
+      issue.stdout,
+      target,
+    ].filter(Boolean).join(" "),
+    action: () => openSettingsRuntimeHealthActionFocus({
+      action: "open-issue",
+      target,
+      command: issue.commandLine,
+    }),
+  }));
+  const settingsRuntimeHealthActionCommands = [
+    { action: "retry", label: t.retryCliStatus, keywords: "settings retry refresh status cli runtime health focus" },
+    { action: "open-claude", label: t.openClaudePanel, keywords: "settings open claude panel runtime health focus" },
+    { action: "copy", label: t.copyRuntimeHealthEvidence, keywords: "settings copy runtime health evidence clipboard focus" },
+  ].map((spec) => ({
+    id: `settings-runtime-health-action:${spec.action}`,
+    title: `${t.settings}: ${t.runtimeHealth}: ${spec.label}`,
+    subtitle: runtimeHealthSummaryForCommands.headline,
+    group: t.settings,
+    target: "settings-runtime-health-action",
+    priority: spec.action === "copy" ? 21 : 17,
+    dataAttributes: {
+      "data-command-runtime-health-surface": "settings",
+      "data-command-runtime-health-action": spec.action,
+    },
+    keywords: [
+      "settings runtime health command palette focus action button",
+      spec.keywords,
+      t.settings,
+      t.runtimeHealth,
+      spec.label,
+      runtimeHealthSummaryForCommands.headline,
+      runtimeHealthEvidenceText(runtimeHealthSummaryForCommands, t),
+    ].filter(Boolean).join(" "),
+    action: () => openSettingsRuntimeHealthActionFocus({ action: spec.action }),
+  }));
 
   const commands = [
     { id: "new", title: t.newChat, subtitle: t.chats, group: t.chats, kbd: "Ctrl+N", keywords: "聊天 对话 会话", action: createSession },
@@ -17476,6 +17554,8 @@ export function App() {
     ...settingsSectionCommands,
     ...runtimeHealthActionCommands,
     ...runtimeHealthIssueCommands,
+    ...settingsRuntimeHealthActionCommands,
+    ...settingsRuntimeHealthIssueCommands,
     { id: "automation", title: t.scheduled, subtitle: t.scheduledTitle, group: t.scheduled, keywords: "automation schedule 自动化 计划 任务", action: openScheduledSurface },
     { id: "tool-workspace", title: t.workspaceTool, subtitle: t.openSidePanel, group: t.tools, keywords: "workspace files editor diff 工作区 文件 编辑", action: () => activateTool("workspace") },
     { id: "tool-claude", title: t.claudeCodeTool, subtitle: t.openSidePanel, group: t.tools, keywords: "claude code cli plugin mcp terminal", action: () => activateTool("claude") },
@@ -17570,6 +17650,7 @@ export function App() {
             onOpenProjects={openProjectsSurface}
             surface
             initialSection={settingsInitialSection}
+            runtimeHealthFocus={settingsRuntimeHealthFocus}
           />
         ) : capabilitiesOpen ? (
           <CapabilityModal
