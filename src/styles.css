@@ -6910,6 +6910,51 @@ button.runtime-health-row {
   padding: 10px;
 }
 
+.browser-evidence-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 7px;
+}
+
+.browser-evidence-summary > span {
+  min-height: 24px;
+  display: inline-flex;
+  align-items: center;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.035);
+  color: #aeb2ad;
+  padding: 3px 8px;
+  font-size: 11px;
+  line-height: 1.2;
+}
+
+.browser-evidence-summary.status-error > span {
+  border-color: rgba(211, 106, 92, 0.28);
+  background: rgba(211, 106, 92, 0.09);
+  color: #efb0a9;
+}
+
+.browser-evidence-summary.status-running > span {
+  border-color: rgba(209, 131, 87, 0.26);
+  background: rgba(209, 131, 87, 0.09);
+  color: #f2d0bc;
+}
+
+.browser-evidence-summary.status-info > span {
+  border-color: rgba(126, 148, 255, 0.22);
+  background: rgba(126, 148, 255, 0.08);
+  color: #c2cbff;
+}
+
+.browser-evidence-summary .plain-action {
+  min-height: 24px;
+  padding: 4px 7px;
+  font-size: 10.5px;
+}
+
 .browser-evidence-list {
   display: grid;
   gap: 7px;

@@ -4635,6 +4635,9 @@ function Conversation({
     browserVisits,
     t,
   }), [browserVisits, t]);
+  const browserPriorityVisit = useMemo(() => prioritizedBrowserVisit(browserVisits), [browserVisits]);
+  const browserPriorityStatus = browserPriorityVisit?.status || "";
+  const browserPriorityActionable = browserPriorityStatus === "error" || browserPriorityStatus === "loading";
   const contextTabs = [
     {
       id: "environment",
@@ -5653,6 +5656,40 @@ function Conversation({
                     <span>{t.browser}</span>
                     <strong>{browserVisits?.length ? t.browserVisitCount.replace("{count}", browserVisits.length) : t.browserNoHistory}</strong>
                     <p>{browserVisits?.length ? t.browserBackedByWebview : t.browserPanelHint}</p>
+                    {browserVisits?.length > 0 && (
+                      <div
+                        className={cx("browser-evidence-summary", browserContext.status && `status-${browserContext.status}`)}
+                        data-browser-evidence-summary=""
+                        data-status={browserContext.status || "idle"}
+                        title={browserContext.detail}
+                      >
+                        <span>{browserContext.detail}</span>
+                        {browserPriorityActionable && (
+                          <button
+                            type="button"
+                            className="plain-action subtle-action"
+                            data-browser-evidence-action={browserPriorityStatus === "error" ? "retry" : "open"}
+                            onClick={() => onOpenBrowserVisit?.(browserPriorityVisit)}
+                            title={browserVisitFinalUrl(browserPriorityVisit) || browserPriorityVisit?.url || ""}
+                          >
+                            {browserPriorityStatus === "error" ? <RefreshCw size={13} /> : <Globe2 size={13} />}
+                            {browserPriorityStatus === "error" ? t.retry : t.reopenBrowserVisit}
+                          </button>
+                        )}
+                        {browserPriorityActionable && onOpenExternalBrowserVisit && (
+                          <button
+                            type="button"
+                            className="plain-action subtle-action"
+                            data-browser-evidence-action="external"
+                            onClick={() => onOpenExternalBrowserVisit(browserPriorityVisit)}
+                            title={browserVisitFinalUrl(browserPriorityVisit) || browserPriorityVisit?.url || ""}
+                          >
+                            <ExternalLink size={13} />
+                            {t.openExternal}
+                          </button>
+                        )}
+                      </div>
+                    )}
                   </div>
                   <div className="bottom-panel-actions">
                     <button type="button" className="plain-action" onClick={() => onActivateTool("browser")}>
