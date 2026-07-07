@@ -12883,6 +12883,7 @@ function ScheduledModal({
           <div className="schedule-list">
             {items.map((item) => {
               const recoveryEntry = automationRecoveryEntry(item);
+              const traceEntry = recoveryEntry || item.lastRun || (Array.isArray(item.history) ? item.history[0] : null) || {};
               return (
                 <article key={item.id} className="schedule-item" data-automation-id={item.id}>
                 <div className="schedule-item-main">
@@ -12994,6 +12995,8 @@ function ScheduledModal({
                 <div className="schedule-item-actions">
                   <button
                     type="button"
+                    data-automation-schedule-action="run-now"
+                    {...taskSurfaceTraceAttributes({ kind: "automation", action: "run-now", surface: "scheduled", item, entry: traceEntry })}
                     onClick={() => handleAction(item.id, () => onRunNow?.(item))}
                     disabled={workingId === item.id || item.status === "running"}
                     title={t.runNow}
@@ -13003,6 +13006,8 @@ function ScheduledModal({
                   </button>
                   <button
                     type="button"
+                    data-automation-schedule-action={item.enabled ? "pause" : "resume"}
+                    {...taskSurfaceTraceAttributes({ kind: "automation", action: item.enabled ? "pause" : "resume", surface: "scheduled", item, entry: traceEntry })}
                     onClick={() => handleAction(item.id, () => onToggleEnabled?.(item, !item.enabled))}
                     disabled={!item.schedule?.runAt || workingId === item.id || item.status === "running"}
                     title={item.enabled ? t.pauseAutomation : t.resumeAutomation}
@@ -13011,18 +13016,38 @@ function ScheduledModal({
                     {item.enabled ? t.pauseAutomation : t.resumeAutomation}
                   </button>
                   {item.lastRun && (
-                    <button type="button" data-automation-schedule-action="copy-evidence" onClick={() => copyAutomationEvidence(item)} title={copiedAutomationRunId === item.lastRun.id ? t.copied : t.copyAutomationEvidence}>
+                    <button
+                      type="button"
+                      data-automation-schedule-action="copy-evidence"
+                      {...taskSurfaceTraceAttributes({ kind: "automation", action: "copy-evidence", surface: "scheduled", item, entry: item.lastRun })}
+                      onClick={() => copyAutomationEvidence(item)}
+                      title={copiedAutomationRunId === item.lastRun.id ? t.copied : t.copyAutomationEvidence}
+                    >
                       {copiedAutomationRunId === item.lastRun.id ? <Check size={14} /> : <Copy size={14} />}
                       {copiedAutomationRunId === item.lastRun.id ? t.copied : t.copyAutomationEvidence}
                     </button>
                   )}
                   {item.lastRun?.id && (
-                    <button type="button" onClick={() => onOpenRunTimeline?.(item.lastRun.id)} title={t.openRunTimeline}>
+                    <button
+                      type="button"
+                      data-automation-schedule-action="timeline"
+                      {...taskSurfaceTraceAttributes({ kind: "automation", action: "timeline", surface: "scheduled", item, entry: item.lastRun })}
+                      onClick={() => onOpenRunTimeline?.(item.lastRun.id)}
+                      title={t.openRunTimeline}
+                    >
                       <FileText size={14} />
                       {t.openRunTimeline}
                     </button>
                   )}
-                  <button type="button" className="danger-action" onClick={() => handleAction(item.id, () => onDelete?.(item))} disabled={workingId === item.id} title={t.delete}>
+                  <button
+                    type="button"
+                    className="danger-action"
+                    data-automation-schedule-action="delete"
+                    {...taskSurfaceTraceAttributes({ kind: "automation", action: "delete", surface: "scheduled", item, entry: traceEntry })}
+                    onClick={() => handleAction(item.id, () => onDelete?.(item))}
+                    disabled={workingId === item.id}
+                    title={t.delete}
+                  >
                     <Trash2 size={14} />
                     {t.delete}
                   </button>
