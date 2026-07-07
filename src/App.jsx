@@ -2071,6 +2071,12 @@ function mcpStatusKind(server = {}) {
   return "disabled";
 }
 
+function capabilityStatusMatchesFilter(statusKind, filter) {
+  if (filter === "enabled") return statusKind === "enabled";
+  if (filter === "disabled") return statusKind !== "enabled";
+  return true;
+}
+
 function skillStatusKind(skill = {}) {
   const status = String(skill?.status || "").trim().toLowerCase();
   if (skill?.error || /\b(?:error|failed|failure|missing|unavailable)\b/i.test(status)) return "error";
@@ -8961,16 +8967,27 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
   };
   const allInstalledPluginRows = Array.isArray(cliStatus?.pluginItems) ? cliStatus.pluginItems : [];
   const allMcpServerRows = Array.isArray(cliStatus?.mcpServers) ? cliStatus.mcpServers : [];
-  const installedPluginRows = allInstalledPluginRows.filter((item) => structuredQueryMatch(item, normalizedQuery));
+  const hasStructuredPluginRows = allInstalledPluginRows.length > 0;
+  const hasStructuredMcpRows = allMcpServerRows.length > 0;
+  const installedPluginRows = allInstalledPluginRows.filter((item) => (
+    structuredQueryMatch(item, normalizedQuery) &&
+    capabilityStatusMatchesFilter(pluginStatusKind(item), filter)
+  ));
   const marketplaceRows = (Array.isArray(cliStatus?.marketplaces) ? cliStatus.marketplaces : []).filter((item) => structuredQueryMatch(item, normalizedQuery));
   const marketplacePluginRows = (Array.isArray(cliStatus?.marketplacePlugins) ? cliStatus.marketplacePlugins : []).filter((item) => structuredQueryMatch(item, normalizedQuery));
-  const mcpServerRows = allMcpServerRows.filter((item) => structuredQueryMatch(item, normalizedQuery));
+  const mcpServerRows = allMcpServerRows.filter((item) => (
+    structuredQueryMatch(item, normalizedQuery) &&
+    capabilityStatusMatchesFilter(mcpStatusKind(item), filter)
+  ));
   const rawSkillRows = Array.isArray(cliStatus?.skillItems) ? cliStatus.skillItems : Array.isArray(cliStatus?.skills) ? cliStatus.skills : [];
   const skillRegistryRoots = Array.isArray(cliStatus?.skillRoots) ? cliStatus.skillRoots.filter(Boolean) : [];
   const skillRegistryTruncated = Boolean(cliStatus?.skillsTruncated);
   const skillRegistryKnown = Boolean(cliStatus);
   const hasRegisteredSkills = rawSkillRows.length > 0;
-  const skillRegistryRows = rawSkillRows.filter((item) => structuredQueryMatch(item, normalizedQuery));
+  const skillRegistryRows = rawSkillRows.filter((item) => (
+    structuredQueryMatch(item, normalizedQuery) &&
+    capabilityStatusMatchesFilter(skillStatusKind(item), filter)
+  ));
   const fallbackSkillRows = skillRegistryKnown && !hasRegisteredSkills ? tabRows.skills : [];
   const skillTabRows = hasRegisteredSkills ? skillRegistryRows : fallbackSkillRows;
   const enabledCount = capabilityRows.filter((item) => item.type !== "skill" && item.enabled).length
@@ -9731,7 +9748,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
             ["enabled", t.capabilityEnabled],
             ["disabled", t.capabilityDisabled],
           ].map(([id, label]) => (
-            <button type="button" key={id} className={cx(filter === id && "active")} onClick={() => setFilter(id)}>
+            <button type="button" key={id} className={cx(filter === id && "active")} data-capability-filter={id} onClick={() => setFilter(id)}>
               {label}
             </button>
           ))}
@@ -9740,9 +9757,9 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
       </div>
       <div className="plugin-manager-tabs" role="tablist" aria-label={t.capabilities}>
         {tabs.map(([id, label]) => {
-          const count = id === "plugins" ? installedPluginRows.length || capabilityRows.filter((item) => item.type === "plugin").length
-            : id === "skills" ? (hasRegisteredSkills ? rawSkillRows.length : skillRegistryKnown ? capabilityRows.filter((item) => item.type === "skill").length : 0)
-              : id === "mcp" ? mcpServerRows.length || tabRows.mcp.length
+          const count = id === "plugins" ? (hasStructuredPluginRows ? installedPluginRows.length : tabRows.plugins.length)
+            : id === "skills" ? (hasRegisteredSkills ? skillRegistryRows.length : skillRegistryKnown ? tabRows.skills.length : 0)
+              : id === "mcp" ? (hasStructuredMcpRows ? mcpServerRows.length : tabRows.mcp.length)
                 : marketplaceTabCount;
           const issue = cliStatusIssueByTab[id];
           return (
@@ -9999,7 +10016,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                   <span>{t.installedCliPlugins}</span>
                   <strong>{installedPluginRows.length}</strong>
                 </div>
-                {installedPluginRows.length === 0 && <p className="empty-list">{t.pluginsEmpty}</p>}
+                {installedPluginRows.length === 0 && <p className="empty-list">{hasStructuredPluginRows ? t.noCapabilities : t.pluginsEmpty}</p>}
                 {installedPluginRows.map((plugin) => {
                   const recentRun = findRecentPluginActionRun(recentCapabilityRuns, [plugin.id, plugin.name], ["enable", "disable", "update", "install"]);
                   const pluginFocused = capabilityFocusMatches("plugin", plugin.id, plugin.name);
@@ -10092,7 +10109,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                   onOpenOutputs={openCapabilityOutputs}
                   onRetry={recentMcpActionRun && recentMcpActionRun.code !== 0 && !cliWorking ? () => runCapabilityClaude("mcp list") : null}
                 />
-                {mcpServerRows.length === 0 && <p className="empty-list">{t.noMcpServers}</p>}
+                {mcpServerRows.length === 0 && <p className="empty-list">{hasStructuredMcpRows ? t.noCapabilities : t.noMcpServers}</p>}
                 {mcpServerRows.map((server) => {
                   const rowKey = mcpServerKey(server);
                   const rowRecording = cliAction === "mcp list";
