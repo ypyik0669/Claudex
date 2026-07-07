@@ -7610,6 +7610,7 @@ function ToolRail({
   selectedTool,
   onActivateTool,
   onOpenBottomPanel,
+  onOpenTaskCenterFocus,
   onOpenBrowserEvidence,
   onOpenRunTimeline,
   onSettings,
@@ -7617,6 +7618,7 @@ function ToolRail({
   busy,
   capabilityStatus,
   commandRuns = [],
+  subagentRuns = [],
   browserVisits = [],
   notices = [],
   t,
@@ -7673,6 +7675,45 @@ function ToolRail({
     }
     onActivateTool("browser");
   };
+  const activeSubagentRuns = Array.isArray(subagentRuns) ? subagentRuns.filter((run) => !run?.archivedAt) : [];
+  const runningSubagentRuns = activeSubagentRuns.filter((run) => run?.status === "running");
+  const failedSubagentRuns = activeSubagentRuns.filter((run) => subagentNeedsRecovery(run));
+  const latestSubagentRun = activeSubagentRuns[0] || null;
+  const subagentRailRun = failedSubagentRuns[0] || runningSubagentRuns[0] || latestSubagentRun;
+  const openSubagentRailTarget = () => {
+    const runId = subagentRailRun?.id || subagentRailRun?.requestId || "";
+    if (runId && (failedSubagentRuns.length || runningSubagentRuns.length)) {
+      onOpenTaskCenterFocus?.("subagent", runId, {
+        filter: failedSubagentRuns.length ? "failed" : "active",
+        expandEvidence: failedSubagentRuns.length > 0,
+        expandArtifacts: Boolean(subagentRailRun?.artifacts?.length),
+      });
+      return;
+    }
+    onOpenBottomPanel?.("subagents");
+  };
+  const subagentRailStatus = failedSubagentRuns.length
+    ? "error"
+    : runningSubagentRuns.length
+      ? "running"
+      : activeSubagentRuns.length
+        ? "ready"
+        : "idle";
+  const subagentRailBadge = failedSubagentRuns.length
+    ? "!"
+    : runningSubagentRuns.length
+      ? "●"
+      : countBadge(activeSubagentRuns.length);
+  const subagentRailDetail = failedSubagentRuns.length
+    ? t.taskCenterFailureSummary
+      .replace("{total}", failedSubagentRuns.length)
+      .replace("{automations}", 0)
+      .replace("{subagents}", failedSubagentRuns.length)
+    : runningSubagentRuns.length
+      ? `${t.commandRunning}: ${runningSubagentRuns[0]?.nickname || "Subagent"}`
+      : activeSubagentRuns.length
+        ? t.subagentCount.replace("{count}", activeSubagentRuns.length)
+        : t.noSubagentsYet;
   const items = [
     {
       id: "workspace",
@@ -7727,6 +7768,15 @@ function ToolRail({
       status: latestCapabilityFailed || pluginIssueCount ? "error" : capabilityStatus ? "ready" : "idle",
       detail: latestCapabilityFailed ? t.commandFailed : pluginIssueCount ? t.capabilityStatusIssueCount.replace("{count}", pluginIssueCount) : t.capabilitySummary.replace("{enabled}", capabilityCount).replace("{total}", capabilityCount),
       action: openCapabilityRailTarget,
+    },
+    {
+      id: "subagents",
+      label: t.subagents,
+      icon: GitFork,
+      badge: subagentRailBadge,
+      status: subagentRailStatus,
+      detail: subagentRailDetail,
+      action: openSubagentRailTarget,
     },
     {
       id: "notices",
@@ -15620,6 +15670,7 @@ export function App() {
             selectedTool={selectedTool}
             onActivateTool={activateTool}
             onOpenBottomPanel={openBottomPanel}
+            onOpenTaskCenterFocus={openTaskCenterFocus}
             onOpenBrowserEvidence={openBrowserEvidence}
             onOpenRunTimeline={openRunTimeline}
             onSettings={openSettingsSurface}
@@ -15627,6 +15678,7 @@ export function App() {
             busy={busy}
             capabilityStatus={capabilityCommandStatus}
             commandRuns={state.commandRuns}
+            subagentRuns={state.subagentRuns}
             browserVisits={state.browserVisits}
             notices={state.notices}
             t={t}
