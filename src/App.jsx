@@ -919,6 +919,9 @@ const copy = {
     gitDiffTruncated: "Diff 已截断，仅显示前面的部分。",
     gitRawStatus: "Raw Status",
     gitPreviousPath: "\u539f\u8def\u5f84",
+    gitEvidenceScope: "证据范围",
+    gitSelectedPath: "选中文件",
+    gitSelectedHunkId: "选中 hunk ID",
     noGitDiff: "当前没有可显示的 diff 统计。",
     allChanges: "全部变更",
     allHunks: "全部 hunks",
@@ -3788,6 +3791,38 @@ function gitLatestActionEvidenceText({ event, run, activeProject, t }) {
   return lines.filter((line, index) => index < 8 || String(line || "").trim()).join("\n");
 }
 
+function gitEvidenceScope(selectedPath = "", selectedHunk = null) {
+  if (selectedHunk) return "hunk";
+  if (selectedPath) return "file";
+  return "all";
+}
+
+function gitEvidenceScopeLabel(scope, t) {
+  if (scope === "hunk") return t.selectedHunk;
+  if (scope === "file") return t.gitFileEvidence;
+  return t.allChanges;
+}
+
+function gitTraceAttributes({
+  gitRoot = "",
+  gitRelativePath = "",
+  selectedPath = "",
+  selectedFile = null,
+  selectedHunk = null,
+} = {}) {
+  const scope = gitEvidenceScope(selectedPath, selectedHunk);
+  return {
+    "data-git-evidence-scope": scope,
+    "data-git-root": String(gitRoot || ""),
+    "data-git-relative-path": String(gitRelativePath || ""),
+    "data-git-selected-path": String(selectedPath || ""),
+    "data-git-selected-kind": String(selectedFile?.kind || ""),
+    "data-git-selected-status": String(selectedFile?.status || ""),
+    "data-git-selected-hunk-id": String(selectedHunk?.id || ""),
+    "data-git-selected-hunk-file": String(selectedHunk?.filePath || selectedPath || ""),
+  };
+}
+
 function gitEvidenceText({
   t,
   activeProject,
@@ -3809,8 +3844,12 @@ function gitEvidenceText({
   const summary = gitSummaryItems.length
     ? gitSummaryItems.map(([label, count]) => `${label}: ${count}`).join(" · ")
     : "";
+  const scope = gitEvidenceScope(selectedPath, selectedHunk);
   const lines = [
     `${t.gitEvidence}: ${selectedPath || t.allChanges}`,
+    `${t.gitEvidenceScope}: ${gitEvidenceScopeLabel(scope, t)}`,
+    selectedPath ? `${t.gitSelectedPath}: ${selectedPath}` : "",
+    selectedHunk?.id ? `${t.gitSelectedHunkId}: ${selectedHunk.id}` : "",
     `${t.activeProject}: ${projectLabel(activeProject, t)}`,
     `${t.path}: ${activeProject?.path || "-"}`,
     `${t.gitRoot}: ${gitRoot || "-"}`,
@@ -4475,6 +4514,13 @@ function Conversation({
     selectedHunk: selectedGitHunk,
     hunkCount: gitHunks.length,
   }), [t, activeProject, branchLabel, upstreamLabel, remoteLabel, aheadBehindLabel, selectedGitFile, selectedGitDiffPath, focusedGitDiffText, gitStat, rawGitStatus, gitRootPath, gitRelativePath, gitSummaryItems, selectedGitHunk, gitHunks.length]);
+  const selectedGitTraceAttributes = useMemo(() => gitTraceAttributes({
+    gitRoot: gitRootPath,
+    gitRelativePath,
+    selectedPath: selectedGitDiffPath,
+    selectedFile: selectedGitFile,
+    selectedHunk: selectedGitHunk,
+  }), [gitRootPath, gitRelativePath, selectedGitDiffPath, selectedGitFile, selectedGitHunk]);
   const gitDiffRows = useMemo(() => buildGitDiffRows(focusedGitDiffText), [focusedGitDiffText]);
   useEffect(() => () => {
     if (copiedGitEvidenceTimer.current) window.clearTimeout(copiedGitEvidenceTimer.current);
@@ -5681,6 +5727,7 @@ function Conversation({
                         <button
                           type="button"
                           className={cx("git-change-item", !selectedGitDiffPath && "selected")}
+                          {...gitTraceAttributes({ gitRoot: gitRootPath, gitRelativePath })}
                           onClick={() => {
                             setSelectedGitDiffPath("");
                             setSelectedGitHunkId("");
@@ -5695,6 +5742,12 @@ function Conversation({
                             type="button"
                             className={cx("git-change-item", item.kind && `kind-${item.kind}`, selectedGitDiffPath === item.path && "selected")}
                             key={`${item.status}-${item.path}`}
+                            {...gitTraceAttributes({
+                              gitRoot: gitRootPath,
+                              gitRelativePath,
+                              selectedPath: item.path,
+                              selectedFile: item,
+                            })}
                             onClick={() => {
                               setSelectedGitDiffPath(item.path);
                               setSelectedGitHunkId("");
@@ -5736,7 +5789,7 @@ function Conversation({
                       <pre className="git-status-preview">{rawGitStatus || t.noGitProject}</pre>
                     </details>
                   </div>
-                  <section className={cx("git-selected-evidence-panel", selectedGitFile?.kind && `kind-${selectedGitFile.kind}`)} aria-label={t.gitEvidence}>
+                  <section className={cx("git-selected-evidence-panel", selectedGitFile?.kind && `kind-${selectedGitFile.kind}`)} aria-label={t.gitEvidence} {...selectedGitTraceAttributes}>
                     <div className="git-selected-evidence-head">
                       <div>
                         <span>{selectedGitFile ? t.gitFileEvidence : t.gitEvidence}</span>
@@ -5795,6 +5848,7 @@ function Conversation({
                       </div>
                     </div>
                     <dl className="git-selected-evidence-meta">
+                      <div><dt>{t.gitEvidenceScope}</dt><dd>{gitEvidenceScopeLabel(selectedGitTraceAttributes["data-git-evidence-scope"], t)}</dd></div>
                       <div><dt>{t.branch}</dt><dd>{branchLabel}</dd></div>
                       <div><dt>{t.upstream}</dt><dd>{upstreamLabel}</dd></div>
                       <div><dt>{t.remote}</dt><dd title={git?.remoteUrl || remoteLabel}>{remoteLabel}</dd></div>
@@ -5803,6 +5857,7 @@ function Conversation({
                       <div><dt>{t.changedLines}</dt><dd>{selectedGitFile ? `+${selectedGitFile.additions || 0} -${selectedGitFile.deletions || 0}` : `${gitFiles.length}`}</dd></div>
                       <div><dt>{t.gitHunks}</dt><dd>{gitHunks.length}</dd></div>
                       {selectedGitHunk && <div><dt>{t.selectedHunk}</dt><dd>{`+${selectedGitHunk.additions || 0} -${selectedGitHunk.deletions || 0}`}</dd></div>}
+                      {selectedGitHunk?.id && <div><dt>{t.gitSelectedHunkId}</dt><dd title={selectedGitHunk.id}>{messageExcerpt(selectedGitHunk.id, 68)}</dd></div>}
                       {selectedGitFile?.previousPath && <div><dt>{t.gitPreviousPath}</dt><dd title={selectedGitFile.previousPath}>{selectedGitFile.previousPath}</dd></div>}
                       <div><dt>{t.gitRawStatus}</dt><dd>{selectedGitFile?.status || "Σ"}</dd></div>
                       <div><dt>{t.gitRoot}</dt><dd title={gitRootPath || ""}>{gitRootPath ? gitRootLabel : t.gitUnavailable}</dd></div>
@@ -5819,6 +5874,12 @@ function Conversation({
                           <button
                             type="button"
                             className={cx("git-hunk-item", !selectedGitHunkId && "selected")}
+                            {...gitTraceAttributes({
+                              gitRoot: gitRootPath,
+                              gitRelativePath,
+                              selectedPath: selectedGitDiffPath,
+                              selectedFile: selectedGitFile,
+                            })}
                             onClick={() => setSelectedGitHunkId("")}
                             title={t.allHunks}
                           >
@@ -5829,6 +5890,13 @@ function Conversation({
                             <button
                               type="button"
                               className={cx("git-hunk-item", selectedGitHunkId === hunk.id && "selected")}
+                              {...gitTraceAttributes({
+                                gitRoot: gitRootPath,
+                                gitRelativePath,
+                                selectedPath: hunk.filePath || selectedGitDiffPath || "",
+                                selectedFile: selectedGitFile,
+                                selectedHunk: hunk,
+                              })}
                               onClick={() => setSelectedGitHunkId(hunk.id)}
                               title={`${t.focusHunk}: ${hunk.filePath || selectedGitDiffPath || t.allChanges}`}
                               key={hunk.id}

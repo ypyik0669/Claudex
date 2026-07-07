@@ -174,7 +174,8 @@ function assertStep(name, ok) {
 async function openChanges(win) {
   return win.webContents.executeJavaScript(`
     (function() {
-      const button = Array.from(document.querySelectorAll('.workspace-context-button, .bottom-panel-tabs button, button'))
+      const button = document.querySelector('.workspace-context-button[data-context-tab="changes"]')
+        || Array.from(document.querySelectorAll('.workspace-context-button, .bottom-panel-tabs button, button'))
         .find((item) => /\\u53d8\\u66f4|Changes/i.test(item.textContent || '') || (item.getAttribute('aria-label') || '').includes('\\u53d8\\u66f4'));
       if (!button) return false;
       button.click();
