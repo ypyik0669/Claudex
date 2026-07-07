@@ -13016,7 +13016,6 @@ export function App() {
       });
     const capabilityRecoveryCommands = (Array.isArray(state.commandRuns) ? state.commandRuns : [])
       .filter((run) => run?.kind === "capability" && run.code !== 0 && !run.cancelled && capabilityRetryArgsFromRun(run))
-      .slice(0, 16)
       .flatMap((run) => {
         const event = commandRunTimelineEvent(run, t);
         if (!event) return [];
@@ -13102,7 +13101,6 @@ export function App() {
 
     const noticeCommands = (state.notices || [])
       .filter((notice) => notice?.id && notice?.title && !notice.dismissedAt)
-      .slice(0, 16)
       .map((notice) => {
         const actionLabel = noticeActionLabel(notice, t);
         const actionTarget = noticeActionTargetKind(notice);
