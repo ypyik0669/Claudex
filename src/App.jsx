@@ -13891,6 +13891,11 @@ export function App() {
         const lastRun = automation.lastRun || {};
         const hasEvidence = Boolean(lastRun.id || lastRun.error || lastRun.detail || lastRun.summary || lastRun.stdout || lastRun.stderr);
         const hasHistory = automationRunEntries(automation).length > 0;
+        const statusFilter = automationNeedsRecovery(automation)
+          ? "failed"
+          : ["running", "scheduled"].includes(automation.status)
+            ? "active"
+            : "";
         return {
           id: `automation:${commandIdSegment(automation.id)}`,
           title: `${t.automationTasks}: ${messageExcerpt(automation.prompt, 72)}`,
@@ -13917,6 +13922,7 @@ export function App() {
             lastRun.stderr,
           ].filter(Boolean).join(" "),
           action: () => openTaskCenterFocus("automation", automation.id, {
+            filter: statusFilter,
             expandEvidence: hasEvidence,
             expandHistory: hasHistory,
           }),
