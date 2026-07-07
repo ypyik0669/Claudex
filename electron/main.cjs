@@ -770,11 +770,18 @@ function normalizeSourceRef(item, store) {
   const project = normalizeAutomationProject(item?.project, store);
   const sourcePath = slashPath(item?.path || item?.relativePath || "");
   const type = item?.type || "file";
+  const title = item?.title || item?.name || path.basename(sourcePath) || sourcePath;
   return {
     id: item?.id || `${type}:${project?.path || project?.name || "workspace"}:${sourcePath}`,
     type,
     path: sourcePath,
-    title: item?.title || path.basename(sourcePath) || sourcePath,
+    name: item?.name || title,
+    title,
+    reason: item?.reason || "",
+    detail: item?.detail || "",
+    excerpt: item?.excerpt || "",
+    eventId: item?.eventId || "",
+    range: item?.range && typeof item.range === "object" ? item.range : null,
     project,
     size: Number(item?.size || 0),
     sha256: item?.sha256 || "",

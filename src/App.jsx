@@ -4457,6 +4457,15 @@ function Conversation({
   const capabilityCommandRuns = useMemo(() => commandRunsToHistory(commandRuns, "capability"), [commandRuns]);
   const focusedSourceKey = String(sourcePanelFocus?.id || sourcePanelFocus?.path || "").trim();
   const focusedBrowserVisitKey = String(browserPanelFocus?.id || browserPanelFocus?.url || "").trim();
+  const sourceRefsForView = useMemo(() => {
+    const refs = Array.isArray(sourceRefs) ? sourceRefs : [];
+    const topRefs = refs.slice(0, 12);
+    if (!focusedSourceKey) return topRefs;
+    const focused = refs.find((source) => [sourceRefKey(source), source?.id, source?.path].filter(Boolean).includes(focusedSourceKey));
+    return focused && !topRefs.some((source) => sourceRefKey(source) === sourceRefKey(focused))
+      ? [...topRefs, focused]
+      : topRefs;
+  }, [sourceRefs, focusedSourceKey]);
   const [bottomWorkspaceRetryingId, setBottomWorkspaceRetryingId] = useState("");
   const [bottomClaudeRetryingId, setBottomClaudeRetryingId] = useState("");
   const [bottomCapabilityRetryingId, setBottomCapabilityRetryingId] = useState("");
@@ -5700,7 +5709,7 @@ function Conversation({
                 </div>
                 {sourceRefs?.length ? (
                   <div className="source-ref-list">
-                    {sourceRefs.slice(0, 12).map((source) => {
+                    {sourceRefsForView.map((source) => {
                       const sourceKey = sourceRefKey(source);
                       const selected = focusedSourceKey && [sourceKey, source.id, source.path].filter(Boolean).includes(focusedSourceKey);
                       const sourcePath = String(source.path || "").trim();
@@ -6927,9 +6936,16 @@ function BrowserEvidenceList({ visits = [], focusedVisitKey = "", onOpenVisit, o
       </div>
     );
   }
+  const topVisits = visits.slice(0, 10);
+  const focusedVisit = focusedVisitKey
+    ? visits.find((visit) => [browserVisitKey(visit), visit?.id, visit?.url, browserVisitFinalUrl(visit)].filter(Boolean).includes(focusedVisitKey))
+    : null;
+  const visibleVisits = focusedVisit && !topVisits.some((visit) => browserVisitKey(visit) === browserVisitKey(focusedVisit))
+    ? [...topVisits, focusedVisit]
+    : topVisits;
   return (
     <div className="browser-evidence-list" aria-label={t.browserEvidence}>
-      {visits.slice(0, 10).map((visit) => {
+      {visibleVisits.map((visit) => {
         const visitKey = visit.id || visit.url;
         const selected = focusedVisitKey && [browserVisitKey(visit), visit.id, visit.url, browserVisitFinalUrl(visit)].filter(Boolean).includes(focusedVisitKey);
         const metadataRows = browserVisitMetadataRows(visit, t);
@@ -13335,7 +13351,6 @@ export function App() {
 
     const sourceRefCommands = (Array.isArray(state.sourceRefs) ? state.sourceRefs : [])
       .filter((source) => source?.path || source?.name || source?.id)
-      .slice(0, 24)
       .map((source) => {
         const sourceKey = sourceRefKey(source);
         const sourcePath = source.path || source.name || sourceKey;
@@ -13351,9 +13366,13 @@ export function App() {
           keywords: [
             "source reference evidence workspace file opened read",
             source.id,
+            source.title,
             source.name,
             source.path,
             source.type,
+            source.reason,
+            source.detail,
+            source.excerpt,
             source.project?.name,
             source.project?.path,
           ].filter(Boolean).join(" "),
@@ -13363,7 +13382,6 @@ export function App() {
 
     const sourceFileCommands = (Array.isArray(state.sourceRefs) ? state.sourceRefs : [])
       .filter((source) => source?.path)
-      .slice(0, 24)
       .map((source) => {
         const sourceKey = sourceRefKey(source);
         const sourcePath = source.path || "";
@@ -13379,9 +13397,13 @@ export function App() {
           keywords: [
             "source file workspace open editor evidence read",
             source.id,
+            source.title,
             source.name,
             source.path,
             source.type,
+            source.reason,
+            source.detail,
+            source.excerpt,
             source.project?.name,
             source.project?.path,
           ].filter(Boolean).join(" "),
@@ -13395,7 +13417,6 @@ export function App() {
 
     const browserEvidenceCommands = (Array.isArray(state.browserVisits) ? state.browserVisits : [])
       .filter((visit) => visit?.id || visit?.url || browserVisitFinalUrl(visit))
-      .slice(0, 24)
       .map((visit) => {
         const visitKey = browserVisitKey(visit);
         const finalUrl = browserVisitFinalUrl(visit);
@@ -13428,7 +13449,6 @@ export function App() {
 
     const browserTimelineCommands = (Array.isArray(state.browserVisits) ? state.browserVisits : [])
       .filter((visit) => visit?.id || visit?.url || browserVisitFinalUrl(visit))
-      .slice(0, 24)
       .map((visit) => {
         const visitKey = browserVisitKey(visit);
         const finalUrl = browserVisitFinalUrl(visit);
