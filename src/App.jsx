@@ -14675,6 +14675,60 @@ export function App() {
       }));
     });
 
+    const capabilityTraceToolNames = (item = {}) => {
+      if (Array.isArray(item.toolDetails) && item.toolDetails.length) {
+        return item.toolDetails.map((tool) => tool?.name).filter(Boolean).join(", ");
+      }
+      if (Array.isArray(item.toolNames)) return item.toolNames.filter(Boolean).join(", ");
+      if (item.toolsSummary) return String(item.toolsSummary || "");
+      return summarizePanelPluginField(item.tools || "");
+    };
+    const capabilityTraceToolCount = (item = {}) => {
+      if (typeof item.tools === "number") return String(item.tools);
+      if (Array.isArray(item.toolDetails)) return String(item.toolDetails.length);
+      if (Array.isArray(item.toolNames)) return String(item.toolNames.length);
+      if (Array.isArray(item.tools)) return String(item.tools.length);
+      return "";
+    };
+    const capabilityTraceSource = (item = {}, kind = "") => {
+      if (kind === "marketplace-source") {
+        return [item.source, item.repo, item.installLocation].filter(Boolean).map((value) => summarizePanelPluginField(value)).join(" ");
+      }
+      return summarizePanelPluginField(item.source || item.repo || item.installLocation || item.installPath || item.detail || "");
+    };
+    const capabilityTraceStatus = (item = {}, kind = "") => {
+      if (kind === "marketplace-plugin") return item.installed ? "installed" : "available";
+      if (kind === "plugin") return item.status || (item.enabled ? "enabled" : "disabled");
+      return item.status || "";
+    };
+    const capabilityTraceEnabled = (item = {}, kind = "") => {
+      if (kind === "marketplace-plugin") return item.installed ? "true" : "false";
+      if (kind === "plugin") return item.enabled ? "true" : "false";
+      return "";
+    };
+    const capabilityTraceAttributes = (kind, action, item = {}, options = {}) => {
+      const id = options.id || item.id || item.name || item.repo || item.source || "";
+      const name = options.name || item.name || id;
+      return {
+        "data-command-capability-kind": String(kind || ""),
+        "data-command-capability-action": String(action || ""),
+        "data-command-capability-id": String(id || ""),
+        "data-command-capability-name": String(name || ""),
+        "data-command-capability-status": String(capabilityTraceStatus(item, kind) || ""),
+        "data-command-capability-enabled": String(capabilityTraceEnabled(item, kind) || ""),
+        "data-command-capability-version": String(item.version && item.version !== "unknown" ? item.version : ""),
+        "data-command-capability-source": String(capabilityTraceSource(item, kind) || ""),
+        "data-command-capability-marketplace": String(item.marketplace || options.marketplace || ""),
+        "data-command-capability-tool-count": capabilityTraceToolCount(item),
+        "data-command-capability-tools": String(capabilityTraceToolNames(item) || ""),
+        "data-command-capability-risk": String(summarizePanelPluginField(item.risk || "")),
+        "data-command-capability-permissions": String(summarizePanelPluginField(item.permissions || item.allowedTools || "")),
+        "data-command-capability-transport": String(item.transport || ""),
+        "data-command-capability-error": String(summarizePanelPluginField(item.error || "")),
+        "data-command-capability-project-path": String(options.projectPath || activeProject?.path || ""),
+      };
+    };
+
     const installedPluginCommands = (Array.isArray(capabilityCommandStatus?.pluginItems) ? capabilityCommandStatus.pluginItems : [])
       .filter((plugin) => plugin?.id || plugin?.name)
       .map((plugin) => {
@@ -14689,6 +14743,8 @@ export function App() {
             plugin.source,
           ].filter(Boolean).join(" · "),
           group: t.capabilities,
+          target: "plugin",
+          dataAttributes: capabilityTraceAttributes("plugin", "open", plugin, { id }),
           keywords: [
             "plugin installed capability claude code tool permissions error",
             plugin.id,
@@ -14725,6 +14781,7 @@ export function App() {
           ].filter(Boolean).join(" · "),
           group: t.capabilities,
           target: "clipboard",
+          dataAttributes: capabilityTraceAttributes("plugin", "copy", plugin, { id }),
           priority: 18,
           keywords: [
             "copy evidence plugin installed capability claude code tool permissions clipboard",
@@ -14915,6 +14972,8 @@ export function App() {
           server.source || server.detail,
         ].filter(Boolean).join(" · "),
         group: t.capabilities,
+        target: "mcp",
+        dataAttributes: capabilityTraceAttributes("mcp", "open", server, { id: server.name, name: server.name }),
         keywords: [
           "mcp server tool capability claude code transport source error",
           server.name,
@@ -14950,6 +15009,7 @@ export function App() {
           ].filter(Boolean).join(" · "),
           group: t.capabilities,
           target: "clipboard",
+          dataAttributes: capabilityTraceAttributes("mcp", "copy", server, { id: server.name, name: server.name }),
           priority: 18,
           keywords: [
             "copy evidence mcp server tool capability claude code transport source clipboard",
@@ -14983,6 +15043,8 @@ export function App() {
           marketplace.repo || marketplace.source || marketplace.installLocation,
         ].filter(Boolean).join(" · "),
         group: t.capabilities,
+        target: "marketplace-source",
+        dataAttributes: capabilityTraceAttributes("marketplace-source", "open", marketplace, { id: marketplace.name, name: marketplace.name }),
         keywords: [
           "marketplace source plugin catalog capability claude code",
           marketplace.name,
@@ -15015,6 +15077,7 @@ export function App() {
           ].filter(Boolean).join(" · "),
           group: t.capabilities,
           target: "clipboard",
+          dataAttributes: capabilityTraceAttributes("marketplace-source", "copy", marketplace, { id: marketplace.name, name: marketplace.name }),
           priority: 18,
           keywords: [
             "copy evidence marketplace source plugin catalog capability claude code clipboard",
@@ -15105,6 +15168,8 @@ export function App() {
             plugin.category,
           ].filter(Boolean).join(" · "),
           group: t.capabilities,
+          target: "marketplace-plugin",
+          dataAttributes: capabilityTraceAttributes("marketplace-plugin", "open", plugin, { id }),
           keywords: [
             "marketplace plugin catalog install capability claude code source permissions risk",
             plugin.id,
@@ -15143,6 +15208,7 @@ export function App() {
           ].filter(Boolean).join(" · "),
           group: t.capabilities,
           target: "clipboard",
+          dataAttributes: capabilityTraceAttributes("marketplace-plugin", "copy", plugin, { id }),
           priority: 18,
           keywords: [
             "copy evidence marketplace plugin catalog install capability claude code source permissions risk clipboard",
@@ -15190,6 +15256,8 @@ export function App() {
             plugin.version && plugin.version !== "unknown" ? `${t.version}: ${plugin.version}` : "",
           ].filter(Boolean).join(" · "),
           group: t.capabilities,
+          target: "marketplace-install",
+          dataAttributes: capabilityTraceAttributes("marketplace-plugin", "install", plugin, { id, projectPath: activeProject?.path || "" }),
           keywords: [
             "marketplace install plugin confirmation risk claude code command palette",
             plugin.id,
