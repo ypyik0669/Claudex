@@ -825,6 +825,7 @@ const copy = {
     browserHistory: "浏览记录",
     browserEvidence: "浏览器证据",
     browserVisitCount: "{count} 条记录",
+    browserBadgeDetail: "浏览记录 {total} · 已加载 {ready} · 加载中 {loading} · 失败 {errors} · 外部打开 {external}",
     browserStatusReady: "已加载",
     browserStatusLoading: "加载中",
     browserStatusError: "失败",
@@ -2379,6 +2380,52 @@ function browserVisitEvidenceText(visit = {}, t) {
   if (visit.isMainFrame) lines.push(`${t.browserMainFrame}: true`);
   if (visit.excerpt) lines.push(`${t.browserExcerpt}: ${visit.excerpt}`);
   return lines.join("\n");
+}
+
+function browserVisitsContextSummary({ browserVisits = [], t } = {}) {
+  const visits = Array.isArray(browserVisits) ? browserVisits.filter((visit) => visit?.url || browserVisitFinalUrl(visit)) : [];
+  const total = visits.length;
+  const ready = visits.filter((visit) => visit.status === "ready").length;
+  const loading = visits.filter((visit) => visit.status === "loading").length;
+  const errors = visits.filter((visit) => visit.status === "error").length;
+  const external = visits.filter((visit) => visit.status === "external" || visit.external).length;
+  const detail = t.browserBadgeDetail
+    .replace("{total}", total)
+    .replace("{ready}", ready)
+    .replace("{loading}", loading)
+    .replace("{errors}", errors)
+    .replace("{external}", external);
+
+  if (errors > 0) {
+    return {
+      status: "error",
+      badge: String(errors),
+      label: String(total),
+      detail,
+    };
+  }
+  if (loading > 0) {
+    return {
+      status: "running",
+      badge: String(loading),
+      label: String(total),
+      detail,
+    };
+  }
+  if (total > 0) {
+    return {
+      status: "info",
+      badge: String(total),
+      label: String(total),
+      detail,
+    };
+  }
+  return {
+    status: "",
+    badge: "",
+    label: "",
+    detail: t.browserNoHistory,
+  };
 }
 
 function noticeLevelLabel(level, t) {
@@ -4572,6 +4619,10 @@ function Conversation({
   }, [runTimelineFocus?.id, runTimelineFocus?.nonce]);
   const activeTaskCount = automationItemsForUi.filter((item) => ["running", "scheduled"].includes(item.status)).length
     + (subagentRuns || []).filter((run) => run.status === "running").length;
+  const browserContext = useMemo(() => browserVisitsContextSummary({
+    browserVisits,
+    t,
+  }), [browserVisits, t]);
   const contextTabs = [
     {
       id: "environment",
@@ -4639,7 +4690,16 @@ function Conversation({
   ];
   const utilityTabs = [
     { id: "terminal", label: t.terminal, icon: SquareTerminal },
-    { id: "browser", label: t.browser, icon: Globe2 },
+    {
+      id: "browser",
+      label: t.browser,
+      icon: Globe2,
+      meta: browserContext.label,
+      titleMeta: browserContext.detail || browserContext.label,
+      ariaMeta: browserContext.detail || browserContext.label,
+      badge: browserContext.badge,
+      status: browserContext.status,
+    },
   ];
   function openConversationBottomPanel(id, options = {}) {
     if (id === "changes" && options.resetGitFocus !== false) {
@@ -5013,6 +5073,7 @@ function Conversation({
                   onClick={(event) => openBottomContextTab(item, event)}
                   role="tab"
                   aria-selected={bottomPanel === id}
+                  aria-label={item.ariaMeta ? `${label}: ${item.ariaMeta}` : item.meta ? `${label}: ${item.meta}` : label}
                   title={item.titleMeta ? `${label} · ${item.titleMeta}` : item.meta ? `${label} · ${item.meta}` : label}
                 >
                   <Icon size={14} />
