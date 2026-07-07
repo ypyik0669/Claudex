@@ -12180,6 +12180,7 @@ export function App() {
   const [ideOptions, setIdeOptions] = useState([]);
   const [selectedIdeId, setSelectedIdeId] = useState("");
   const [runEvents, setRunEvents] = useState(() => state.runEvents || []);
+  const [runTimelineFocus, setRunTimelineFocus] = useState({ id: "", nonce: 0 });
 
   useEffect(() => {
     if (!Array.isArray(state.runEvents)) return;
@@ -13061,6 +13062,11 @@ export function App() {
     const latestGitActionCommandEvent = gitActionCommandEvents[0] || null;
     const latestFailedGitActionCommandEvent = gitActionCommandEvents.find((event) => event.status === "error") || null;
     const latestSuccessfulGitActionCommandEvent = gitActionCommandEvents.find((event) => event.status === "ok") || null;
+    const focusedGitActionCommandEvent = (() => {
+      const focusedId = String(runTimelineFocus?.id || "").trim();
+      if (!focusedId) return null;
+      return gitActionCommandEvents.find((event) => event.id === focusedId || event.requestId === focusedId) || null;
+    })();
     const latestGitActionCommands = [
       gitActionPaletteCommand(latestGitActionCommandEvent, {
         idPrefix: "git-latest-action",
@@ -13080,6 +13086,36 @@ export function App() {
         priority: 58,
         keywords: "successful success ok latest recent git action",
       }),
+      focusedGitActionCommandEvent ? {
+        id: `git-clear-action-focus:${commandIdSegment(focusedGitActionCommandEvent.id)}`,
+        title: `${t.returnToRecentGitAction}: ${t.recentGitAction}`,
+        subtitle: [
+          t.noticeOpenChangesEvidence || t.gitEvidence,
+          focusedGitActionCommandEvent.title,
+          focusedGitActionCommandEvent.commandLine,
+        ].filter(Boolean).join(" · "),
+        group: t.changes,
+        target: "changes",
+        priority: 76,
+        keywords: [
+          "git clear focus return recent latest action changes evidence command palette",
+          t.returnToRecentGitAction,
+          t.focusedGitAction,
+          t.recentGitAction,
+          focusedGitActionCommandEvent.id,
+          focusedGitActionCommandEvent.requestId,
+          focusedGitActionCommandEvent.title,
+          focusedGitActionCommandEvent.detail,
+          focusedGitActionCommandEvent.commandLine,
+          focusedGitActionCommandEvent.cwd,
+          focusedGitActionCommandEvent.project?.name,
+          focusedGitActionCommandEvent.project?.path,
+        ].filter(Boolean).join(" "),
+        action: () => {
+          setRunTimelineFocus({ id: "", nonce: Date.now() });
+          openBottomPanel("changes");
+        },
+      } : null,
     ].filter(Boolean);
 
     const gitFileCommands = (Array.isArray(environment?.git?.files) ? environment.git.files : [])
@@ -14093,7 +14129,7 @@ export function App() {
       ...marketplaceInstallCommands,
       ...marketplacePluginCommands,
     ];
-  }, [state.projects, state.sessions, state.notices, state.sourceRefs, state.browserVisits, state.automations, state.subagentRuns, state.commandRuns, state.runEvents, state.settings?.customMarketplaces, capabilityCommandStatus, runEvents, environment, t, activeProject?.path, activeProject?.name]);
+  }, [state.projects, state.sessions, state.notices, state.sourceRefs, state.browserVisits, state.automations, state.subagentRuns, state.commandRuns, state.runEvents, state.settings?.customMarketplaces, capabilityCommandStatus, runEvents, environment, t, activeProject?.path, activeProject?.name, runTimelineFocus?.id, runTimelineFocus?.nonce]);
 
   async function createAutomation(payload) {
     if (!desktopApi?.createAutomation) return;
@@ -14436,7 +14472,6 @@ export function App() {
   const [sidebarVisible, setSidebarVisible] = useState(true);
   const [rightPanelVisible, setRightPanelVisible] = useState(false);
   const [bottomPanel, setBottomPanel] = useState("");
-  const [runTimelineFocus, setRunTimelineFocus] = useState({ id: "", nonce: 0 });
   const [gitPanelFocus, setGitPanelFocus] = useState({ path: "", hunkId: "", all: false, nonce: 0 });
   const [sourcePanelFocus, setSourcePanelFocus] = useState({ id: "", path: "", nonce: 0 });
   const [browserPanelFocus, setBrowserPanelFocus] = useState({ id: "", url: "", nonce: 0 });
