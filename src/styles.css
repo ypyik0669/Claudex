@@ -6860,7 +6860,8 @@ button.runtime-health-row {
   padding: 7px;
 }
 
-.subagent-artifact-item.focused-subagent-artifact {
+.subagent-artifact-item.focused-subagent-artifact,
+.subagent-artifact-item.focused-run-timeline-artifact {
   border-color: rgba(96, 165, 250, 0.42);
   background: rgba(96, 165, 250, 0.08);
   box-shadow: 0 0 0 1px rgba(96, 165, 250, 0.16);

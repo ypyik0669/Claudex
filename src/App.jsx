@@ -3114,10 +3114,10 @@ function taskCommandArtifactTraceAttributes({ action, run = {}, artifact = {}, i
   };
 }
 
-function runTimelineArtifactTraceAttributes({ action, event = {}, evidence = {}, artifact = {}, index = 0, label = "" }) {
+function runTimelineArtifactRun(event = {}, evidence = {}, artifact = {}) {
   const eventId = runTimelineEventId(event, evidence);
   const projectPath = subagentArtifactProjectPath(artifact, runTimelineProjectPath(event, evidence));
-  const run = {
+  return {
     id: evidence?.subagentRunId || eventId,
     requestId: evidence?.subagentRequestId || eventId,
     status: evidence?.status || event?.status || "",
@@ -3130,9 +3130,21 @@ function runTimelineArtifactTraceAttributes({ action, event = {}, evidence = {},
     endedAt: event?.endedAt || "",
     artifacts: Array.isArray(evidence?.artifacts) ? evidence.artifacts : [],
   };
+}
+
+function runTimelineArtifactTraceAttributes({ action, event = {}, evidence = {}, artifact = {}, index = 0, label = "" }) {
+  const run = runTimelineArtifactRun(event, evidence, artifact);
   return {
     ...runTimelineTraceAttributes(event, evidence),
     ...taskArtifactTraceAttributes({ action, surface: "timeline", run, artifact, index, label }),
+  };
+}
+
+function runTimelineCommandArtifactTraceAttributes({ action, event = {}, evidence = {}, artifact = {}, index = 0, label = "" }) {
+  const run = runTimelineArtifactRun(event, evidence, artifact);
+  return {
+    ...runTimelineTraceAttributes(event, evidence),
+    ...taskCommandArtifactTraceAttributes({ action, run, artifact, index, label }),
   };
 }
 
@@ -5129,6 +5141,19 @@ function Conversation({
         })
       : null
   ), [selectedRunEvent, commandRuns, automationItemsForUi, subagentRuns, browserVisits, sessions, t]);
+  const selectedRunFocusedArtifactIndex = (() => {
+    const focusedId = String(runTimelineFocus?.id || "").trim();
+    const artifactIndex = runTimelineFocus?.artifactIndex === 0
+      ? "0"
+      : String(runTimelineFocus?.artifactIndex ?? "").trim();
+    if (!focusedId || artifactIndex === "" || !selectedRunEvent) return "";
+    const selectedIds = [
+      selectedRunEvent.id,
+      selectedRunEvent.requestId,
+      runTimelineEventId(selectedRunEvent, selectedRunEvidence),
+    ].filter(Boolean).map((value) => String(value).trim());
+    return selectedIds.includes(focusedId) ? artifactIndex : "";
+  })();
   const runTimelineEventsForView = useMemo(() => {
     if (!selectedRunEvent || runTimelineEvents.some((event) => event.id === selectedRunEvent.id)) return runTimelineEvents;
     return [selectedRunEvent, ...runTimelineEvents];
@@ -5852,6 +5877,7 @@ function Conversation({
                       onCopy={onCopy}
                       onOpenWorkspaceFile={onOpenWorkspaceFile}
                       t={t}
+                      focusedArtifactIndex={selectedRunFocusedArtifactIndex}
                     />
                   </div>
                 )}
@@ -7791,7 +7817,7 @@ function NoticeCenter({ notices = [], onDismiss, onClear, onAction, t }) {
   );
 }
 
-function RunEvidenceDetails({ event, evidence, onCopy, onOpenWorkspaceFile, t, pinned = false }) {
+function RunEvidenceDetails({ event, evidence, onCopy, onOpenWorkspaceFile, t, pinned = false, focusedArtifactIndex = "" }) {
   const hasRawEvidence = runTimelineHasEvidence(evidence);
   const typeRaw = runTimelineTypeRaw(event, evidence);
   const typeLabel = runTimelineTypeLabel(event, evidence, t);
@@ -7800,16 +7826,27 @@ function RunEvidenceDetails({ event, evidence, onCopy, onOpenWorkspaceFile, t, p
   const projectPath = runTimelineProjectPath(event, evidence);
   const evidenceSourceLabel = runTimelineEvidenceSourceLabel(evidence, t);
   const traceAttributes = runTimelineTraceAttributes(event, evidence);
+  const normalizedFocusedArtifactIndex = String(focusedArtifactIndex ?? "").trim();
   const primaryOutputLabel = evidence?.source === "browser" ? t.browserEvidence : t.commandStdout;
   const secondaryOutputLabel = evidence?.source === "browser" ? t.requestError : t.commandStderr;
   const [copiedRunEvidence, setCopiedRunEvidence] = useState(false);
   const copiedRunEvidenceTimer = useRef(null);
+  const evidenceRef = useRef(null);
   useEffect(() => () => {
     if (copiedRunEvidenceTimer.current) window.clearTimeout(copiedRunEvidenceTimer.current);
   }, []);
   useEffect(() => {
     setCopiedRunEvidence(false);
   }, [event?.id]);
+  useEffect(() => {
+    if (!normalizedFocusedArtifactIndex) return undefined;
+    const timer = window.setTimeout(() => {
+      evidenceRef.current
+        ?.querySelector(".focused-run-timeline-artifact")
+        ?.scrollIntoView?.({ block: "center", behavior: "smooth" });
+    }, 80);
+    return () => window.clearTimeout(timer);
+  }, [eventId, normalizedFocusedArtifactIndex, pinned]);
   async function copyRunArtifact(artifact, index) {
     await onCopy?.(subagentArtifactEvidenceText(artifact, index, t));
   }
@@ -7830,7 +7867,7 @@ function RunEvidenceDetails({ event, evidence, onCopy, onOpenWorkspaceFile, t, p
   }
 
   return (
-    <div className={cx("run-timeline-evidence", pinned && "pinned-run-evidence-body")} aria-label={t.timelineEvidence} {...traceAttributes}>
+    <div ref={evidenceRef} className={cx("run-timeline-evidence", pinned && "pinned-run-evidence-body")} aria-label={t.timelineEvidence} {...traceAttributes}>
       {hasRawEvidence ? (
         <>
           <dl className="run-timeline-evidence-meta">
@@ -7896,11 +7933,18 @@ function RunEvidenceDetails({ event, evidence, onCopy, onOpenWorkspaceFile, t, p
                   const label = subagentArtifactLabel(artifact, index, t);
                   const content = subagentArtifactContent(artifact);
                   const openable = isOpenableSubagentArtifact(artifact);
+                  const isFocusedArtifact = Boolean(
+                    normalizedFocusedArtifactIndex !== "" &&
+                    String(index) === normalizedFocusedArtifactIndex,
+                  );
                   return (
                     <article
-                      className="subagent-artifact-item"
+                      className={cx("subagent-artifact-item", isFocusedArtifact && "focused-run-timeline-artifact")}
                       key={`${label}-${index}`}
                       data-run-timeline-artifact-index={index}
+                      data-run-timeline-artifact-focused={isFocusedArtifact ? "true" : "false"}
+                      aria-current={isFocusedArtifact ? "true" : undefined}
+                      {...runTimelineArtifactTraceAttributes({ action: "artifact-focus", event, evidence, artifact, index, label })}
                     >
                       <div className="subagent-artifact-head">
                         <code title={artifact?.path || artifact?.type || label}>{label}</code>
@@ -7963,7 +8007,7 @@ function RunEvidenceDetails({ event, evidence, onCopy, onOpenWorkspaceFile, t, p
   );
 }
 
-function SelectedRunEvidencePanel({ event, evidence, recoveryActions = [], onCopy, onOpenWorkspaceFile, t }) {
+function SelectedRunEvidencePanel({ event, evidence, recoveryActions = [], onCopy, onOpenWorkspaceFile, t, focusedArtifactIndex = "" }) {
   if (!event || !evidence) return null;
   const traceAttributes = runTimelineTraceAttributes(event, evidence);
   return (
@@ -7999,7 +8043,15 @@ function SelectedRunEvidencePanel({ event, evidence, recoveryActions = [], onCop
           )}
         </div>
       </div>
-      <RunEvidenceDetails event={event} evidence={evidence} onCopy={onCopy} onOpenWorkspaceFile={onOpenWorkspaceFile} t={t} pinned />
+      <RunEvidenceDetails
+        event={event}
+        evidence={evidence}
+        onCopy={onCopy}
+        onOpenWorkspaceFile={onOpenWorkspaceFile}
+        t={t}
+        pinned
+        focusedArtifactIndex={focusedArtifactIndex}
+      />
     </section>
   );
 }
@@ -15322,6 +15374,20 @@ export function App() {
             artifactPath || artifact?.type,
             artifactProjectPath ? compactPath(artifactProjectPath, 56) : "",
           ].filter(Boolean).join(" · ");
+          const timelineRunId = run.requestId || run.id || runKey;
+          const timelineEvent = fallbackRunEventForId(timelineRunId, { subagentRuns: [run], t }) || {
+            id: timelineRunId,
+            type: "subagent",
+            status: subagentRunTimelineStatus(run),
+            title: `${t.subagents}: ${run.nickname || "Subagent"}`,
+            detail: run.summary || run.stderr || messageExcerpt(run.task, 120),
+            createdAt: run.endedAt || run.startedAt || new Date().toISOString(),
+            project: run.project,
+            sessionId: run.sessionId || "",
+            code: typeof run.code === "number" ? run.code : null,
+            durationMs: typeof run.durationMs === "number" ? run.durationMs : null,
+          };
+          const timelineEvidence = runTimelineEvidenceForEvent(timelineEvent, { subagentRuns: [run], sessions: state.sessions, t });
           const commands = [{
             id: `subagent-artifact:${commandIdSegment(runKey)}:${index}`,
             title: `${t.taskCenter}: ${label}`,
@@ -15343,6 +15409,23 @@ export function App() {
               expandArtifacts: true,
               artifactIndex: index,
             }),
+          }, {
+            id: `subagent-artifact-timeline:${commandIdSegment(runKey)}:${index}`,
+            title: `${t.openRunTimeline}: ${label}`,
+            subtitle,
+            group: t.bottomPanel,
+            target: "timeline",
+            priority: 14,
+            dataAttributes: runTimelineCommandArtifactTraceAttributes({
+              action: "artifact-focus",
+              event: timelineEvent,
+              evidence: timelineEvidence,
+              artifact,
+              index,
+              label,
+            }),
+            keywords: `${searchable} run timeline output evidence artifact 时间线 输出 证据 产物`,
+            action: () => openRunTimeline(timelineRunId, { artifactIndex: index }),
           }, {
             id: `subagent-artifact-copy:${commandIdSegment(runKey)}:${index}`,
             title: `${t.copySubagentArtifact}: ${label}`,
@@ -16593,9 +16676,13 @@ export function App() {
     setBottomPanel(id);
   }
 
-  function openRunTimeline(eventId = "") {
+  function openRunTimeline(eventId = "", options = {}) {
     const focusedId = String(eventId || "").trim();
-    setRunTimelineFocus({ id: focusedId, nonce: Date.now() });
+    setRunTimelineFocus({
+      id: focusedId,
+      artifactIndex: options.artifactIndex === 0 ? "0" : String(options.artifactIndex ?? "").trim(),
+      nonce: Date.now(),
+    });
     openBottomPanel("outputs");
   }
 
