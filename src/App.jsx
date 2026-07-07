@@ -6805,6 +6805,7 @@ function SubagentWorkbench({
   const focusedTaskOptions = (externalFocusedAutomationId || externalFocusedSubagentId) ? focus : localTaskFocus || {};
   const focusedTaskFilter = ["all", "active", "failed", "archived"].includes(focus?.filter) ? focus.filter : "";
   const focusedAutomationHistoryRunId = String(focusedTaskOptions?.historyRunId || focusedTaskOptions?.runId || "").trim();
+  const focusedSubagentArtifactIndex = String(focusedTaskOptions?.artifactIndex ?? "").trim();
   const automationItems = Array.isArray(automations) ? automations : [];
   const taskFailures = taskCenterFailureBuckets(automationItems, activeRuns);
   const failedAutomationItems = taskFailures.automationFailures;
@@ -6979,10 +6980,11 @@ function SubagentWorkbench({
     if (!id) return undefined;
     const timer = window.setTimeout(() => {
       const historyRun = document.querySelector(".focused-task-card .focused-automation-history-run");
-      (historyRun || document.querySelector(".focused-task-card"))?.scrollIntoView?.({ block: "center", behavior: "smooth" });
+      const artifact = document.querySelector(".focused-task-card .focused-subagent-artifact");
+      (historyRun || artifact || document.querySelector(".focused-task-card"))?.scrollIntoView?.({ block: "center", behavior: "smooth" });
     }, 80);
     return () => window.clearTimeout(timer);
-  }, [focusedAutomationId, focusedSubagentId, focusedAutomationHistoryRunId, focus?.nonce, localTaskFocus?.nonce, showArchivedRuns]);
+  }, [focusedAutomationId, focusedSubagentId, focusedAutomationHistoryRunId, focusedSubagentArtifactIndex, focus?.nonce, localTaskFocus?.nonce, showArchivedRuns]);
 
   return (
     <div className="subagent-workbench">
@@ -7329,7 +7331,7 @@ function SubagentWorkbench({
         {visibleRuns.map((run) => {
           const isFocusedRun = focusedSubagentId === run.id || focusedSubagentId === run.requestId;
           const openFocusedEvidence = Boolean(isFocusedRun && focusedTaskOptions?.expandEvidence);
-          const openFocusedArtifacts = Boolean(isFocusedRun && focusedTaskOptions?.expandArtifacts);
+          const openFocusedArtifacts = Boolean(isFocusedRun && (focusedTaskOptions?.expandArtifacts || focusedSubagentArtifactIndex));
           return (
           <article
             className={cx("subagent-run-card", run.status, run.archivedAt && "archived", isFocusedRun && "focused-task-card")}
@@ -7384,11 +7386,19 @@ function SubagentWorkbench({
                         const label = subagentArtifactLabel(artifact, index, t);
                         const content = subagentArtifactContent(artifact);
                         const openable = isOpenableSubagentArtifact(artifact);
+                        const isFocusedArtifact = Boolean(
+                          isFocusedRun &&
+                          focusedSubagentArtifactIndex !== "" &&
+                          String(index) === focusedSubagentArtifactIndex,
+                        );
                         return (
                           <article
-                            className="subagent-artifact-item"
+                            className={cx("subagent-artifact-item", isFocusedArtifact && "focused-subagent-artifact")}
                             key={`${label}-${index}`}
                             data-subagent-artifact-index={index}
+                            data-subagent-artifact-focused={isFocusedArtifact ? "true" : "false"}
+                            aria-current={isFocusedArtifact ? "true" : undefined}
+                            {...taskArtifactTraceAttributes({ action: "artifact-focus", run, artifact, index, label })}
                           >
                             <div className="subagent-artifact-head">
                               <code title={artifact?.path || artifact?.type || label}>{label}</code>
@@ -15313,6 +15323,27 @@ export function App() {
             artifactProjectPath ? compactPath(artifactProjectPath, 56) : "",
           ].filter(Boolean).join(" · ");
           const commands = [{
+            id: `subagent-artifact:${commandIdSegment(runKey)}:${index}`,
+            title: `${t.taskCenter}: ${label}`,
+            subtitle,
+            group: t.taskCenter,
+            target: "subagent",
+            priority: 15,
+            dataAttributes: taskCommandArtifactTraceAttributes({
+              action: "artifact-focus",
+              run,
+              artifact,
+              index,
+              label,
+            }),
+            keywords: searchable,
+            action: () => openTaskCenterFocus("subagent", runKey, {
+              filter: taskCenterFilterForSubagent(run),
+              expandEvidence: true,
+              expandArtifacts: true,
+              artifactIndex: index,
+            }),
+          }, {
             id: `subagent-artifact-copy:${commandIdSegment(runKey)}:${index}`,
             title: `${t.copySubagentArtifact}: ${label}`,
             subtitle,
@@ -16740,6 +16771,7 @@ export function App() {
       expandArtifacts: Boolean(options.expandArtifacts),
       expandHistory: Boolean(options.expandHistory),
       historyRunId: String(options.historyRunId || options.runId || "").trim(),
+      artifactIndex: options.artifactIndex === 0 ? "0" : String(options.artifactIndex || "").trim(),
       nonce: Date.now(),
     });
     setBottomPanel("subagents");
