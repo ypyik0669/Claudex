@@ -2251,6 +2251,12 @@ function subagentRunEvidenceText(run = {}, t) {
   return lines.filter((line, index) => index < 12 || String(line || "").trim()).join("\n");
 }
 
+function subagentNeedsRecovery(run = {}) {
+  return Boolean(run?.id || run?.requestId)
+    && run?.status !== "running"
+    && ["error", "failed", "cancelled"].includes(run?.status);
+}
+
 function upsertSubagentRunForUi(runs = [], run) {
   if (!run?.id) return runs;
   return [run, ...runs.filter((item) => item.id !== run.id)].slice(0, 40);
@@ -5456,6 +5462,87 @@ function AutomationRecoveryStrip({
   );
 }
 
+function SubagentRecoveryStrip({
+  run,
+  surface,
+  copied = false,
+  onRetry,
+  onContinue,
+  onCopyEvidence,
+  onOpenTimeline,
+  t,
+}) {
+  if (!subagentNeedsRecovery(run)) return null;
+  const runId = run.id || run.requestId || "";
+  const timelineId = run.requestId || run.id || "";
+  const projectPath = run.project?.path || run.cwd || "";
+  const detail = run.summary || run.stderr || messageExcerpt(run.task, 150) || t.subagentFailed;
+  return (
+    <div
+      className="subagent-recovery-strip"
+      data-subagent-recovery-surface={surface}
+      data-subagent-run-id={runId}
+      data-subagent-request-id={run.requestId || ""}
+      aria-label={t.errorActions}
+    >
+      <div className="subagent-recovery-copy">
+        <span>{t.errorActions}</span>
+        <strong>{subagentStatusLabel(run.status, t)}</strong>
+        <p>{messageExcerpt(detail, 150)}</p>
+        <small>
+          {projectPath ? compactPath(projectPath, 64) : projectLabel(run.project, t)}
+          {runId ? ` · ${t.subagentRunId}: ${runId}` : ""}
+        </small>
+      </div>
+      <div className="subagent-recovery-actions">
+        <button
+          type="button"
+          className="plain-action subtle-action"
+          data-subagent-recovery-action="retry"
+          onClick={onRetry}
+          title={t.retrySubagent}
+        >
+          <RefreshCw size={12} />
+          {t.retrySubagent}
+        </button>
+        <button
+          type="button"
+          className="plain-action subtle-action"
+          data-subagent-recovery-action="continue"
+          onClick={onContinue}
+          disabled={Boolean(run.continuedAt)}
+          title={run.continuedAt ? t.subagentContinuedShort : t.continueSubagent}
+        >
+          <MessageSquarePlus size={12} />
+          {run.continuedAt ? t.subagentContinuedShort : t.continueSubagent}
+        </button>
+        <button
+          type="button"
+          className="plain-action subtle-action"
+          data-subagent-recovery-action="copy-evidence"
+          onClick={onCopyEvidence}
+          title={copied ? t.copiedSubagentEvidence : t.copySubagentEvidence}
+        >
+          {copied ? <Check size={12} /> : <Copy size={12} />}
+          {copied ? t.copiedSubagentEvidence : t.copySubagentEvidence}
+        </button>
+        {timelineId && (
+          <button
+            type="button"
+            className="plain-action subtle-action"
+            data-subagent-recovery-action="timeline"
+            onClick={onOpenTimeline}
+            title={t.openRunTimeline}
+          >
+            <FileText size={12} />
+            {t.openRunTimeline}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function SubagentWorkbench({
   runs = [],
   automations = [],
@@ -6024,6 +6111,19 @@ function SubagentWorkbench({
                 )}
               </div>
             )}
+            <SubagentRecoveryStrip
+              run={run}
+              surface="task-center"
+              copied={copiedSubagentRunId === (run.id || run.requestId)}
+              onRetry={() => onRunSubagent?.(run.task, run.nickname || "Subagent", {
+                projectPath: run.project?.path || run.cwd || "",
+                sessionId: run.sessionId || "",
+              })}
+              onContinue={() => onContinueSubagent?.(run)}
+              onCopyEvidence={() => copySubagentEvidence(run)}
+              onOpenTimeline={() => onOpenRunTimeline?.(run.requestId || run.id)}
+              t={t}
+            />
             <div className="subagent-run-foot">
               <span>{formatDate(run.endedAt || run.startedAt)}</span>
               {typeof run.durationMs === "number" && run.durationMs > 0 && <span>{formatDurationMs(run.durationMs)}</span>}
@@ -12612,7 +12712,7 @@ export function App() {
       });
 
     const subagentRecoveryCommands = subagentRunsForCommands
-      .filter((run) => (run?.id || run?.requestId) && run?.status !== "running" && ["error", "failed", "cancelled"].includes(run?.status))
+      .filter(subagentNeedsRecovery)
       .slice(0, 16)
       .flatMap((run) => {
         const runKey = run.id || run.requestId;
