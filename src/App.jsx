@@ -12643,6 +12643,7 @@ export function App() {
   const [commandsOpen, setCommandsOpen] = useState(false);
   const [scheduledOpen, setScheduledOpen] = useState(false);
   const [selectedTool, setSelectedTool] = useState("");
+  const rightPanelRestoreFocusRef = useRef(null);
   const [draft, setDraft] = useState("");
   const [toast, setToast] = useState("");
   const [loadError, setLoadError] = useState("");
@@ -15605,15 +15606,45 @@ export function App() {
     setProjectsOpen(false);
     setScheduledOpen(false);
     setCommandsOpen(false);
+    if (!rightPanelVisible) rememberRightPanelFocus();
     setRightPanelVisible(true);
     setSelectedTool(tool);
   }
 
+  function rememberRightPanelFocus() {
+    const activeElement = document.activeElement;
+    if (
+      activeElement instanceof HTMLElement &&
+      !activeElement.closest(".tools-panel")
+    ) {
+      rightPanelRestoreFocusRef.current = activeElement;
+    }
+  }
+
+  function restoreRightPanelFocus() {
+    const restoreTarget = rightPanelRestoreFocusRef.current;
+    if (restoreTarget?.isConnected && typeof restoreTarget.focus === "function") {
+      window.setTimeout(() => restoreTarget.focus({ preventScroll: true }), 0);
+    }
+  }
+
+  function openRightPanel(defaultTool = "workspace") {
+    rememberRightPanelFocus();
+    if (defaultTool && !selectedTool) setSelectedTool(defaultTool);
+    setRightPanelVisible(true);
+  }
+
+  function closeRightPanel(options = {}) {
+    setRightPanelVisible(false);
+    if (options.restoreFocus !== false) restoreRightPanelFocus();
+  }
+
   function toggleRightPanel() {
-    setRightPanelVisible((visible) => {
-      if (!visible && !selectedTool) setSelectedTool("workspace");
-      return !visible;
-    });
+    if (rightPanelVisible) {
+      closeRightPanel();
+      return;
+    }
+    openRightPanel("workspace");
   }
 
   useEffect(() => {
@@ -15977,7 +16008,7 @@ export function App() {
           onBrowserVisits={(browserVisits) => setState((current) => ({ ...current, browserVisits }))}
           browserOpenRequest={browserOpenRequest}
           workspaceOpenRequest={workspaceOpenRequest}
-          onClose={() => setRightPanelVisible(false)}
+          onClose={closeRightPanel}
           t={t}
         />
         )}
