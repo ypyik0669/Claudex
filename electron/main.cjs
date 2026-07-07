@@ -738,6 +738,8 @@ function normalizeRunEvent(item, store) {
     detail: String(item?.detail || ""),
     commandLine: String(item?.commandLine || ""),
     cwd: String(item?.cwd || project?.path || ""),
+    path: slashPath(String(item?.path || "")),
+    action: String(item?.action || ""),
     code: typeof item?.code === "number" ? item.code : null,
     durationMs: typeof item?.durationMs === "number" ? item.durationMs : null,
     stdout: String(item?.stdout || ""),
