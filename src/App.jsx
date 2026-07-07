@@ -936,6 +936,8 @@ const copy = {
     gitPushUnavailableNoUpstream: "无 upstream，先在终端设置远端。",
     gitActionRunning: "Git 操作中",
     recentGitAction: "最近 Git 操作",
+    recentFailedGitAction: "最近失败 Git 操作",
+    recentSuccessfulGitAction: "最近成功 Git 操作",
     gitActionEvidenceHint: "来自 run timeline / workspace command 的本地证据",
     gitCommitHash: "Commit",
     gitPushResult: "Push",
@@ -4467,9 +4469,18 @@ function Conversation({
     browserVisits,
     t,
   }), [runEvents, commandRuns, automationItemsForUi, subagentRuns, browserVisits, t]);
+  const focusedGitActionEvent = useMemo(() => {
+    const focusedId = String(runTimelineFocus?.id || "").trim();
+    if (!focusedId) return null;
+    return (runTimelineEvents || [])
+      .find((event) => event.id === focusedId && event.type === "git-command" && event.status !== "running")
+      || null;
+  }, [runTimelineEvents, runTimelineFocus?.id, runTimelineFocus?.nonce]);
   const latestGitActionEvent = useMemo(() => (
-    (runTimelineEvents || []).find((event) => event.type === "git-command" && event.status !== "running") || null
-  ), [runTimelineEvents]);
+    focusedGitActionEvent
+    || (runTimelineEvents || []).find((event) => event.type === "git-command" && event.status !== "running")
+    || null
+  ), [focusedGitActionEvent, runTimelineEvents]);
   const latestGitActionRun = latestGitActionEvent ? findCommandRunForEvent(latestGitActionEvent, commandRuns) : null;
   const latestGitActionEvidence = useMemo(() => gitLatestActionEvidenceText({
     event: latestGitActionEvent,
@@ -12964,75 +12975,95 @@ export function App() {
         };
       });
 
-    const latestGitActionCommandEvent = (commandPaletteTimelineEvents || [])
-      .find((event) => event?.id && event.type === "git-command" && event.status !== "running");
-    const latestGitActionCommandRun = latestGitActionCommandEvent
-      ? findCommandRunForEvent(latestGitActionCommandEvent, state.commandRuns)
-      : null;
-    const latestGitActionCommandLine = String(
-      latestGitActionCommandEvent?.commandLine
-      || latestGitActionCommandRun?.commandLine
-      || latestGitActionCommandRun?.command
-      || "",
-    ).trim();
-    const latestGitActionCommandCwd = String(
-      latestGitActionCommandEvent?.cwd
-      || latestGitActionCommandRun?.cwd
-      || latestGitActionCommandRun?.project?.path
-      || latestGitActionCommandEvent?.project?.path
-      || "",
-    ).trim();
-    const latestGitActionCommandCode = typeof latestGitActionCommandEvent?.code === "number"
-      ? latestGitActionCommandEvent.code
-      : typeof latestGitActionCommandRun?.code === "number"
-        ? latestGitActionCommandRun.code
-        : null;
-    const latestGitActionCommandOutput = [
-      latestGitActionCommandEvent?.stdout,
-      latestGitActionCommandEvent?.stderr,
-      latestGitActionCommandRun?.stdout,
-      latestGitActionCommandRun?.stderr,
-    ].filter(Boolean).join("\n");
-    const latestGitActionCommands = latestGitActionCommandEvent
-      ? [{
-          id: `git-latest-action:${commandIdSegment(latestGitActionCommandEvent.id)}`,
-          title: `${t.recentGitAction}: ${latestGitActionCommandEvent.title || "Git"}`,
-          subtitle: [
-            t.noticeOpenChangesEvidence || t.gitEvidence,
-            runTimelineStatusLabel(latestGitActionCommandEvent.status, t),
-            latestGitActionCommandLine,
-            latestGitActionCommandCwd,
-            typeof latestGitActionCommandCode === "number" ? `${t.commandExit}: ${latestGitActionCommandCode}` : "",
-          ].filter(Boolean).join(" · "),
-          group: t.changes,
-          target: "changes",
-          priority: 64,
-          keywords: [
-            "git latest recent action failure failed error changes evidence command palette status stdout stderr",
-            t.recentGitAction,
-            t.noticeOpenChangesEvidence,
-            t.gitEvidence,
-            latestGitActionCommandEvent.id,
-            latestGitActionCommandEvent.type,
-            latestGitActionCommandEvent.status,
-            latestGitActionCommandEvent.title,
-            latestGitActionCommandEvent.detail,
-            latestGitActionCommandLine,
-            latestGitActionCommandCwd,
-            latestGitActionCommandCode,
-            latestGitActionCommandEvent.project?.name,
-            latestGitActionCommandEvent.project?.path,
-            latestGitActionCommandRun?.id,
-            latestGitActionCommandRun?.requestId,
-            latestGitActionCommandRun?.kind,
-            latestGitActionCommandOutput,
-          ].filter(Boolean).join(" "),
-          action: () => {
-            setRunTimelineFocus({ id: latestGitActionCommandEvent.id, nonce: Date.now() });
-            openBottomPanel("changes");
-          },
-        }]
-      : [];
+    const gitActionCommandEvents = (commandPaletteTimelineEvents || [])
+      .filter((event) => event?.id && event.type === "git-command" && event.status !== "running");
+    const gitActionPaletteCommand = (event, {
+      idPrefix,
+      label,
+      priority = 64,
+      keywords = "",
+    }) => {
+      if (!event) return null;
+      const run = findCommandRunForEvent(event, state.commandRuns);
+      const commandLine = String(event?.commandLine || run?.commandLine || run?.command || "").trim();
+      const cwd = String(event?.cwd || run?.cwd || run?.project?.path || event?.project?.path || "").trim();
+      const code = typeof event?.code === "number"
+        ? event.code
+        : typeof run?.code === "number"
+          ? run.code
+          : null;
+      const output = [
+        event?.stdout,
+        event?.stderr,
+        run?.stdout,
+        run?.stderr,
+      ].filter(Boolean).join("\n");
+      return {
+        id: `${idPrefix}:${commandIdSegment(event.id)}`,
+        title: `${label}: ${event.title || "Git"}`,
+        subtitle: [
+          t.noticeOpenChangesEvidence || t.gitEvidence,
+          runTimelineStatusLabel(event.status, t),
+          commandLine,
+          cwd,
+          typeof code === "number" ? `${t.commandExit}: ${code}` : "",
+        ].filter(Boolean).join(" · "),
+        group: t.changes,
+        target: "changes",
+        priority,
+        keywords: [
+          "git latest recent action changes evidence command palette status stdout stderr",
+          keywords,
+          label,
+          t.recentGitAction,
+          t.recentFailedGitAction,
+          t.recentSuccessfulGitAction,
+          t.noticeOpenChangesEvidence,
+          t.gitEvidence,
+          event.id,
+          event.type,
+          event.status,
+          event.title,
+          event.detail,
+          commandLine,
+          cwd,
+          code,
+          event.project?.name,
+          event.project?.path,
+          run?.id,
+          run?.requestId,
+          run?.kind,
+          output,
+        ].filter(Boolean).join(" "),
+        action: () => {
+          setRunTimelineFocus({ id: event.id, nonce: Date.now() });
+          openBottomPanel("changes");
+        },
+      };
+    };
+    const latestGitActionCommandEvent = gitActionCommandEvents[0] || null;
+    const latestFailedGitActionCommandEvent = gitActionCommandEvents.find((event) => event.status === "error") || null;
+    const latestSuccessfulGitActionCommandEvent = gitActionCommandEvents.find((event) => event.status === "ok") || null;
+    const latestGitActionCommands = [
+      gitActionPaletteCommand(latestGitActionCommandEvent, {
+        idPrefix: "git-latest-action",
+        label: t.recentGitAction,
+        priority: 64,
+        keywords: "latest recent git action",
+      }),
+      gitActionPaletteCommand(latestFailedGitActionCommandEvent, {
+        idPrefix: "git-latest-failed-action",
+        label: t.recentFailedGitAction,
+        priority: 72,
+        keywords: "failed failure error latest recent git action",
+      }),
+      gitActionPaletteCommand(latestSuccessfulGitActionCommandEvent, {
+        idPrefix: "git-latest-successful-action",
+        label: t.recentSuccessfulGitAction,
+        priority: 58,
+        keywords: "successful success ok latest recent git action",
+      }),
+    ].filter(Boolean);
 
     const gitFileCommands = (Array.isArray(environment?.git?.files) ? environment.git.files : [])
       .filter((file) => file?.path || file?.previousPath)
