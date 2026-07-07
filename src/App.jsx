@@ -6934,6 +6934,7 @@ function SubagentRecoveryStrip({
   run,
   surface,
   copied = false,
+  focusedAction = "",
   onRetry,
   onContinue,
   onCopyEvidence,
@@ -6975,6 +6976,7 @@ function SubagentRecoveryStrip({
           className="plain-action subtle-action"
           data-subagent-recovery-action="retry"
           {...recoveryTrace("retry")}
+          {...taskActionFocusAttributes(focusedAction === "retry")}
           onClick={onRetry}
           title={t.retrySubagent}
         >
@@ -6986,6 +6988,7 @@ function SubagentRecoveryStrip({
           className="plain-action subtle-action"
           data-subagent-recovery-action="continue"
           {...recoveryTrace("continue")}
+          {...taskActionFocusAttributes(focusedAction === "continue")}
           onClick={onContinue}
           disabled={Boolean(run.continuedAt)}
           title={run.continuedAt ? t.subagentContinuedShort : t.continueSubagent}
@@ -6998,6 +7001,7 @@ function SubagentRecoveryStrip({
           className="plain-action subtle-action"
           data-subagent-recovery-action="copy-evidence"
           {...recoveryTrace("copy-evidence")}
+          {...taskActionFocusAttributes(focusedAction === "copy-evidence")}
           onClick={onCopyEvidence}
           title={copied ? t.copiedSubagentEvidence : t.copySubagentEvidence}
         >
@@ -7010,6 +7014,7 @@ function SubagentRecoveryStrip({
             className="plain-action subtle-action"
             data-subagent-recovery-action="timeline"
             {...recoveryTrace("timeline")}
+            {...taskActionFocusAttributes(focusedAction === "timeline")}
             onClick={onOpenTimeline}
             title={t.openRunTimeline}
           >
@@ -7726,6 +7731,7 @@ function SubagentWorkbench({
               run={run}
               surface="task-center"
               copied={copiedSubagentRunId === (run.id || run.requestId)}
+              focusedAction={isFocusedRun ? focusedTaskAction : ""}
               onRetry={() => onRunSubagent?.(run.task, run.nickname || "Subagent", {
                 projectPath: run.project?.path || run.cwd || "",
                 sessionId: run.sessionId || "",
@@ -16209,13 +16215,12 @@ export function App() {
             dataAttributes: taskTraceAttributes({ kind: "subagent", action: "retry", item: run, id: runKey, runId, filter: "failed" }),
             priority: 18,
             keywords: recoveryKeywords,
-            action: () => {
-              openTaskCenterFocus("subagent", runKey, { filter: "failed", expandEvidence: true, expandArtifacts: true });
-              void runSubagent(run.task, run.nickname || "Subagent", {
-                projectPath,
-                sessionId: run.sessionId || "",
-              });
-            },
+            action: () => openTaskCenterFocus("subagent", runKey, {
+              filter: "failed",
+              expandEvidence: true,
+              expandArtifacts: true,
+              action: "retry",
+            }),
           },
           !run.continuedAt && {
             id: `subagent-recovery:continue:${commandIdSegment(runKey)}`,
@@ -16226,10 +16231,12 @@ export function App() {
             dataAttributes: taskTraceAttributes({ kind: "subagent", action: "continue", item: run, id: runKey, runId, filter: "failed" }),
             priority: 17,
             keywords: recoveryKeywords,
-            action: () => {
-              openTaskCenterFocus("subagent", runKey, { filter: "failed", expandEvidence: true, expandArtifacts: true });
-              void continueSubagent(run);
-            },
+            action: () => openTaskCenterFocus("subagent", runKey, {
+              filter: "failed",
+              expandEvidence: true,
+              expandArtifacts: true,
+              action: "continue",
+            }),
           },
           {
             id: `subagent-recovery:copy:${commandIdSegment(runKey)}`,

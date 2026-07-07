@@ -373,8 +373,58 @@ async function runTest() {
     })();
   `, 5000));
 
+  assertStep("PASS175_OPEN_PALETTE_QUERY_SUBAGENT_CONTINUE", await openPaletteAndQuery(win, "continue pass175 failed subagent recovery command"));
+  assertStep("PASS175_CLICK_SUBAGENT_CONTINUE", await clickCommand(win, "subagent-recovery:continue:pass175-subagent-run"));
+  assertStep("PASS175_SUBAGENT_CONTINUE_COMMAND_FOCUSED", await waitFor(win, `
+    (async function() {
+      const state = await window.claudexDesktop.getState();
+      const original = (state.subagentRuns || []).find((item) => item.id === 'pass175-subagent-run');
+      const card = document.querySelector('.subagent-run-card.focused-task-card[data-subagent-run-id="pass175-subagent-run"]');
+      const button = card?.querySelector('[data-subagent-recovery-action="continue"]');
+      return Boolean(
+        original &&
+        !original.continuedAt &&
+        card &&
+        button &&
+        button.getAttribute('data-task-action-focused') === 'true' &&
+        button.getAttribute('data-task-kind') === 'subagent' &&
+        button.getAttribute('data-task-action') === 'continue' &&
+        button.getAttribute('data-task-id') === 'pass175-subagent-run' &&
+        !button.disabled
+      );
+    })();
+  `, 10000));
+
   assertStep("PASS175_OPEN_PALETTE_QUERY_SUBAGENT_RETRY", await openPaletteAndQuery(win, "retry pass175 failed subagent recovery command"));
   assertStep("PASS175_CLICK_SUBAGENT_RETRY", await clickCommand(win, "subagent-recovery:retry:pass175-subagent-run"));
+  assertStep("PASS175_SUBAGENT_RETRY_COMMAND_FOCUSED", await waitFor(win, `
+    (async function() {
+      const state = await window.claudexDesktop.getState();
+      const retried = (state.subagentRuns || []).find((item) =>
+        item.id !== 'pass175-subagent-run' &&
+        item.task === 'pass175 failed subagent recovery command task'
+      );
+      const card = document.querySelector('.subagent-run-card.focused-task-card[data-subagent-run-id="pass175-subagent-run"]');
+      const button = card?.querySelector('[data-subagent-recovery-action="retry"]');
+      return Boolean(
+        !retried &&
+        card &&
+        button &&
+        button.getAttribute('data-task-action-focused') === 'true' &&
+        button.getAttribute('data-task-kind') === 'subagent' &&
+        button.getAttribute('data-task-action') === 'retry' &&
+        button.getAttribute('data-task-id') === 'pass175-subagent-run'
+      );
+    })();
+  `, 10000));
+  assertStep("PASS175_CLICK_SUBAGENT_RETRY_BUTTON", await win.webContents.executeJavaScript(`
+    (function() {
+      const button = document.querySelector('.subagent-run-card[data-subagent-run-id="pass175-subagent-run"] [data-subagent-recovery-action="retry"]');
+      if (!button || button.disabled) return false;
+      button.click();
+      return true;
+    })();
+  `));
   assertStep("PASS175_SUBAGENT_RETRY_USES_ORIGINAL_PROJECT", await waitFor(win, `
     (async function() {
       const state = await window.claudexDesktop.getState();
