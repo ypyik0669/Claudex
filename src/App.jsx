@@ -11855,6 +11855,8 @@ function commandMatchScore(command, query) {
   return score;
 }
 
+const COMMAND_PALETTE_VISIBLE_LIMIT = 80;
+
 function CommandPalette({ commands, t, onClose }) {
   const [commandQuery, setCommandQuery] = useState("");
   const inputRef = useRef(null);
@@ -11866,6 +11868,7 @@ function CommandPalette({ commands, t, onClose }) {
     .filter((item) => item.score > 0)
     .sort((a, b) => b.score - a.score || a.index - b.index)
     .map((item) => item.command);
+  const visibleCommands = filtered.slice(0, COMMAND_PALETTE_VISIBLE_LIMIT);
   return (
     <ShellModal title={t.commandPalette} onClose={onClose} closeLabel={t.close} className="command-modal">
       <label className="command-search">
@@ -11873,7 +11876,7 @@ function CommandPalette({ commands, t, onClose }) {
         <input ref={inputRef} value={commandQuery} onChange={(event) => setCommandQuery(event.target.value)} placeholder={t.commandHint} />
       </label>
       <div className="command-list">
-        {filtered.map((command) => (
+        {visibleCommands.map((command) => (
           <button
             type="button"
             key={command.id}
@@ -12800,8 +12803,7 @@ export function App() {
       });
 
     const threadCommandSessions = (state.sessions || [])
-      .filter((session) => session?.id)
-      .slice(0, 24);
+      .filter((session) => session?.id);
 
     const threadMetaForCommand = (session) => [
       sessionProjectLabel(session, t),
