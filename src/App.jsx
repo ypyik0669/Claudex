@@ -7618,6 +7618,7 @@ function ToolRail({
   busy,
   capabilityStatus,
   commandRuns = [],
+  automations = [],
   subagentRuns = [],
   browserVisits = [],
   notices = [],
@@ -7675,6 +7676,49 @@ function ToolRail({
     }
     onActivateTool("browser");
   };
+  const automationItems = Array.isArray(automations) ? automations : [];
+  const runningAutomationItems = automationItems.filter((item) => item?.status === "running");
+  const failedAutomationItems = automationItems.filter((item) => automationNeedsRecovery(item));
+  const scheduledAutomationItems = automationItems.filter((item) => ["scheduled", "paused"].includes(item?.status) || item?.nextRun);
+  const automationRailItem = failedAutomationItems[0] || runningAutomationItems[0] || scheduledAutomationItems[0] || automationItems[0] || null;
+  const openAutomationRailTarget = () => {
+    const automationId = automationRailItem?.id || "";
+    if (automationId && (failedAutomationItems.length || runningAutomationItems.length || scheduledAutomationItems.length)) {
+      onOpenTaskCenterFocus?.("automation", automationId, {
+        filter: failedAutomationItems.length ? "failed" : runningAutomationItems.length || scheduledAutomationItems.length ? "active" : "",
+        expandEvidence: failedAutomationItems.length > 0 || runningAutomationItems.length > 0,
+        expandHistory: failedAutomationItems.length > 0 || runningAutomationItems.length > 0,
+      });
+      return;
+    }
+    onOpenBottomPanel?.("subagents");
+  };
+  const automationRailStatus = failedAutomationItems.length
+    ? "error"
+    : runningAutomationItems.length
+      ? "running"
+      : scheduledAutomationItems.length
+        ? "ready"
+        : automationItems.length
+          ? "ready"
+          : "idle";
+  const automationRailBadge = failedAutomationItems.length
+    ? "!"
+    : runningAutomationItems.length
+      ? "●"
+      : countBadge(scheduledAutomationItems.length || automationItems.length);
+  const automationRailDetail = failedAutomationItems.length
+    ? t.taskCenterFailureSummary
+      .replace("{total}", failedAutomationItems.length)
+      .replace("{automations}", failedAutomationItems.length)
+      .replace("{subagents}", 0)
+    : runningAutomationItems.length
+      ? `${t.automationStatusRunning}: ${messageExcerpt(runningAutomationItems[0]?.prompt || t.automationTasks, 42)}`
+      : scheduledAutomationItems.length
+        ? `${t.automationStatusScheduled}: ${scheduledAutomationItems.length}`
+        : automationItems.length
+          ? t.taskCenterFilteredCount.replace("{shown}", automationItems.length).replace("{total}", automationItems.length)
+          : t.noAutomationTasks;
   const activeSubagentRuns = Array.isArray(subagentRuns) ? subagentRuns.filter((run) => !run?.archivedAt) : [];
   const runningSubagentRuns = activeSubagentRuns.filter((run) => run?.status === "running");
   const failedSubagentRuns = activeSubagentRuns.filter((run) => subagentNeedsRecovery(run));
@@ -7768,6 +7812,15 @@ function ToolRail({
       status: latestCapabilityFailed || pluginIssueCount ? "error" : capabilityStatus ? "ready" : "idle",
       detail: latestCapabilityFailed ? t.commandFailed : pluginIssueCount ? t.capabilityStatusIssueCount.replace("{count}", pluginIssueCount) : t.capabilitySummary.replace("{enabled}", capabilityCount).replace("{total}", capabilityCount),
       action: openCapabilityRailTarget,
+    },
+    {
+      id: "automations",
+      label: t.automationTasks,
+      icon: Clock3,
+      badge: automationRailBadge,
+      status: automationRailStatus,
+      detail: automationRailDetail,
+      action: openAutomationRailTarget,
     },
     {
       id: "subagents",
@@ -15678,6 +15731,7 @@ export function App() {
             busy={busy}
             capabilityStatus={capabilityCommandStatus}
             commandRuns={state.commandRuns}
+            automations={state.automations}
             subagentRuns={state.subagentRuns}
             browserVisits={state.browserVisits}
             notices={state.notices}
