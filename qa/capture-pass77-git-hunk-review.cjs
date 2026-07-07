@@ -137,8 +137,7 @@ app.whenReady().then(async () => {
     assertStep("PASS77_READY", await waitFor(win, "Boolean(document.querySelector('.app-grid') && window.claudexDesktop)", 15000));
     assertStep("PASS77_OPEN_CHANGES", await win.webContents.executeJavaScript(`
       (function() {
-        const button = Array.from(document.querySelectorAll('.workspace-context-button, .bottom-panel-tabs button'))
-          .find((item) => /\\u53d8\\u66f4/.test(item.textContent || '') || (item.getAttribute('aria-label') || '').includes('\\u53d8\\u66f4'));
+        const button = document.querySelector('.workspace-context-button[data-context-tab="changes"]');
         if (!button) return false;
         button.click();
         return true;

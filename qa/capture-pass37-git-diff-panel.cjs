@@ -182,8 +182,7 @@ app.whenReady().then(async () => {
   await win.webContents.executeJavaScript("window.confirm = () => true; true;");
   assertStep("PASS37_CHANGES_CLICK", await win.webContents.executeJavaScript(`
     (function() {
-      const button = Array.from(document.querySelectorAll('.workspace-context-button, .bottom-panel-tabs button'))
-        .find((item) => /\\u53d8\\u66f4/.test(item.textContent || '') || (item.getAttribute('aria-label') || '').includes('\\u53d8\\u66f4'));
+      const button = document.querySelector('.workspace-context-button[data-context-tab="changes"]');
       if (!button) return false;
       button.click();
       return true;

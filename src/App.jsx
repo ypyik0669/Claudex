@@ -447,6 +447,7 @@ const copy = {
     contextPanel: "上下文",
     environment: "环境",
     environmentBadgeDetail: "状态 {status} · 变更 {changes} · 同步 {sync} · Git {git}",
+    changesBadgeDetail: "变更 {total} · 已暂存 {staged} · 未暂存 {unstaged} · 未跟踪 {untracked} · 冲突 {conflicted}",
     outputs: "输出",
     bottomPanel: "底部面板",
     openSidePanel: "打开侧边面板",
@@ -3349,6 +3350,53 @@ function environmentContextSummary({ environment, activeProject, projectPathMiss
   };
 }
 
+function changesContextSummary({ git, t } = {}) {
+  const gitAvailable = Boolean(git?.available);
+  const summary = git?.summary || {};
+  const total = Number(git?.changes || summary.total || 0);
+  const staged = Number(summary.staged || 0);
+  const unstaged = Number(summary.unstaged || 0);
+  const untracked = Number(summary.untracked || 0);
+  const conflicted = Number(summary.conflicted || 0);
+  const detail = t.changesBadgeDetail
+    .replace("{total}", total)
+    .replace("{staged}", staged)
+    .replace("{unstaged}", unstaged)
+    .replace("{untracked}", untracked)
+    .replace("{conflicted}", conflicted);
+
+  if (!gitAvailable) {
+    return {
+      status: "warning",
+      badge: "!",
+      label: t.gitUnavailable,
+      detail: `${detail} · ${t.gitUnavailable}`,
+    };
+  }
+  if (conflicted > 0) {
+    return {
+      status: "error",
+      badge: String(conflicted),
+      label: String(total),
+      detail,
+    };
+  }
+  if (total > 0) {
+    return {
+      status: "warning",
+      badge: String(total),
+      label: String(total),
+      detail,
+    };
+  }
+  return {
+    status: "",
+    badge: "",
+    label: "0",
+    detail,
+  };
+}
+
 function gitCommandOutput(result = {}) {
   return [result.stdout, result.stderr].filter(Boolean).join("\n").trim();
 }
@@ -3979,6 +4027,10 @@ function Conversation({
     projectPathMissing,
     t,
   }), [environment, activeProject, projectPathMissing, t]);
+  const changesContext = useMemo(() => changesContextSummary({
+    git,
+    t,
+  }), [git, t]);
   const gitRootPath = String(git?.root || "").trim();
   const gitRelativePath = String(git?.relativePath || "").trim();
   const gitRootLabel = gitRootPath ? compactPath(gitRootPath, 78) : t.gitUnavailable;
@@ -4507,7 +4559,16 @@ function Conversation({
       badge: activeNotices.length ? String(activeNotices.length) : "",
       status: activeNoticeStatus,
     },
-    { id: "changes", label: t.changes, icon: GitBranch, meta: gitChangesLabel },
+    {
+      id: "changes",
+      label: t.changes,
+      icon: GitBranch,
+      meta: changesContext.label,
+      titleMeta: changesContext.detail || changesContext.label,
+      ariaMeta: changesContext.detail || changesContext.label,
+      badge: changesContext.badge,
+      status: changesContext.status,
+    },
     { id: "sources", label: t.sources, icon: Folder, meta: activeProject?.path ? t.files : "" },
     {
       id: "subagents",
