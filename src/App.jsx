@@ -2900,41 +2900,80 @@ function automationTraceEntry(automation = {}) {
     || {};
 }
 
-function taskSurfaceTraceAttributes({ kind, action = "open", surface = "task-center", item = {}, entry = null, filter = "" }) {
+function taskTraceFields({ kind, action = "open", surface = "task-center", item = {}, entry = null, filter = "", id = "", runId = "", requestId = "" }) {
   const isAutomation = kind === "automation";
   const runEntry = isAutomation ? (entry || automationTraceEntry(item)) : item;
-  const taskId = item.id || item.requestId || "";
-  const resolvedRunId = isAutomation ? runEntry.id || "" : item.requestId || item.id || "";
-  const resolvedRequestId = isAutomation ? "" : item.requestId || "";
+  const taskId = id || item.id || item.requestId || "";
+  const resolvedRunId = runId || (isAutomation ? runEntry.id || "" : item.requestId || item.id || "");
+  const resolvedRequestId = requestId || (isAutomation ? "" : item.requestId || "");
   const status = runEntry.status || item.status || "";
   const historyCount = isAutomation ? automationRunEntries(item).length : "";
   const artifactCount = !isAutomation && Array.isArray(item.artifacts) ? item.artifacts.length : "";
   const hasEvidence = isAutomation ? automationRunHasTraceEvidence(runEntry) : subagentRunHasTraceEvidence(item);
   const resolvedFilter = filter || (isAutomation ? taskCenterFilterForAutomation(item) : taskCenterFilterForSubagent(item));
   return {
-    "data-task-surface": taskTraceAttrValue(surface),
-    "data-task-kind": taskTraceAttrValue(kind),
-    "data-task-action": taskTraceAttrValue(action),
-    "data-task-id": taskTraceAttrValue(taskId),
-    "data-task-run-id": taskTraceAttrValue(resolvedRunId),
-    "data-task-request-id": taskTraceAttrValue(resolvedRequestId),
-    "data-task-status": taskTraceAttrValue(status),
-    "data-task-filter": taskTraceAttrValue(resolvedFilter),
-    "data-task-project-name": taskTraceAttrValue(taskTraceProjectName(item, runEntry)),
-    "data-task-project-path": taskTraceAttrValue(taskTraceProjectPath(item, runEntry)),
-    "data-task-thread-id": taskTraceAttrValue(isAutomation ? item.threadId : ""),
-    "data-task-session-id": taskTraceAttrValue(runEntry.sessionId || item.sessionId || item.threadId || ""),
-    "data-task-archived": isAutomation ? "false" : String(Boolean(item.archivedAt)),
-    "data-task-history-count": taskTraceAttrValue(historyCount),
-    "data-task-artifact-count": taskTraceAttrValue(artifactCount),
-    "data-task-has-evidence": String(Boolean(hasEvidence)),
-    "data-task-trigger": taskTraceAttrValue(runEntry.trigger),
-    "data-task-code": typeof runEntry.code === "number" ? String(runEntry.code) : taskTraceAttrValue(runEntry.code),
-    "data-task-duration-ms": typeof runEntry.durationMs === "number" ? String(runEntry.durationMs) : taskTraceAttrValue(runEntry.durationMs),
-    "data-task-started-at": taskTraceAttrValue(runEntry.startedAt),
-    "data-task-ended-at": taskTraceAttrValue(runEntry.endedAt),
-    "data-task-updated-at": taskTraceAttrValue(item.updatedAt),
+    surface: taskTraceAttrValue(surface),
+    kind: taskTraceAttrValue(kind),
+    action: taskTraceAttrValue(action),
+    id: taskTraceAttrValue(taskId),
+    runId: taskTraceAttrValue(resolvedRunId),
+    requestId: taskTraceAttrValue(resolvedRequestId),
+    status: taskTraceAttrValue(status),
+    filter: taskTraceAttrValue(resolvedFilter),
+    projectName: taskTraceAttrValue(taskTraceProjectName(item, runEntry)),
+    projectPath: taskTraceAttrValue(taskTraceProjectPath(item, runEntry)),
+    threadId: taskTraceAttrValue(isAutomation ? item.threadId : ""),
+    sessionId: taskTraceAttrValue(runEntry.sessionId || item.sessionId || item.threadId || ""),
+    archived: isAutomation ? "false" : String(Boolean(item.archivedAt)),
+    historyCount: taskTraceAttrValue(historyCount),
+    artifactCount: taskTraceAttrValue(artifactCount),
+    hasEvidence: String(Boolean(hasEvidence)),
+    trigger: taskTraceAttrValue(runEntry.trigger),
+    code: typeof runEntry.code === "number" ? String(runEntry.code) : taskTraceAttrValue(runEntry.code),
+    durationMs: typeof runEntry.durationMs === "number" ? String(runEntry.durationMs) : taskTraceAttrValue(runEntry.durationMs),
+    startedAt: taskTraceAttrValue(runEntry.startedAt),
+    endedAt: taskTraceAttrValue(runEntry.endedAt),
+    updatedAt: taskTraceAttrValue(item.updatedAt),
   };
+}
+
+const TASK_TRACE_ATTRIBUTE_KEYS = {
+  surface: "surface",
+  kind: "kind",
+  action: "action",
+  id: "id",
+  runId: "run-id",
+  requestId: "request-id",
+  status: "status",
+  filter: "filter",
+  projectName: "project-name",
+  projectPath: "project-path",
+  threadId: "thread-id",
+  sessionId: "session-id",
+  archived: "archived",
+  historyCount: "history-count",
+  artifactCount: "artifact-count",
+  hasEvidence: "has-evidence",
+  trigger: "trigger",
+  code: "code",
+  durationMs: "duration-ms",
+  startedAt: "started-at",
+  endedAt: "ended-at",
+  updatedAt: "updated-at",
+};
+
+function taskTraceAttributesWithPrefix(prefix, fields = {}) {
+  return Object.fromEntries(
+    Object.entries(TASK_TRACE_ATTRIBUTE_KEYS).map(([field, suffix]) => [`${prefix}${suffix}`, taskTraceAttrValue(fields[field])]),
+  );
+}
+
+function taskSurfaceTraceAttributes(options) {
+  return taskTraceAttributesWithPrefix("data-task-", taskTraceFields(options));
+}
+
+function taskCommandTraceAttributes(options) {
+  return taskTraceAttributesWithPrefix("data-command-task-", taskTraceFields({ surface: "command-palette", ...options }));
 }
 
 function taskArtifactTraceAttributes({ action, surface = "task-center", run = {}, artifact = {}, index = 0, label = "" }) {
@@ -14554,67 +14593,12 @@ export function App() {
       action: () => openTaskCenterFocus("", "", { filter: item.id }),
     }));
 
-    const taskTraceValue = (value) => {
-      if (value === 0) return "0";
-      if (value === false) return "false";
-      if (value === true) return "true";
-      return String(value || "");
-    };
-    const taskTraceProject = (item = {}, entry = {}) => entry.project || item.project || {};
-    const taskTraceProjectPath = (item = {}, entry = {}) => {
-      const project = taskTraceProject(item, entry);
-      return project.path || entry.projectPath || item.projectPath || entry.cwd || item.cwd || "";
-    };
-    const taskTraceProjectName = (item = {}, entry = {}) => {
-      const project = taskTraceProject(item, entry);
-      return project.name || item.project || entry.project || "";
-    };
-    const automationRunHasEvidence = (entry = {}) => Boolean(
-      entry?.id || entry?.error || entry?.detail || entry?.summary || entry?.stdout || entry?.stderr || typeof entry?.code === "number",
-    );
-    const subagentRunHasEvidence = (run = {}) => Boolean(
-      run?.summary || run?.stdout || run?.stderr || run?.error || typeof run?.code === "number" || (Array.isArray(run?.artifacts) && run.artifacts.length > 0),
-    );
     const taskFilterForAutomationRun = (entry = {}) => {
       if (automationRunNeedsRecovery(entry)) return "failed";
       if (["running", "scheduled"].includes(entry?.status)) return "active";
       return "";
     };
-    const taskTraceAttributes = ({ kind, action, item = {}, entry = null, filter = "", id = "", runId = "", requestId = "" }) => {
-      const isAutomation = kind === "automation";
-      const runEntry = isAutomation ? (entry || item.lastRun || {}) : item;
-      const taskId = id || item.id || item.requestId || "";
-      const resolvedRunId = runId || (isAutomation ? runEntry.id : (item.requestId || item.id || ""));
-      const resolvedRequestId = requestId || (!isAutomation ? (item.requestId || "") : "");
-      const status = runEntry.status || item.status || "";
-      const historyCount = isAutomation ? automationRunEntries(item).length : "";
-      const artifactCount = !isAutomation && Array.isArray(item.artifacts) ? item.artifacts.length : "";
-      const hasEvidence = isAutomation ? automationRunHasEvidence(runEntry) : subagentRunHasEvidence(item);
-      const resolvedFilter = filter || (isAutomation ? taskFilterForAutomationRun(runEntry) || taskCenterFilterForAutomation(item) : taskCenterFilterForSubagent(item));
-      return {
-        "data-command-task-kind": String(kind || ""),
-        "data-command-task-action": String(action || ""),
-        "data-command-task-id": taskTraceValue(taskId),
-        "data-command-task-run-id": taskTraceValue(resolvedRunId),
-        "data-command-task-request-id": taskTraceValue(resolvedRequestId),
-        "data-command-task-status": taskTraceValue(status),
-        "data-command-task-filter": taskTraceValue(resolvedFilter),
-        "data-command-task-project-name": taskTraceValue(taskTraceProjectName(item, runEntry)),
-        "data-command-task-project-path": taskTraceValue(taskTraceProjectPath(item, runEntry)),
-        "data-command-task-thread-id": taskTraceValue(isAutomation ? item.threadId : ""),
-        "data-command-task-session-id": taskTraceValue(runEntry.sessionId || item.sessionId || item.threadId || ""),
-        "data-command-task-archived": !isAutomation ? String(Boolean(item.archivedAt)) : "false",
-        "data-command-task-history-count": taskTraceValue(historyCount),
-        "data-command-task-artifact-count": taskTraceValue(artifactCount),
-        "data-command-task-has-evidence": String(Boolean(hasEvidence)),
-        "data-command-task-trigger": taskTraceValue(runEntry.trigger),
-        "data-command-task-code": typeof runEntry.code === "number" ? String(runEntry.code) : taskTraceValue(runEntry.code),
-        "data-command-task-duration-ms": typeof runEntry.durationMs === "number" ? String(runEntry.durationMs) : taskTraceValue(runEntry.durationMs),
-        "data-command-task-started-at": taskTraceValue(runEntry.startedAt),
-        "data-command-task-ended-at": taskTraceValue(runEntry.endedAt),
-        "data-command-task-updated-at": taskTraceValue(item.updatedAt),
-      };
-    };
+    const taskTraceAttributes = (options) => taskCommandTraceAttributes(options);
 
     const automationCommands = automationItemsForCommands
       .filter((automation) => automation?.id)
