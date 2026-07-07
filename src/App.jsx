@@ -4916,12 +4916,24 @@ function Conversation({
     selectedHunk: selectedGitHunk,
   }), [gitRootPath, gitRelativePath, selectedGitDiffPath, selectedGitFile, selectedGitHunk]);
   const gitDiffRows = useMemo(() => buildGitDiffRows(focusedGitDiffText), [focusedGitDiffText]);
+  const gitSelectedEvidencePanelRef = useRef(null);
+  const focusedGitPanelAction = bottomPanel === "changes" ? String(gitPanelFocus?.action || "").trim() : "";
+  const copyGitEvidenceFocused = Boolean(gitPanelFocus?.nonce && focusedGitPanelAction === "copy-evidence");
   useEffect(() => () => {
     if (copiedGitEvidenceTimer.current) window.clearTimeout(copiedGitEvidenceTimer.current);
   }, []);
   useEffect(() => {
     setCopiedGitEvidence(false);
   }, [gitEvidenceCopyText]);
+  useEffect(() => {
+    if (!copyGitEvidenceFocused) return undefined;
+    const timer = window.setTimeout(() => {
+      const target = gitSelectedEvidencePanelRef.current?.querySelector('[data-git-action="copy-evidence"]');
+      target?.focus?.({ preventScroll: true });
+      target?.scrollIntoView?.({ block: "center", behavior: "smooth" });
+    }, 120);
+    return () => window.clearTimeout(timer);
+  }, [copyGitEvidenceFocused, gitPanelFocus?.nonce, selectedGitDiffPath, selectedGitHunkId, gitEvidenceCopyText]);
   async function copyGitEvidence() {
     await onCopy?.(gitEvidenceCopyText);
     setCopiedGitEvidence(true);
@@ -6197,7 +6209,13 @@ function Conversation({
                       <pre className="git-status-preview">{rawGitStatus || t.noGitProject}</pre>
                     </details>
                   </div>
-                  <section className={cx("git-selected-evidence-panel", selectedGitFile?.kind && `kind-${selectedGitFile.kind}`)} aria-label={t.gitEvidence} {...selectedGitTraceAttributes}>
+                  <section
+                    ref={gitSelectedEvidencePanelRef}
+                    className={cx("git-selected-evidence-panel", selectedGitFile?.kind && `kind-${selectedGitFile.kind}`)}
+                    aria-label={t.gitEvidence}
+                    data-git-focused-action={focusedGitPanelAction}
+                    {...selectedGitTraceAttributes}
+                  >
                     <div className="git-selected-evidence-head">
                       <div>
                         <span>{selectedGitFile ? t.gitFileEvidence : t.gitEvidence}</span>
@@ -6209,6 +6227,8 @@ function Conversation({
                           type="button"
                           className="plain-action subtle-action"
                           data-git-action="copy-evidence"
+                          data-git-action-focused={copyGitEvidenceFocused ? "true" : "false"}
+                          aria-current={copyGitEvidenceFocused ? "true" : undefined}
                           onClick={copyGitEvidence}
                           title={copiedGitEvidence ? t.copied : t.copyGitEvidence}
                         >
@@ -14767,13 +14787,14 @@ export function App() {
     const gitCommandRoot = String(environment?.git?.root || activeProject?.path || "").trim();
     const gitCommandRelativePath = String(environment?.git?.relativePath || "").trim();
     const gitCommandBranch = String(environment?.git?.branch || "").trim();
-    const gitCommandTraceAttributes = ({ scope, file, filePath, hunk = null, hunkIndex = "" }) => {
+    const gitCommandTraceAttributes = ({ scope, file, filePath, hunk = null, hunkIndex = "", action = "" }) => {
       const selectedFile = file || gitCommandFileByPath.get(filePath) || {};
       const selectedPath = filePath || selectedFile.path || selectedFile.previousPath || hunk?.filePath || "";
       const hunkFile = hunk?.filePath || selectedPath;
       const additions = hunk ? hunk.additions : selectedFile.additions;
       const deletions = hunk ? hunk.deletions : selectedFile.deletions;
       return {
+        "data-command-git-action": String(action || ""),
         "data-command-git-evidence-scope": String(scope || ""),
         "data-command-git-root": gitCommandRoot,
         "data-command-git-relative-path": gitCommandRelativePath,
@@ -14821,6 +14842,45 @@ export function App() {
           ].filter(Boolean).join(" "),
           action: () => openGitFileDiff(filePath),
         };
+      });
+
+    const gitEvidenceActionSpecs = [
+      { action: "copy-evidence", label: t.copyGitEvidence, keywords: "copy evidence clipboard focus action button" },
+    ];
+    const gitFileActionCommands = gitCommandFiles
+      .filter((file) => file?.path || file?.previousPath)
+      .flatMap((file) => {
+        const filePath = file.path || file.previousPath || "";
+        const previousLabel = file.previousPath && file.previousPath !== filePath ? `${file.previousPath} -> ${filePath}` : "";
+        return gitEvidenceActionSpecs.map((spec) => ({
+          id: `git-file-action:${spec.action}:${commandIdSegment(filePath)}`,
+          title: `${spec.label}: ${filePath}`,
+          subtitle: [
+            t.focusFileDiff,
+            gitChangeKindLabel(file.kind, t),
+            file.status,
+            typeof file.additions === "number" || typeof file.deletions === "number" ? `+${file.additions || 0} -${file.deletions || 0}` : "",
+            previousLabel,
+          ].filter(Boolean).join(" \u00b7 "),
+          group: t.changes,
+          target: "git-file-action",
+          dataAttributes: gitCommandTraceAttributes({ scope: "file", file, filePath, action: spec.action }),
+          priority: 62,
+          keywords: [
+            "git file evidence action focus copy clipboard command palette button changed file",
+            spec.keywords,
+            spec.label,
+            filePath,
+            file.previousPath,
+            file.status,
+            file.kind,
+            environment?.git?.branch,
+            environment?.git?.root,
+            environment?.git?.raw,
+            environment?.git?.stat,
+          ].filter(Boolean).join(" "),
+          action: () => openGitFileDiff(filePath, "", { action: spec.action }),
+        }));
       });
 
     const gitWorkspaceProjectPath = String(environment?.git?.root || activeProject?.path || "").trim();
@@ -14891,6 +14951,39 @@ export function App() {
             ].filter(Boolean).join(" "),
             action: () => openGitFileDiff(filePath, hunk.id),
           }));
+      });
+
+    const gitHunkActionCommands = (Array.isArray(environment?.git?.diff?.fileDiffs) ? environment.git.diff.fileDiffs : [])
+      .filter((fileDiff) => fileDiff?.text && (fileDiff.path || fileDiff.previousPath))
+      .flatMap((fileDiff) => {
+        const filePath = fileDiff.path || fileDiff.previousPath || "";
+        const file = gitCommandFileByPath.get(filePath) || gitCommandFileByPath.get(fileDiff.previousPath) || null;
+        return buildGitHunks(fileDiff.text)
+          .flatMap((hunk, index) => gitEvidenceActionSpecs.map((spec) => ({
+            id: `git-hunk-action:${spec.action}:${commandIdSegment(filePath)}:${commandIdSegment(hunk.id || String(index))}`,
+            title: `${spec.label}: ${filePath}`,
+            subtitle: [
+              `${t.focusHunk}: ${index + 1}. ${hunk.header}`,
+              `+${hunk.additions || 0} -${hunk.deletions || 0}`,
+              messageExcerpt(hunk.text, 96),
+            ].filter(Boolean).join(" \u00b7 "),
+            group: t.changes,
+            target: "git-hunk-action",
+            dataAttributes: gitCommandTraceAttributes({ scope: "hunk", file, filePath, hunk, hunkIndex: index + 1, action: spec.action }),
+            priority: 62,
+            keywords: [
+              "git hunk evidence action focus copy clipboard command palette button selected hunk patch",
+              spec.keywords,
+              spec.label,
+              filePath,
+              fileDiff.previousPath,
+              hunk.header,
+              hunk.text,
+              environment?.git?.branch,
+              environment?.git?.root,
+            ].filter(Boolean).join(" "),
+            action: () => openGitFileDiff(filePath, hunk.id, { action: spec.action }),
+          })));
       });
 
     const sourceRefCommands = (Array.isArray(state.sourceRefs) ? state.sourceRefs : [])
@@ -16591,8 +16684,10 @@ export function App() {
       ...noticeCommands,
       ...latestGitActionCommands,
       ...gitFileCommands,
+      ...gitFileActionCommands,
       ...gitOpenFileCommands,
       ...gitHunkCommands,
+      ...gitHunkActionCommands,
       ...sourceRefCommands,
       ...sourceFileCommands,
       ...browserEvidenceCommands,
@@ -16980,7 +17075,7 @@ export function App() {
   const [sidebarVisible, setSidebarVisible] = useState(true);
   const [rightPanelVisible, setRightPanelVisible] = useState(false);
   const [bottomPanel, setBottomPanel] = useState("");
-  const [gitPanelFocus, setGitPanelFocus] = useState({ path: "", hunkId: "", all: false, nonce: 0 });
+  const [gitPanelFocus, setGitPanelFocus] = useState({ path: "", hunkId: "", action: "", all: false, nonce: 0 });
   const [sourcePanelFocus, setSourcePanelFocus] = useState({ id: "", path: "", nonce: 0 });
   const [browserPanelFocus, setBrowserPanelFocus] = useState({ id: "", url: "", nonce: 0 });
   const [taskCenterFocus, setTaskCenterFocus] = useState({ type: "", id: "", nonce: 0 });
@@ -17077,7 +17172,7 @@ export function App() {
     setScheduledOpen(false);
     setCommandsOpen(false);
     if (id === "changes" && options.resetGitFocus !== false) {
-      setGitPanelFocus({ path: "", hunkId: "", all: true, nonce: Date.now() });
+      setGitPanelFocus({ path: "", hunkId: "", action: "", all: true, nonce: Date.now() });
     }
     setBottomPanel(id);
   }
@@ -17097,6 +17192,7 @@ export function App() {
     setGitPanelFocus({
       path: focusedPath,
       hunkId: String(hunkId || "").trim(),
+      action: String(options.action || "").trim(),
       all: Boolean(options.all),
       nonce: Date.now(),
     });

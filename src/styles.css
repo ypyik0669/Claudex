@@ -8700,6 +8700,12 @@ button.runtime-health-row {
   opacity: 0.55;
 }
 
+.git-selected-evidence-actions [data-git-action-focused="true"] {
+  border-color: rgba(96, 165, 250, 0.72);
+  background: rgba(96, 165, 250, 0.1);
+  box-shadow: 0 0 0 1px rgba(96, 165, 250, 0.2);
+}
+
 .git-selected-evidence-meta {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(118px, 1fr));
