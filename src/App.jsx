@@ -13044,6 +13044,23 @@ export function App() {
     setDraft("");
   }
 
+  async function createSessionForSend() {
+    if (!desktopApi?.createSession) return null;
+    const next = await desktopApi.createSession();
+    const nextProject = next?.activeProject || activeProject;
+    const nextSessionId = selectSessionIdForProject(
+      next,
+      t,
+      nextProject,
+      next?.sessions?.[0]?.id || "",
+      "current",
+    );
+    const nextSession = (next?.sessions || []).find((session) => session.id === nextSessionId) || null;
+    setProjectScope("current");
+    applySessionState(next, nextSession?.id || "", "current");
+    return nextSession;
+  }
+
   async function renameThread(session) {
     if (!desktopApi?.updateSession || !session) return;
     const currentTitle = sessionDisplayTitle(session, t);
@@ -15074,50 +15091,56 @@ export function App() {
   }
 
   async function sendMessage(content) {
-    if (!desktopApi || !activeSession) return;
+    if (!desktopApi) return;
+    const sessionForSend = activeSession || await createSessionForSend();
+    if (!sessionForSend) return;
     const requestId = `request_${Date.now()}_${Math.random().toString(16).slice(2)}`;
-    let resumeClaudeSessionId = activeSession.claudeSessionId || "";
+    let resumeClaudeSessionId = sessionForSend.claudeSessionId || "";
     if (!resumeClaudeSessionId && desktopApi.getState) {
       try {
         const freshState = await desktopApi.getState();
-        resumeClaudeSessionId = freshState?.sessions?.find((session) => session.id === activeSession.id)?.claudeSessionId || "";
+        resumeClaudeSessionId = freshState?.sessions?.find((session) => session.id === sessionForSend.id)?.claudeSessionId || "";
       } catch {
         resumeClaudeSessionId = "";
       }
     }
     setCurrentRequestId(requestId);
-    setOptimisticUser({ sessionId: activeSession.id, content: content.trim(), createdAt: new Date().toISOString() });
+    setOptimisticUser({ sessionId: sessionForSend.id, content: content.trim(), createdAt: new Date().toISOString() });
     setStreamingAssistant({ requestId, content: "", status: t.waiting, activities: [] });
     setBusy(true);
     recordRunEvent({
       id: requestId,
+      sessionId: sessionForSend.id,
       type: "chat",
       status: "running",
-      title: `${t.activeThread}: ${activeSession.title || "Claudex"}`,
+      title: `${t.activeThread}: ${sessionForSend.title || "Claudex"}`,
       detail: content.trim().slice(0, 140),
     });
     try {
       const next = await desktopApi.sendMessage({
-        sessionId: activeSession.id,
+        sessionId: sessionForSend.id,
         content,
         requestId,
         claudeSessionId: resumeClaudeSessionId,
       });
+      const updatedSession = (next?.sessions || []).find((session) => session.id === sessionForSend.id) || sessionForSend;
       setState(next);
-      setActiveSessionId(activeSession.id);
+      setActiveSessionId(sessionForSend.id);
       recordRunEvent({
         id: requestId,
+        sessionId: sessionForSend.id,
         type: "chat",
         status: "ok",
-        title: `${t.activeThread}: ${activeSession.title || "Claudex"}`,
+        title: `${t.activeThread}: ${updatedSession.title || "Claudex"}`,
         detail: t.commandSucceeded,
       });
     } catch (error) {
       recordRunEvent({
         id: requestId,
+        sessionId: sessionForSend.id,
         type: "chat",
         status: "error",
-        title: `${t.activeThread}: ${activeSession.title || "Claudex"}`,
+        title: `${t.activeThread}: ${sessionForSend.title || "Claudex"}`,
         detail: error.message || String(error),
       });
       throw error;
