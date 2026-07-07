@@ -1660,6 +1660,7 @@ function pluginEvidenceStatusText(plugin = {}, t) {
 }
 
 function pluginEvidenceText(plugin = {}, t) {
+  const detailLines = toolDetailLines(plugin, t);
   const rows = [
     ["ID", plugin.id || plugin.name],
     plugin.name && plugin.name !== plugin.id ? [t.pluginName, plugin.name] : null,
@@ -1669,7 +1670,7 @@ function pluginEvidenceText(plugin = {}, t) {
     [t.status, pluginEvidenceStatusText(plugin, t)],
     plugin.source ? [t.source, summarizePanelPluginField(plugin.source)] : null,
     plugin.installPath ? [t.installPath, plugin.installPath] : null,
-    plugin.tools ? [t.tools, summarizePanelPluginField(plugin.tools)] : null,
+    detailLines.length ? [t.toolsList, detailLines.join("\n")] : plugin.tools ? [t.tools, summarizePanelPluginField(plugin.tools)] : null,
     plugin.permissions ? [t.allowedTools, summarizePanelPluginField(plugin.permissions)] : null,
     plugin.error ? [t.mcpError, plugin.error] : null,
   ].filter(Boolean);
@@ -1677,6 +1678,7 @@ function pluginEvidenceText(plugin = {}, t) {
 }
 
 function marketplacePluginEvidenceText(plugin = {}, t) {
+  const detailLines = toolDetailLines(plugin, t);
   const rows = [
     ["ID", plugin.id || plugin.name],
     plugin.name && plugin.name !== plugin.id ? [t.pluginName, plugin.name] : null,
@@ -1689,6 +1691,7 @@ function marketplacePluginEvidenceText(plugin = {}, t) {
     plugin.source ? [t.source, summarizePanelPluginField(plugin.source)] : null,
     plugin.installLocation ? [t.installPath, plugin.installLocation] : null,
     plugin.homepage ? [t.openHomepage, plugin.homepage] : null,
+    detailLines.length ? [t.toolsList, detailLines.join("\n")] : plugin.tools ? [t.tools, summarizePanelPluginField(plugin.tools)] : null,
     plugin.permissions ? [t.allowedTools, summarizePanelPluginField(plugin.permissions)] : null,
     plugin.risk ? [t.marketplaceRisk, plugin.risk] : null,
   ].filter(Boolean);
@@ -1711,8 +1714,8 @@ function marketplaceSourceEvidenceText(source = {}, t) {
   return rows.map(([label, value]) => `${label}: ${value}`).join("\n");
 }
 
-function mcpToolDetailLines(server = {}, t) {
-  const details = Array.isArray(server?.toolDetails) ? server.toolDetails : [];
+function toolDetailLines(item = {}, t) {
+  const details = Array.isArray(item?.toolDetails) ? item.toolDetails : [];
   return details
     .map((tool) => {
       const name = String(tool?.name || "").trim();
@@ -1726,6 +1729,10 @@ function mcpToolDetailLines(server = {}, t) {
       ].filter(Boolean).join(" ");
     })
     .filter(Boolean);
+}
+
+function mcpToolDetailLines(server = {}, t) {
+  return toolDetailLines(server, t);
 }
 
 function mcpServerEvidenceText(server = {}, t) {
@@ -2038,6 +2045,67 @@ function summarizePanelPluginField(value, separator = ", ") {
   return String(value || "").trim();
 }
 
+function summarizeToolSchemaForUi(value) {
+  if (!value) return "";
+  if (typeof value === "string") return value.trim();
+  if (Array.isArray(value)) return value
+    .map((item) => summarizeToolSchemaForUi(item))
+    .filter(Boolean)
+    .join(", ");
+  if (typeof value !== "object") return String(value || "").trim();
+  const properties = value.properties && typeof value.properties === "object"
+    ? Object.keys(value.properties)
+    : [];
+  const required = Array.isArray(value.required) ? value.required : [];
+  const type = String(value.type || "").trim();
+  const parts = [
+    type,
+    properties.length ? `properties:${properties.join(",")}` : "",
+    required.length ? `required:${required.join(",")}` : "",
+  ].filter(Boolean);
+  return parts.length ? parts.join(" · ") : summarizePanelPluginField(value, " · ");
+}
+
+function structuredToolDetailsFromValue(value) {
+  const details = [];
+  function pushTool(item, fallbackName = "") {
+    if (item === false || item === null || item === undefined || item === "") return;
+    if (typeof item === "string" || typeof item === "number") {
+      const text = String(item).trim();
+      const name = String(fallbackName || text).trim();
+      if (name) details.push({ name, description: fallbackName ? text : "", schema: "" });
+      return;
+    }
+    if (typeof item !== "object") return;
+    const name = String(item.name || item.id || item.tool || item.command || item.title || fallbackName || "").trim();
+    if (!name) return;
+    const description = String(item.description || item.summary || item.detail || "").trim();
+    const schema = summarizeToolSchemaForUi(item.inputSchema || item.input_schema || item.schema || item.parameters || item.args || item.arguments);
+    details.push({ name, description, schema });
+  }
+  if (Array.isArray(value)) {
+    value.forEach((item) => pushTool(item));
+  } else if (value && typeof value === "object") {
+    Object.entries(value).forEach(([key, itemValue]) => {
+      if (itemValue === true) pushTool(key);
+      else pushTool(itemValue, key);
+    });
+  } else {
+    String(value || "")
+      .split(/[,;\n]/)
+      .map((item) => item.trim())
+      .filter(Boolean)
+      .forEach((item) => pushTool(item));
+  }
+  const seen = new Set();
+  return details.filter((tool) => {
+    const key = String(tool.name || "").toLowerCase();
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 function panelPluginNameFromId(idValue) {
   const idText = String(idValue || "").trim();
   return idText.split("@")[0] || idText;
@@ -2099,6 +2167,7 @@ function panelPluginItemsFromJsonText(output) {
       : typeof plugin?.disabled === "boolean"
         ? !plugin.disabled
         : /enabled|active|ready|ok|connected/i.test(statusText);
+    const toolSource = plugin?.tools || plugin?.toolNames || plugin?.commands || plugin?.slashCommands || plugin?.mcpTools;
     return {
       id: idText,
       name: String(plugin?.name || panelPluginNameFromId(idText)).trim() || idText,
@@ -2110,6 +2179,7 @@ function panelPluginItemsFromJsonText(output) {
       installPath: String(plugin?.installPath || plugin?.path || plugin?.location || ""),
       source: summarizePanelPluginField(plugin?.source || plugin?.installSource || plugin?.registry || plugin?.repository || plugin?.repo || plugin?.url),
       tools: summarizePanelPluginField(plugin?.tools || plugin?.toolNames || plugin?.commands || plugin?.slashCommands || plugin?.mcpTools),
+      toolDetails: structuredToolDetailsFromValue(toolSource),
       permissions: summarizePanelPluginField(plugin?.permissions || plugin?.allowedTools || plugin?.capabilities || plugin?.permissionSummary),
     };
   }).filter((plugin) => plugin.id);
@@ -9077,6 +9147,7 @@ function ToolsPanel({
                 {installedPluginItems.length > 0 && (
                   <div className="plugin-status-items">
                     {installedPluginItems.map((plugin) => {
+                      const toolDetails = Array.isArray(plugin.toolDetails) ? plugin.toolDetails : [];
                       const pluginMeta = [
                         plugin.version && plugin.version !== "unknown" ? `v${plugin.version}` : "",
                         plugin.scope,
@@ -9095,6 +9166,20 @@ function ToolsPanel({
                             <span title={pluginMeta || plugin.installPath || ""}>
                               {pluginMeta || t.installedLocal}
                             </span>
+                            {toolDetails.length > 0 && (
+                              <details className="mcp-tool-details plugin-tool-details claude-panel-plugin-tool-details">
+                                <summary>{t.toolsList} · {toolDetails.length}</summary>
+                                <div className="mcp-tool-list">
+                                  {toolDetails.map((tool) => (
+                                    <article className="mcp-tool-detail" key={`${plugin.id}:${tool.name}`}>
+                                      <strong>{tool.name}</strong>
+                                      {tool.description && <span>{tool.description}</span>}
+                                      {tool.schema && <code title={tool.schema}>{t.toolSchema}: {tool.schema}</code>}
+                                    </article>
+                                  ))}
+                                </div>
+                              </details>
+                            )}
                           </div>
                           <em className={cx("plugin-status-badge", pluginStatusKind(plugin))}>
                             {pluginStatusDisplay(plugin, t)}
@@ -9244,6 +9329,7 @@ function ToolsPanel({
               {marketplacePanelPlugins.length > 0 && (
                 <div className="plugin-status-items">
                   {marketplacePanelPlugins.slice(0, 8).map((plugin) => {
+                    const toolDetails = Array.isArray(plugin.toolDetails) ? plugin.toolDetails : [];
                     const pluginKey = `marketplace-plugin:${plugin.id || plugin.name}`;
                     const pluginCopied = copiedClaudePanelEvidence === pluginKey;
                     const pluginMeta = [
@@ -9261,6 +9347,20 @@ function ToolsPanel({
                           <span title={summarizePanelPluginField(plugin.source || plugin.description || plugin.permissions || plugin.risk)}>
                             {pluginMeta || t.marketplaceCatalog}
                           </span>
+                          {toolDetails.length > 0 && (
+                            <details className="mcp-tool-details plugin-tool-details claude-panel-marketplace-tool-details">
+                              <summary>{t.toolsList} · {toolDetails.length}</summary>
+                              <div className="mcp-tool-list">
+                                {toolDetails.map((tool) => (
+                                  <article className="mcp-tool-detail" key={`${plugin.id}:${tool.name}`}>
+                                    <strong>{tool.name}</strong>
+                                    {tool.description && <span>{tool.description}</span>}
+                                    {tool.schema && <code title={tool.schema}>{t.toolSchema}: {tool.schema}</code>}
+                                  </article>
+                                ))}
+                              </div>
+                            </details>
+                          )}
                         </div>
                         <em className={cx("plugin-status-badge", plugin.installed ? "enabled" : "disabled")}>{plugin.installed ? t.installedLocal : t.marketplace}</em>
                         <div className="plugin-status-row-actions">
@@ -10467,6 +10567,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
   }
 
   function marketplaceInstallReviewRows(item) {
+    const detailLines = toolDetailLines(item, t);
     return [
       [t.marketplace, item.marketplace || t.marketplaceSourceClaude],
       item.version && item.version !== "unknown" ? [t.version, item.version] : null,
@@ -10474,6 +10575,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
       item.category ? [t.category, item.category] : null,
       item.source ? [t.source, item.source] : null,
       item.installLocation ? [t.installPath, item.installLocation] : null,
+      detailLines.length ? [t.toolsList, detailLines.join("\n")] : item.tools ? [t.tools, item.tools] : null,
       item.permissions ? [t.allowedTools, item.permissions] : null,
       [t.marketplaceRisk, item.risk || t.marketplaceInstallRisk],
     ].filter(Boolean);
@@ -10493,6 +10595,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
   }
 
   function pluginActionReviewRows(plugin, actionLabel = t.pluginActions) {
+    const detailLines = toolDetailLines(plugin, t);
     return [
       [t.plugins, plugin.id || plugin.name || actionLabel],
       [t.status, pluginStatusDisplay(plugin, t)],
@@ -10501,7 +10604,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
       plugin.marketplace ? [t.marketplace, plugin.marketplace] : null,
       plugin.source ? [t.source, plugin.source] : null,
       plugin.installPath ? [t.installPath, plugin.installPath] : null,
-      plugin.tools ? [t.tools, plugin.tools] : null,
+      detailLines.length ? [t.toolsList, detailLines.join("\n")] : plugin.tools ? [t.tools, plugin.tools] : null,
       plugin.permissions ? [t.allowedTools, plugin.permissions] : null,
       plugin.error ? [t.mcpError, plugin.error] : null,
       [t.commandCwd, activeProject?.path || t.localWorkspace],
@@ -11070,6 +11173,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                   const recentRun = findRecentPluginActionRun(recentCapabilityRuns, [item.id, item.name], ["install", "update"]);
                   const pluginFocused = capabilityFocusMatches("marketplace-plugin", item.id, item.name);
                   const installedPlugin = findPluginByIdentifiers(allInstalledPluginRows, [item.id, item.name]);
+                  const toolDetails = Array.isArray(item.toolDetails) ? item.toolDetails : [];
                   const pluginRetry = pluginFocused && recentRun && recentRun.code !== 0
                     ? () => requestCapabilityClaude(`plugin install ${item.id}`, `${t.installFromMarketplace}: ${item.name || item.id}`, marketplaceInstallReviewRows(item))
                     : null;
@@ -11092,9 +11196,24 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                       {item.author && <div><dt>{t.author}</dt><dd>{item.author}</dd></div>}
                       {item.source && <div><dt>{t.source}</dt><dd title={item.source}>{messageExcerpt(item.source, 76)}</dd></div>}
                       {item.installLocation && <div><dt>{t.installPath}</dt><dd title={item.installLocation}>{compactPath(item.installLocation, 64)}</dd></div>}
+                      {item.tools && <div><dt>{t.tools}</dt><dd title={item.tools}>{messageExcerpt(item.tools, 54)}</dd></div>}
                       {item.permissions && <div><dt>{t.allowedTools}</dt><dd title={item.permissions}>{messageExcerpt(item.permissions, 54)}</dd></div>}
                       {item.risk && <div><dt>{t.marketplaceRisk}</dt><dd title={item.risk}>{messageExcerpt(item.risk, 64)}</dd></div>}
                     </dl>
+                    {toolDetails.length > 0 && (
+                      <details className="mcp-tool-details plugin-tool-details marketplace-plugin-tool-details">
+                        <summary>{t.toolsList} · {toolDetails.length}</summary>
+                        <div className="mcp-tool-list">
+                          {toolDetails.map((tool) => (
+                            <article className="mcp-tool-detail" key={`${item.id}:${tool.name}`}>
+                              <strong>{tool.name}</strong>
+                              {tool.description && <span>{tool.description}</span>}
+                              {tool.schema && <code title={tool.schema}>{t.toolSchema}: {tool.schema}</code>}
+                            </article>
+                          ))}
+                        </div>
+                      </details>
+                    )}
                     <div className="marketplace-card-actions">
                       <button type="button" className="plain-action" onClick={() => requestCapabilityClaude(`plugin install ${item.id}`, `${t.installFromMarketplace}: ${item.name || item.id}`, marketplaceInstallReviewRows(item))} disabled={cliWorking || item.installed} title={item.installed ? t.installedLocal : cliWorking ? t.workingHint : t.installFromMarketplace}>
                         <Download size={14} />
@@ -11219,6 +11338,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                 {installedPluginRows.map((plugin) => {
                   const recentRun = findRecentPluginActionRun(recentCapabilityRuns, [plugin.id, plugin.name], ["enable", "disable", "update", "install"]);
                   const pluginFocused = capabilityFocusMatches("plugin", plugin.id, plugin.name);
+                  const toolDetails = Array.isArray(plugin.toolDetails) ? plugin.toolDetails : [];
                   const pluginRetryArgs = pluginFocused && recentRun && recentRun.code !== 0
                     ? pluginActionArgsFromRun(recentRun, plugin.id)
                     : "";
@@ -11251,9 +11371,23 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                               <dt>{label}</dt>
                               <dd title={title || value}>{value}</dd>
                             </div>
+                        ))}
+                      </dl>
+                    )}
+                    {toolDetails.length > 0 && (
+                      <details className="mcp-tool-details plugin-tool-details">
+                        <summary>{t.toolsList} · {toolDetails.length}</summary>
+                        <div className="mcp-tool-list">
+                          {toolDetails.map((tool) => (
+                            <article className="mcp-tool-detail" key={`${plugin.id}:${tool.name}`}>
+                              <strong>{tool.name}</strong>
+                              {tool.description && <span>{tool.description}</span>}
+                              {tool.schema && <code title={tool.schema}>{t.toolSchema}: {tool.schema}</code>}
+                            </article>
                           ))}
-                        </dl>
-                      )}
+                        </div>
+                      </details>
+                    )}
                     </div>
                     <em className={cx("plugin-status-badge", pluginStatusKind(plugin))}>{pluginStatusDisplay(plugin, t)}</em>
                     <div className="structured-row-actions">
@@ -14008,6 +14142,7 @@ export function App() {
             plugin.status,
             plugin.source,
             plugin.tools,
+            Array.isArray(plugin.toolDetails) ? plugin.toolDetails.map((tool) => [tool?.name, tool?.description, tool?.schema].filter(Boolean).join(" ")).join(" ") : "",
             plugin.permissions,
             plugin.error,
           ].filter(Boolean).join(" "),
@@ -14046,6 +14181,7 @@ export function App() {
             plugin.status,
             plugin.source,
             plugin.tools,
+            Array.isArray(plugin.toolDetails) ? plugin.toolDetails.map((tool) => [tool?.name, tool?.description, tool?.schema].filter(Boolean).join(" ")).join(" ") : "",
             plugin.permissions,
             plugin.error,
             evidence,
@@ -14422,6 +14558,8 @@ export function App() {
             plugin.category,
             plugin.author,
             plugin.source,
+            plugin.tools,
+            Array.isArray(plugin.toolDetails) ? plugin.toolDetails.map((tool) => [tool?.name, tool?.description, tool?.schema].filter(Boolean).join(" ")).join(" ") : "",
             plugin.permissions,
             plugin.risk,
           ].filter(Boolean).join(" "),
@@ -14461,6 +14599,8 @@ export function App() {
             plugin.category,
             plugin.author,
             plugin.source,
+            plugin.tools,
+            Array.isArray(plugin.toolDetails) ? plugin.toolDetails.map((tool) => [tool?.name, tool?.description, tool?.schema].filter(Boolean).join(" ")).join(" ") : "",
             plugin.permissions,
             plugin.risk,
             evidence,
@@ -14474,11 +14614,13 @@ export function App() {
       .map((plugin) => {
         const id = plugin.id || plugin.name;
         const commandLine = `plugin install ${id}`;
+        const detailLines = toolDetailLines(plugin, t);
         const reviewRows = [
           [t.commandLine, `claude ${commandLine}`],
           plugin.marketplace ? [t.marketplace, plugin.marketplace] : null,
           plugin.version && plugin.version !== "unknown" ? [t.version, plugin.version] : null,
           plugin.risk ? [t.marketplaceRisk, plugin.risk] : [t.marketplaceRisk, t.marketplaceInstallRisk],
+          detailLines.length ? [t.toolsList, detailLines.join("\n")] : plugin.tools ? [t.tools, plugin.tools] : null,
           plugin.permissions ? [t.allowedTools, plugin.permissions] : null,
           [t.commandCwd, activeProject?.path || t.localWorkspace],
         ].filter(Boolean);
@@ -14501,6 +14643,8 @@ export function App() {
             plugin.category,
             plugin.author,
             plugin.source,
+            plugin.tools,
+            Array.isArray(plugin.toolDetails) ? plugin.toolDetails.map((tool) => [tool?.name, tool?.description, tool?.schema].filter(Boolean).join(" ")).join(" ") : "",
             plugin.permissions,
             plugin.risk,
             t.installFromMarketplace,

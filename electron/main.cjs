@@ -1526,6 +1526,7 @@ function normalizeClaudePluginItems(jsonOutput, rawOutput) {
         ? !plugin.disabled
         : /enabled|active|ready|ok|connected/i.test(statusText);
     const source = plugin.source || plugin.installSource || plugin.registry || plugin.repository || plugin.repo || plugin.url || "claude-code";
+    const toolSource = plugin.tools || plugin.toolNames || plugin.commands || plugin.slashCommands || plugin.mcpTools;
     return {
       id: idText,
       name: String(plugin.name || pluginNameFromId(idText)).trim() || idText,
@@ -1540,6 +1541,7 @@ function normalizeClaudePluginItems(jsonOutput, rawOutput) {
       lastUpdated: String(plugin.lastUpdated || ""),
       source: marketplacePluginSourceSummary(source) || "claude-code",
       tools: pluginToolsSummary(plugin),
+      toolDetails: structuredToolDetails(toolSource),
       permissions: pluginPermissionsSummary(plugin),
       error: pluginErrorSummary(plugin),
     };
@@ -1642,6 +1644,7 @@ function marketplacePluginCatalogItem(plugin, manifest, marketplace, root, insta
   if (!name) return null;
   const idText = `${name}@${marketplace.name}`;
   const installed = installedIds.has(idText.toLowerCase()) || installedIds.has(name.toLowerCase());
+  const toolSource = plugin.tools || plugin.toolNames || plugin.commands || plugin.slashCommands || plugin.mcpTools || plugin.capabilities;
   return {
     id: idText,
     name,
@@ -1652,6 +1655,8 @@ function marketplacePluginCatalogItem(plugin, manifest, marketplace, root, insta
     author: String(marketplacePluginAuthor(plugin, manifest) || ""),
     homepage: String(plugin.homepage || plugin.url || ""),
     source: marketplacePluginSourceSummary(marketplacePluginSource(plugin)),
+    tools: summarizeStructuredList(toolSource),
+    toolDetails: structuredToolDetails(toolSource),
     permissions: marketplacePluginPermissionsSummary(plugin),
     risk: marketplacePluginRiskSummary(plugin),
     installLocation: root,
@@ -1987,8 +1992,9 @@ function structuredToolDetails(value) {
   function pushTool(item, fallbackName = "") {
     if (item === false || item === null || item === undefined || item === "") return;
     if (typeof item === "string" || typeof item === "number") {
-      const name = String(item).trim();
-      if (name) details.push({ name, description: "", schema: "" });
+      const text = String(item).trim();
+      const name = String(fallbackName || text).trim();
+      if (name) details.push({ name, description: fallbackName ? text : "", schema: "" });
       return;
     }
     if (typeof item !== "object") return;
