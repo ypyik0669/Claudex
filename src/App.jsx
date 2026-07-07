@@ -12955,6 +12955,91 @@ export function App() {
           action: () => openRunTimeline(event.id),
         };
       });
+    const capabilityRecoveryCommands = (Array.isArray(state.commandRuns) ? state.commandRuns : [])
+      .filter((run) => run?.kind === "capability" && run.code !== 0 && !run.cancelled && capabilityRetryArgsFromRun(run))
+      .slice(0, 16)
+      .flatMap((run) => {
+        const event = commandRunTimelineEvent(run, t);
+        if (!event) return [];
+        const retryArgs = capabilityRetryArgsFromRun(run);
+        const safeRetryArgs = safeCapabilityRetryArgsFromRun(run);
+        const mutatingRetryArgs = mutatingCapabilityRetryArgsFromRun(run);
+        const evidence = runTimelineEvidenceForEvent(event, {
+          commandRuns: state.commandRuns,
+          automations: state.automations,
+          subagentRuns: state.subagentRuns,
+          sessions: state.sessions,
+          t,
+        });
+        const evidenceText = runTimelineEvidenceText(event, evidence, t);
+        const commandLine = event.commandLine || run.command || run.commandLine || "";
+        const subtitle = [
+          runTimelineStatusLabel(event.status, t),
+          commandLine,
+          typeof event.code === "number" ? `${t.commandExit}: ${event.code}` : "",
+          event.stderr || run.stderr || event.detail,
+        ].filter(Boolean).join(" · ");
+        const keywords = [
+          "capability recovery retry failed failure plugin mcp marketplace cli command palette evidence timeline",
+          t.capabilities,
+          t.retry,
+          t.copyEvidence,
+          t.openRunTimeline,
+          event.id,
+          run.id,
+          run.requestId,
+          run.kind,
+          commandLine,
+          retryArgs,
+          run.stdout,
+          run.stderr,
+          run.cwd,
+          run.project?.name,
+          run.project?.path,
+          evidenceText,
+        ].filter(Boolean).join(" ");
+        return [
+          {
+            id: `capability-recovery:retry:${commandIdSegment(event.id)}`,
+            title: `${t.retry}: ${event.title}`,
+            subtitle: [
+              mutatingRetryArgs ? t.marketplaceInstallReview : "",
+              subtitle,
+            ].filter(Boolean).join(" · "),
+            group: t.capabilities,
+            target: mutatingRetryArgs ? "capabilities" : "outputs",
+            priority: 78,
+            keywords,
+            action: () => {
+              if (mutatingRetryArgs) {
+                openCapabilityRetryConfirmation(mutatingRetryArgs);
+                return;
+              }
+              void runPersistedCapabilityCommand(safeRetryArgs || retryArgs);
+            },
+          },
+          {
+            id: `capability-recovery:copy:${commandIdSegment(event.id)}`,
+            title: `${t.copyEvidence}: ${event.title}`,
+            subtitle,
+            group: t.capabilities,
+            target: "clipboard",
+            priority: 68,
+            keywords,
+            action: () => copyMessage(evidenceText),
+          },
+          {
+            id: `capability-recovery:timeline:${commandIdSegment(event.id)}`,
+            title: `${t.openRunTimeline}: ${event.title}`,
+            subtitle,
+            group: t.bottomPanel,
+            target: "outputs",
+            priority: 62,
+            keywords,
+            action: () => openRunTimeline(event.id),
+          },
+        ];
+      });
 
     const noticeCommands = (state.notices || [])
       .filter((notice) => notice?.id && notice?.title && !notice.dismissedAt)
@@ -14244,6 +14329,7 @@ export function App() {
       ...threadActionCommands,
       ...runEvidenceCommands,
       ...commandRunCommands,
+      ...capabilityRecoveryCommands,
       ...noticeCommands,
       ...latestGitActionCommands,
       ...gitFileCommands,
