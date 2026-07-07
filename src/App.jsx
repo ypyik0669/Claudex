@@ -11147,6 +11147,13 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
     ));
   }
 
+  function capabilityFocusAttributes(focused) {
+    return {
+      "data-capability-focused": focused ? "true" : "false",
+      "aria-current": focused ? "true" : undefined,
+    };
+  }
+
   function selectCapabilityTab(id) {
     if (id !== activeTab) {
       manualCapabilityTabSwitchRef.current += 1;
@@ -11907,6 +11914,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                       className={cx("marketplace-source-row structured-source-row", sourceFocused && "focused-capability-row")}
                       key={item.name}
                       data-marketplace-source-id={item.name}
+                      {...capabilityFocusAttributes(sourceFocused)}
                       {...surfaceTraceAttributes("marketplace-source", "open", item, { id: item.name, name: item.name })}
                     >
                       <div>
@@ -11994,6 +12002,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                       className={cx("marketplace-plugin-card", item.installed && "installed", pluginFocused && "focused-capability-row")}
                       key={item.id}
                       data-marketplace-plugin-id={item.id}
+                      {...capabilityFocusAttributes(pluginFocused)}
                       {...surfaceTraceAttributes("marketplace-plugin", "open", item, { id: item.id || item.name })}
                     >
                     <div className="marketplace-plugin-card-head">
@@ -12106,6 +12115,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                       key={item}
                       data-custom-marketplace-row
                       data-custom-marketplace-id={item}
+                      {...capabilityFocusAttributes(customFocused)}
                     >
                       <div>
                         <strong title={item}>{compactPath(item, 76)}</strong>
@@ -12193,6 +12203,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                       className={cx("structured-plugin-row", pluginFocused && "focused-capability-row")}
                       key={plugin.id}
                       data-plugin-id={plugin.id}
+                      {...capabilityFocusAttributes(pluginFocused)}
                       {...surfaceTraceAttributes("plugin", "open", plugin, { id: plugin.id || plugin.name })}
                     >
                     <span className="plugin-manager-icon"><Plug size={17} /></span>
@@ -12315,6 +12326,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                 {mcpServerRows.map((server) => {
                   const rowKey = mcpServerKey(server);
                   const rowRecording = cliAction === "mcp list";
+                  const mcpFocused = capabilityFocusMatches("mcp", server.name, rowKey);
                   const toolDetails = Array.isArray(server.toolDetails) ? server.toolDetails : [];
                   const rowMeta = [
                     typeof server.tools === "number" ? [t.tools, String(server.tools)] : null,
@@ -12325,10 +12337,11 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                   ].filter(Boolean);
                   return (
                     <article
-                      className={cx("structured-plugin-row", capabilityFocusMatches("mcp", server.name, rowKey) && "focused-capability-row")}
+                      className={cx("structured-plugin-row", mcpFocused && "focused-capability-row")}
                       key={rowKey}
                       data-mcp-server-id={server.name}
                       data-mcp-server-key={rowKey}
+                      {...capabilityFocusAttributes(mcpFocused)}
                       {...surfaceTraceAttributes("mcp", "open", server, { id: server.name, name: server.name })}
                     >
                       <span className="plugin-manager-icon"><Blocks size={17} /></span>
@@ -12451,12 +12464,14 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                     name: skill.name || skillId,
                     projectPath: skill.root || activeProject?.path || "",
                   };
+                  const skillFocused = capabilityFocusMatches("skill", skill.id, skill.name, skill.path);
                   return (
                     <article
-                      className={cx("structured-plugin-row skill-registry-row", capabilityFocusMatches("skill", skill.id, skill.name, skill.path) && "focused-capability-row")}
+                      className={cx("structured-plugin-row skill-registry-row", skillFocused && "focused-capability-row")}
                       key={skill.path || skillId}
                       data-skill-id={skillId}
                       data-skill-path={skill.path || ""}
+                      {...capabilityFocusAttributes(skillFocused)}
                       {...surfaceTraceAttributes("skill", "open", skill, skillTraceContext)}
                     >
                       <span className="plugin-manager-icon"><Blocks size={17} /></span>
