@@ -2852,8 +2852,9 @@ function taskTraceAttrValue(value) {
 }
 
 function taskTraceProject(item = {}, entry = {}) {
-  const project = entry.project || item.project || {};
-  return project && typeof project === "object" ? project : {};
+  if (entry.project && typeof entry.project === "object") return entry.project;
+  if (item.project && typeof item.project === "object") return item.project;
+  return {};
 }
 
 function taskTraceProjectPath(item = {}, entry = {}) {
@@ -2899,7 +2900,7 @@ function automationTraceEntry(automation = {}) {
     || {};
 }
 
-function taskSurfaceTraceAttributes({ kind, item = {}, entry = null, filter = "" }) {
+function taskSurfaceTraceAttributes({ kind, action = "open", surface = "task-center", item = {}, entry = null, filter = "" }) {
   const isAutomation = kind === "automation";
   const runEntry = isAutomation ? (entry || automationTraceEntry(item)) : item;
   const taskId = item.id || item.requestId || "";
@@ -2911,9 +2912,9 @@ function taskSurfaceTraceAttributes({ kind, item = {}, entry = null, filter = ""
   const hasEvidence = isAutomation ? automationRunHasTraceEvidence(runEntry) : subagentRunHasTraceEvidence(item);
   const resolvedFilter = filter || (isAutomation ? taskCenterFilterForAutomation(item) : taskCenterFilterForSubagent(item));
   return {
-    "data-task-surface": "task-center",
+    "data-task-surface": taskTraceAttrValue(surface),
     "data-task-kind": taskTraceAttrValue(kind),
-    "data-task-action": "open",
+    "data-task-action": taskTraceAttrValue(action),
     "data-task-id": taskTraceAttrValue(taskId),
     "data-task-run-id": taskTraceAttrValue(resolvedRunId),
     "data-task-request-id": taskTraceAttrValue(resolvedRequestId),
@@ -6404,6 +6405,14 @@ function AutomationRecoveryStrip({
   if (!item?.id || !recoveryEntry || !automationNeedsRecovery(item)) return null;
   const detail = recoveryEntry.error || recoveryEntry.detail || recoveryEntry.summary || t.automationFailed;
   const runId = recoveryEntry.id || item.lastRun?.id || "";
+  const recoveryTrace = (action) => taskSurfaceTraceAttributes({
+    kind: "automation",
+    action,
+    surface,
+    item,
+    entry: recoveryEntry,
+    filter: "failed",
+  });
   return (
     <div
       className="automation-recovery-strip"
@@ -6426,6 +6435,7 @@ function AutomationRecoveryStrip({
           type="button"
           className="plain-action subtle-action"
           data-automation-recovery-action="run-now"
+          {...recoveryTrace("run-now")}
           onClick={onRunNow}
           disabled={working || item.status === "running"}
           title={t.runNow}
@@ -6437,6 +6447,7 @@ function AutomationRecoveryStrip({
           type="button"
           className="plain-action subtle-action"
           data-automation-recovery-action="copy-evidence"
+          {...recoveryTrace("copy-evidence")}
           onClick={onCopyEvidence}
           title={copied ? t.copied : t.copyAutomationEvidence}
         >
@@ -6448,6 +6459,7 @@ function AutomationRecoveryStrip({
             type="button"
             className="plain-action subtle-action"
             data-automation-recovery-action="timeline"
+            {...recoveryTrace("timeline")}
             onClick={onOpenTimeline}
             title={t.openRunTimeline}
           >
@@ -6475,6 +6487,13 @@ function SubagentRecoveryStrip({
   const timelineId = run.requestId || run.id || "";
   const projectPath = run.project?.path || run.cwd || "";
   const detail = run.summary || run.stderr || messageExcerpt(run.task, 150) || t.subagentFailed;
+  const recoveryTrace = (action) => taskSurfaceTraceAttributes({
+    kind: "subagent",
+    action,
+    surface,
+    item: run,
+    filter: "failed",
+  });
   return (
     <div
       className="subagent-recovery-strip"
@@ -6497,6 +6516,7 @@ function SubagentRecoveryStrip({
           type="button"
           className="plain-action subtle-action"
           data-subagent-recovery-action="retry"
+          {...recoveryTrace("retry")}
           onClick={onRetry}
           title={t.retrySubagent}
         >
@@ -6507,6 +6527,7 @@ function SubagentRecoveryStrip({
           type="button"
           className="plain-action subtle-action"
           data-subagent-recovery-action="continue"
+          {...recoveryTrace("continue")}
           onClick={onContinue}
           disabled={Boolean(run.continuedAt)}
           title={run.continuedAt ? t.subagentContinuedShort : t.continueSubagent}
@@ -6518,6 +6539,7 @@ function SubagentRecoveryStrip({
           type="button"
           className="plain-action subtle-action"
           data-subagent-recovery-action="copy-evidence"
+          {...recoveryTrace("copy-evidence")}
           onClick={onCopyEvidence}
           title={copied ? t.copiedSubagentEvidence : t.copySubagentEvidence}
         >
@@ -6529,6 +6551,7 @@ function SubagentRecoveryStrip({
             type="button"
             className="plain-action subtle-action"
             data-subagent-recovery-action="timeline"
+            {...recoveryTrace("timeline")}
             onClick={onOpenTimeline}
             title={t.openRunTimeline}
           >
@@ -6926,6 +6949,7 @@ function SubagentWorkbench({
                                   type="button"
                                   className="plain-action subtle-action"
                                   data-automation-history-action="copy"
+                                  {...taskSurfaceTraceAttributes({ kind: "automation", action: "copy-evidence", item, entry })}
                                   onClick={() => copyAutomationEvidence(item, entry)}
                                   title={t.copyAutomationEvidence}
                                 >
@@ -6937,6 +6961,7 @@ function SubagentWorkbench({
                                     type="button"
                                     className="plain-action subtle-action"
                                     data-automation-history-action="timeline"
+                                    {...taskSurfaceTraceAttributes({ kind: "automation", action: "timeline", item, entry })}
                                     onClick={() => onOpenRunTimeline?.(entry.id)}
                                     title={t.openRunTimeline}
                                   >
@@ -6977,6 +7002,8 @@ function SubagentWorkbench({
                       <button
                         type="button"
                         className="plain-action subtle-action"
+                        data-automation-task-action="run-now"
+                        {...taskSurfaceTraceAttributes({ kind: "automation", action: "run-now", item, entry: traceEntry })}
                         onClick={() => handleAutomationAction(item, onRunAutomationNow)}
                         disabled={automationWorkingId === item.id || item.status === "running"}
                         title={t.runNow}
@@ -6989,6 +7016,7 @@ function SubagentWorkbench({
                           type="button"
                           className="plain-action subtle-action"
                           data-automation-task-action="copy-evidence"
+                          {...taskSurfaceTraceAttributes({ kind: "automation", action: "copy-evidence", item, entry: item.lastRun })}
                           onClick={() => copyAutomationEvidence(item)}
                           title={copiedAutomationRunId === item.lastRun.id ? t.copied : t.copyAutomationEvidence}
                         >
@@ -7000,6 +7028,8 @@ function SubagentWorkbench({
                         <button
                           type="button"
                           className="plain-action subtle-action"
+                          data-automation-task-action="timeline"
+                          {...taskSurfaceTraceAttributes({ kind: "automation", action: "timeline", item, entry: item.lastRun })}
                           onClick={() => onOpenRunTimeline?.(item.lastRun.id)}
                           title={t.openRunTimeline}
                         >
@@ -7010,6 +7040,8 @@ function SubagentWorkbench({
                       <button
                         type="button"
                         className="plain-action subtle-action"
+                        data-automation-task-action={item.enabled ? "pause" : "resume"}
+                        {...taskSurfaceTraceAttributes({ kind: "automation", action: item.enabled ? "pause" : "resume", item, entry: traceEntry })}
                         onClick={() => handleAutomationAction(item, () => onToggleAutomationEnabled?.(item, !item.enabled))}
                         disabled={!item.schedule?.runAt || automationWorkingId === item.id || item.status === "running"}
                         title={item.enabled ? t.pauseAutomation : t.resumeAutomation}
@@ -7020,6 +7052,8 @@ function SubagentWorkbench({
                       <button
                         type="button"
                         className="plain-action subtle-action danger-inline-action"
+                        data-automation-task-action="delete"
+                        {...taskSurfaceTraceAttributes({ kind: "automation", action: "delete", item, entry: traceEntry })}
                         onClick={() => handleAutomationAction(item, onDeleteAutomation)}
                         disabled={automationWorkingId === item.id}
                         title={t.delete}
@@ -7201,23 +7235,46 @@ function SubagentWorkbench({
               {typeof run.durationMs === "number" && run.durationMs > 0 && <span>{formatDurationMs(run.durationMs)}</span>}
               <span>{t.subagentArtifacts}: {run.artifacts?.length || 0}</span>
               {run.continuedAt && <span>{t.subagentContinuedShort}: {formatDate(run.continuedAt)}</span>}
-              <button type="button" className="plain-action subtle-action" data-subagent-run-action="copy-evidence" onClick={() => copySubagentEvidence(run)} title={copiedSubagentRunId === run.id ? t.copiedSubagentEvidence : t.copySubagentEvidence}>
+              <button
+                type="button"
+                className="plain-action subtle-action"
+                data-subagent-run-action="copy-evidence"
+                {...taskSurfaceTraceAttributes({ kind: "subagent", action: "copy-evidence", item: run })}
+                onClick={() => copySubagentEvidence(run)}
+                title={copiedSubagentRunId === run.id ? t.copiedSubagentEvidence : t.copySubagentEvidence}
+              >
                 {copiedSubagentRunId === run.id ? <Check size={13} /> : <Copy size={13} />}
                 {copiedSubagentRunId === run.id ? t.copiedSubagentEvidence : t.copySubagentEvidence}
               </button>
-              <button type="button" className="plain-action subtle-action" onClick={() => onOpenRunTimeline?.(run.requestId || run.id)} title={t.openRunTimeline}>
+              <button
+                type="button"
+                className="plain-action subtle-action"
+                data-subagent-run-action="timeline"
+                {...taskSurfaceTraceAttributes({ kind: "subagent", action: "timeline", item: run })}
+                onClick={() => onOpenRunTimeline?.(run.requestId || run.id)}
+                title={t.openRunTimeline}
+              >
                 <FileText size={13} />
                 {t.openRunTimeline}
               </button>
               {run.status !== "running" && (
                 <>
-                  <button type="button" className="plain-action subtle-action" onClick={() => onContinueSubagent?.(run)} disabled={Boolean(run.continuedAt)}>
+                  <button
+                    type="button"
+                    className="plain-action subtle-action"
+                    data-subagent-run-action="continue"
+                    {...taskSurfaceTraceAttributes({ kind: "subagent", action: "continue", item: run })}
+                    onClick={() => onContinueSubagent?.(run)}
+                    disabled={Boolean(run.continuedAt)}
+                  >
                     <MessageSquarePlus size={13} />
                     {run.continuedAt ? t.subagentContinuedShort : t.continueSubagent}
                   </button>
                   <button
                     type="button"
                     className="plain-action subtle-action"
+                    data-subagent-run-action="retry"
+                    {...taskSurfaceTraceAttributes({ kind: "subagent", action: "retry", item: run })}
                     onClick={() => onRunSubagent?.(run.task, run.nickname || "Subagent", {
                       projectPath: run.project?.path || run.cwd || "",
                       sessionId: run.sessionId || "",
@@ -7226,14 +7283,26 @@ function SubagentWorkbench({
                     <RefreshCw size={13} />
                     {t.retrySubagent}
                   </button>
-                  <button type="button" className="plain-action subtle-action" onClick={() => onArchiveSubagent?.(run, !run.archivedAt)}>
+                  <button
+                    type="button"
+                    className="plain-action subtle-action"
+                    data-subagent-run-action={run.archivedAt ? "restore" : "archive"}
+                    {...taskSurfaceTraceAttributes({ kind: "subagent", action: run.archivedAt ? "restore" : "archive", item: run })}
+                    onClick={() => onArchiveSubagent?.(run, !run.archivedAt)}
+                  >
                     <Archive size={13} />
                     {run.archivedAt ? t.restoreSubagent : t.archiveSubagent}
                   </button>
                 </>
               )}
               {run.status === "running" && (
-                <button type="button" className="plain-action subtle-action" onClick={() => onCancelSubagent?.(run)}>
+                <button
+                  type="button"
+                  className="plain-action subtle-action"
+                  data-subagent-run-action="cancel"
+                  {...taskSurfaceTraceAttributes({ kind: "subagent", action: "cancel", item: run })}
+                  onClick={() => onCancelSubagent?.(run)}
+                >
                   <X size={13} />
                   {t.cancelSubagent}
                 </button>
