@@ -502,6 +502,7 @@ const copy = {
     noticeDismiss: "标记已处理",
     noticeClearAll: "全部标记已处理",
     noticeOpenAction: "打开对应工作台",
+    noticeOpenEvidence: "查看证据",
     noticeSource: "来源",
     noticeLevelError: "错误",
     noticeBadgeDetail: "未处理 {total} · 错误 {errors} · 警告 {warnings}",
@@ -6912,9 +6913,15 @@ function NoticeCenter({ notices = [], onDismiss, onClear, onAction, t }) {
               {!notice.dismissedAt && (
                 <div className="notice-card-actions">
                   {notice.action && (
-                    <button type="button" className="plain-action subtle-action" data-notice-action="open" onClick={() => onAction?.(notice)}>
+                    <button
+                      type="button"
+                      className="plain-action subtle-action"
+                      data-notice-action="open"
+                      data-notice-action-target={notice.runEventId ? "timeline" : "surface"}
+                      onClick={() => onAction?.(notice)}
+                    >
                       <PanelRight size={13} />
-                      {t.noticeOpenAction || t.runtimeHealthOpenTarget}
+                      {notice.runEventId ? (t.noticeOpenEvidence || t.noticeOpenAction) : (t.noticeOpenAction || t.runtimeHealthOpenTarget)}
                     </button>
                   )}
                   <button type="button" className="plain-action subtle-action" data-notice-action="dismiss" onClick={() => onDismiss?.(notice)}>

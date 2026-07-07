@@ -49,7 +49,7 @@ function writeInitialStore() {
     version: 1,
     settings: {
       provider: "anthropic",
-      model: "claude-sonnet-4-5-20250929",
+      model: "claude-haiku-4-5-20251001",
       baseUrl: "https://api.example.invalid",
       temperature: 0.2,
       timeoutMs: 600000,
@@ -156,7 +156,7 @@ async function runTest() {
 
   assertStep("PASS46_DISMISS_NOTICE", await win.webContents.executeJavaScript(`
     (function() {
-      const button = document.querySelector('.notice-card.error button');
+      const button = document.querySelector('.notice-card.error button[data-notice-action="dismiss"]');
       if (!button) return false;
       button.click();
       return true;

@@ -286,11 +286,14 @@ async function runTest() {
   assertStep("PASS78_NOTICE_CARD_ACTIONABLE", await waitFor(win, `
     (function() {
       const card = document.querySelector('.notice-card');
+      const open = card?.querySelector('button[data-notice-action="open"]');
       const text = card?.textContent || '';
       return Boolean(card &&
         /runtime-health/.test(text) &&
         /pass78 plugin json failed/.test(text) &&
-        card.querySelector('button[data-notice-action="open"]') &&
+        open &&
+        open.getAttribute('data-notice-action-target') === 'timeline' &&
+        /查看证据/.test(open.textContent || '') &&
         card.querySelector('button[data-notice-action="dismiss"]'));
     })();
   `, 8000));

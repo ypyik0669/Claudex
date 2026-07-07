@@ -221,11 +221,14 @@ async function runTest() {
   assertStep("PASS196_NOTICE_CARD_ACTIONABLE", await waitFor(win, `
     (function() {
       const card = document.querySelector('.notice-card');
+      const button = card?.querySelector('button[data-notice-action="open"]');
       const text = card?.textContent || '';
       return Boolean(card &&
         /runtime-health/.test(text) &&
         /pass196 plugin json failed/.test(text) &&
-        card.querySelector('button[data-notice-action="open"]'));
+        button &&
+        button.getAttribute('data-notice-action-target') === 'timeline' &&
+        /查看证据/.test(button.textContent || ''));
     })();
   `, 10000));
   assertStep("PASS196_CLICK_NOTICE_TIMELINE", await win.webContents.executeJavaScript(`
