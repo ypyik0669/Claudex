@@ -813,6 +813,10 @@ select:focus-visible,
   color: #efb0a9;
 }
 
+.workspace-context-button.status-running {
+  color: #f2d0bc;
+}
+
 .workspace-context-button.status-warning {
   color: #e5c078;
 }
@@ -870,6 +874,18 @@ select:focus-visible,
   border-color: rgba(211, 106, 92, 0.42);
   background: rgba(211, 106, 92, 0.13);
   color: #ffd5d0;
+}
+
+.workspace-context-button.status-running.active {
+  border-color: rgba(209, 131, 87, 0.42);
+  background: rgba(209, 131, 87, 0.13);
+  color: #f2d0bc;
+}
+
+.workspace-context-button.status-running .context-tab-badge {
+  border-color: rgba(209, 131, 87, 0.38);
+  background: rgba(209, 131, 87, 0.2);
+  color: #ffd5b8;
 }
 
 .workspace-context-button.status-warning.active {
@@ -8100,6 +8116,10 @@ button.runtime-health-row {
   color: #efb0a9;
 }
 
+.bottom-panel-tabs button.status-running {
+  color: #f2d0bc;
+}
+
 .bottom-panel-tabs button.status-warning {
   color: #e5c078;
 }
@@ -8108,6 +8128,18 @@ button.runtime-health-row {
   border-color: rgba(211, 106, 92, 0.32);
   background: rgba(211, 106, 92, 0.12);
   color: #ffd5d0;
+}
+
+.bottom-panel-tabs button.status-running.active {
+  border-color: rgba(209, 131, 87, 0.32);
+  background: rgba(209, 131, 87, 0.12);
+  color: #f2d0bc;
+}
+
+.bottom-panel-tabs button.status-running .context-tab-badge {
+  border-color: rgba(209, 131, 87, 0.36);
+  background: rgba(209, 131, 87, 0.18);
+  color: #ffd5b8;
 }
 
 .bottom-panel-tabs button.status-warning.active {

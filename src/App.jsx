@@ -450,6 +450,7 @@ const copy = {
     bottomPanel: "底部面板",
     openSidePanel: "打开侧边面板",
     outputsPanelHint: "命令输出、Claude 进度和环境摘要会显示在这里，同时可以继续聊天。",
+    outputActivityBadgeDetail: "运行 {running} · 失败 {errors} · 最近 {total}",
     terminalPanelHint: "需要交互式命令时，使用当前项目的真实终端。",
     browserPanelHint: "需要边聊天边看页面时，在侧边面板里预览 URL。",
     noActiveRun: "当前没有运行中的任务。",
@@ -2798,6 +2799,20 @@ function timelineEventsForUi(runEvents = [], { commandRuns = [], automations = [
     .slice(0, 14);
 }
 
+function runTimelineActivitySummary(events = []) {
+  const items = Array.isArray(events) ? events : [];
+  const running = items.filter((event) => event?.status === "running").length;
+  const errors = items.filter((event) => event?.status === "error").length;
+  const status = errors ? "error" : running ? "running" : "";
+  return {
+    running,
+    errors,
+    total: items.length,
+    status,
+    badge: errors || running ? String(errors || running) : "",
+  };
+}
+
 function runTimelineStatusLabel(status, t) {
   if (status === "running") return t.commandRunning;
   if (status === "cancelled") return t.commandCancelled;
@@ -4162,6 +4177,18 @@ function Conversation({
     browserVisits,
     t,
   }), [runEvents, commandRuns, automationItemsForUi, subagentRuns, browserVisits, t]);
+  const outputActivitySummary = useMemo(() => runTimelineActivitySummary(runTimelineEvents), [runTimelineEvents]);
+  const outputActivityLabel = outputActivitySummary.status === "error"
+    ? `${t.commandFailed} ${outputActivitySummary.errors}`
+    : outputActivitySummary.status === "running"
+      ? `${t.commandRunning} ${outputActivitySummary.running}`
+      : "";
+  const outputActivityDetail = outputActivitySummary.total
+    ? t.outputActivityBadgeDetail
+      .replace("{running}", outputActivitySummary.running)
+      .replace("{errors}", outputActivitySummary.errors)
+      .replace("{total}", outputActivitySummary.total)
+    : "";
   const selectedRunEvent = useMemo(() => {
     const existing = runTimelineEvents.find((event) => event.id === selectedRunEventId);
     if (existing) return existing;
@@ -4379,7 +4406,16 @@ function Conversation({
     + (subagentRuns || []).filter((run) => run.status === "running").length;
   const contextTabs = [
     { id: "environment", label: t.environment, icon: HardDrive, meta: projectPathMissing ? t.projectPathMissing : branchLabel },
-    { id: "outputs", label: t.outputs, icon: FileText, meta: busy ? t.commandRunning : "" },
+    {
+      id: "outputs",
+      label: t.outputs,
+      icon: FileText,
+      meta: outputActivityLabel || (busy ? t.commandRunning : ""),
+      titleMeta: outputActivityDetail || outputActivityLabel || (busy ? t.commandRunning : ""),
+      ariaMeta: outputActivityDetail || outputActivityLabel || (busy ? t.commandRunning : ""),
+      badge: outputActivitySummary.badge,
+      status: outputActivitySummary.status || (busy ? "running" : ""),
+    },
     {
       id: "notices",
       label: t.notices,
