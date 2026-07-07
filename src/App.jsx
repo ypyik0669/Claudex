@@ -3210,6 +3210,7 @@ function appendStreamChunk(current, stream, text) {
 }
 
 const COMMAND_HISTORY_LIMIT = 6;
+const RUN_EVENT_STATE_LIMIT = 120;
 
 function prependCommandHistory(current, entry) {
   return [entry, ...current.filter((item) => item.id !== entry.id)].slice(0, COMMAND_HISTORY_LIMIT);
@@ -3237,7 +3238,7 @@ function commandRunsToHistory(runs = [], kind = "workspace") {
     .slice(0, COMMAND_HISTORY_LIMIT);
 }
 
-function prependRunEvent(current, entry) {
+function prependRunEvent(current, entry, limit = RUN_EVENT_STATE_LIMIT) {
   const eventId = entry?.id || `${Date.now()}_${Math.random().toString(16).slice(2)}`;
   const existing = current.find((item) => item.id === eventId);
   const createdAt = existing?.createdAt || entry?.createdAt || new Date().toISOString();
@@ -3249,15 +3250,16 @@ function prependRunEvent(current, entry) {
     id: eventId,
     createdAt,
   };
-  return [next, ...current.filter((item) => item.id !== eventId)].slice(0, 14);
+  const items = [next, ...current.filter((item) => item.id !== eventId)];
+  return Number.isFinite(limit) ? items.slice(0, limit) : items;
 }
 
-function mergeRunEvents(current, incoming) {
+function mergeRunEvents(current, incoming, limit = RUN_EVENT_STATE_LIMIT) {
   if (!Array.isArray(incoming)) return current;
-  return [...incoming]
+  const items = [...incoming]
     .reverse()
-    .reduce((events, event) => prependRunEvent(events, event), current)
-    .slice(0, 14);
+    .reduce((events, event) => prependRunEvent(events, event, limit), current);
+  return Number.isFinite(limit) ? items.slice(0, limit) : items;
 }
 
 function isPermissionDeniedError(message) {
@@ -4492,6 +4494,11 @@ function Conversation({
     browserVisits,
     t,
   }), [runEvents, commandRuns, automationItemsForUi, subagentRuns, browserVisits, t]);
+  const selectedStoredRunEvent = useMemo(() => {
+    const selectedId = String(selectedRunEventId || "").trim();
+    if (!selectedId) return null;
+    return (runEvents || []).find((event) => event?.id === selectedId || event?.requestId === selectedId) || null;
+  }, [runEvents, selectedRunEventId]);
   const focusedGitActionEvent = useMemo(() => {
     const focusedId = String(runTimelineFocus?.id || "").trim();
     if (!focusedId) return null;
@@ -4542,11 +4549,12 @@ function Conversation({
   const selectedRunEvent = useMemo(() => {
     const existing = runTimelineEvents.find((event) => event.id === selectedRunEventId);
     if (existing) return existing;
+    if (selectedStoredRunEvent) return selectedStoredRunEvent;
     if (fallbackSelectedRunEvent) return fallbackSelectedRunEvent;
     if (!runTimelineEvents.length) return null;
     if (selectedRunEventId) return null;
     return runTimelineEvents[0];
-  }, [runTimelineEvents, selectedRunEventId, fallbackSelectedRunEvent]);
+  }, [runTimelineEvents, selectedRunEventId, selectedStoredRunEvent, fallbackSelectedRunEvent]);
   const selectedRunEvidence = useMemo(() => (
     selectedRunEvent
       ? runTimelineEvidenceForEvent(selectedRunEvent, {
@@ -12905,7 +12913,7 @@ export function App() {
         }));
       });
 
-    const commandRunEvents = mergeRunEvents(runEvents || [], state.runEvents || []);
+    const commandRunEvents = mergeRunEvents(runEvents || [], state.runEvents || [], Infinity);
     const commandPaletteTimelineEvents = timelineEventsForUi(commandRunEvents, {
       commandRuns: state.commandRuns,
       automations: state.automations,
@@ -12915,7 +12923,6 @@ export function App() {
     });
     const runEvidenceCommands = (commandRunEvents || [])
       .filter((event) => event?.id)
-      .slice(0, 16)
       .map((event) => {
         const evidence = runTimelineEvidenceForEvent(event, {
           commandRuns: state.commandRuns,
@@ -12978,7 +12985,6 @@ export function App() {
         const event = commandRunTimelineEvent(run, t);
         return event && !runEventIds.has(event.id);
       })
-      .slice(0, 16)
       .map((run) => {
         const event = commandRunTimelineEvent(run, t);
         const commandLine = event.commandLine || run.command || run.commandLine || "";
