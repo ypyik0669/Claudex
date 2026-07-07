@@ -5163,6 +5163,56 @@ button.runtime-health-row {
   color: #c6cbc6;
 }
 
+.mcp-tool-details {
+  min-width: 0;
+  margin-top: 5px;
+  border-top: 1px solid rgba(255, 255, 255, 0.06);
+  padding-top: 5px;
+}
+
+.mcp-tool-details summary {
+  width: max-content;
+  max-width: 100%;
+  color: var(--muted);
+  cursor: pointer;
+  font-size: 11px;
+}
+
+.mcp-tool-list {
+  display: grid;
+  gap: 5px;
+  margin-top: 5px;
+}
+
+.mcp-tool-detail {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  border-radius: 8px;
+  background: rgba(255, 255, 255, 0.025);
+  padding: 6px;
+}
+
+.mcp-tool-detail strong,
+.mcp-tool-detail span,
+.mcp-tool-detail code {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.mcp-tool-detail span {
+  color: #9ca39d;
+  font-size: 11px;
+}
+
+.mcp-tool-detail code {
+  color: #cfd5d0;
+  font-size: 10px;
+}
+
 .plugin-manager-icon {
   width: 34px;
   height: 34px;

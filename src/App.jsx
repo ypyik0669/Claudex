@@ -361,6 +361,7 @@ const copy = {
     allowedTools: "允许工具",
     disallowedTools: "禁止工具",
     toolsList: "可用工具",
+    toolSchema: "参数",
     toolsListPlaceholder: "例如 Bash,Edit,Read 或 default",
     toolsPlaceholder: "逗号分隔或保持为空",
     addDirs: "额外目录",
@@ -1710,13 +1711,31 @@ function marketplaceSourceEvidenceText(source = {}, t) {
   return rows.map(([label, value]) => `${label}: ${value}`).join("\n");
 }
 
+function mcpToolDetailLines(server = {}, t) {
+  const details = Array.isArray(server?.toolDetails) ? server.toolDetails : [];
+  return details
+    .map((tool) => {
+      const name = String(tool?.name || "").trim();
+      if (!name) return "";
+      const description = String(tool?.description || "").trim();
+      const schema = String(tool?.schema || "").trim();
+      return [
+        name,
+        description ? `— ${description}` : "",
+        schema ? `(${t.toolSchema}: ${schema})` : "",
+      ].filter(Boolean).join(" ");
+    })
+    .filter(Boolean);
+}
+
 function mcpServerEvidenceText(server = {}, t) {
+  const toolDetailLines = mcpToolDetailLines(server, t);
   const rows = [
     [t.mcpServers, server.name],
     server.status ? [t.status, `${mcpStatusLabel(server.status, t)} (${server.status})`] : null,
     server.detail ? [t.description, server.detail] : null,
     typeof server.tools === "number" ? [t.tools, String(server.tools)] : null,
-    server.toolsSummary ? [t.toolsList, server.toolsSummary] : null,
+    toolDetailLines.length ? [t.toolsList, toolDetailLines.join("\n")] : server.toolsSummary ? [t.toolsList, server.toolsSummary] : null,
     server.transport ? [t.mcpTransport, server.transport] : null,
     server.source ? [t.source, server.source] : null,
     server.error ? [t.mcpError, server.error] : null,
@@ -1997,6 +2016,7 @@ function structuredQueryMatch(item, query) {
     item?.tools,
     item?.toolsSummary,
     Array.isArray(item?.toolNames) ? item.toolNames.join(" ") : item?.toolNames,
+    Array.isArray(item?.toolDetails) ? item.toolDetails.map((tool) => [tool?.name, tool?.description, tool?.schema].filter(Boolean).join(" ")).join(" ") : "",
     item?.transport,
     item?.error,
   ].filter(Boolean).join(" ").toLowerCase();
@@ -9132,6 +9152,7 @@ function ToolsPanel({
                   {mcpPanelItems.slice(0, 8).map((server) => {
                     const display = mcpPanelDisplay(server, t);
                     const rowKey = `${display.name}:${server?.raw || server?.detail || ""}`;
+                    const toolDetails = Array.isArray(server.toolDetails) ? server.toolDetails : [];
                     const meta = [
                       display.detail,
                       typeof server.tools === "number" ? `${t.tools}: ${server.tools}` : "",
@@ -9147,6 +9168,20 @@ function ToolsPanel({
                         <div>
                           <strong>{display.name}</strong>
                           <span title={server.raw || server.detail || meta}>{meta || server.detail || server.raw || t.mcpServers}</span>
+                          {toolDetails.length > 0 && (
+                            <details className="mcp-tool-details claude-panel-mcp-tool-details">
+                              <summary>{t.toolsList} · {toolDetails.length}</summary>
+                              <div className="mcp-tool-list">
+                                {toolDetails.map((tool) => (
+                                  <article className="mcp-tool-detail" key={`${display.name}:${tool.name}`}>
+                                    <strong>{tool.name}</strong>
+                                    {tool.description && <span>{tool.description}</span>}
+                                    {tool.schema && <code title={tool.schema}>{t.toolSchema}: {tool.schema}</code>}
+                                  </article>
+                                ))}
+                              </div>
+                            </details>
+                          )}
                         </div>
                         <em className={cx("plugin-status-badge", server.status)}>{mcpStatusLabel(server.status, t)}</em>
                         <div className="plugin-status-row-actions">
@@ -11277,6 +11312,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                 {mcpServerRows.map((server) => {
                   const rowKey = mcpServerKey(server);
                   const rowRecording = cliAction === "mcp list";
+                  const toolDetails = Array.isArray(server.toolDetails) ? server.toolDetails : [];
                   const rowMeta = [
                     typeof server.tools === "number" ? [t.tools, String(server.tools)] : null,
                     server.toolsSummary ? [t.toolsList, messageExcerpt(server.toolsSummary, 72), server.toolsSummary] : null,
@@ -11304,6 +11340,20 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                               </div>
                             ))}
                           </dl>
+                        )}
+                        {toolDetails.length > 0 && (
+                          <details className="mcp-tool-details">
+                            <summary>{t.toolsList} · {toolDetails.length}</summary>
+                            <div className="mcp-tool-list">
+                              {toolDetails.map((tool) => (
+                                <article className="mcp-tool-detail" key={`${server.name}:${tool.name}`}>
+                                  <strong>{tool.name}</strong>
+                                  {tool.description && <span>{tool.description}</span>}
+                                  {tool.schema && <code title={tool.schema}>{t.toolSchema}: {tool.schema}</code>}
+                                </article>
+                              ))}
+                            </div>
+                          </details>
                         )}
                       </div>
                       <em className={cx("plugin-status-badge", server.status)}>{mcpStatusLabel(server.status, t)}</em>
@@ -11766,6 +11816,7 @@ function SettingsBackedStatus({
             {settingsMcpServers.length === 0 && <p className="empty-list">{t.noMcpServers}</p>}
             {settingsMcpServers.slice(0, 6).map((server) => {
               const display = mcpPanelDisplay(server, t);
+              const toolDetails = Array.isArray(server.toolDetails) ? server.toolDetails : [];
               const rowMeta = [
                 display.detail ? [t.cliStatus, messageExcerpt(display.detail, 72), display.detail] : null,
                 typeof server.tools === "number" ? [t.tools, String(server.tools)] : null,
@@ -11789,6 +11840,20 @@ function SettingsBackedStatus({
                           </div>
                         ))}
                       </dl>
+                    )}
+                    {toolDetails.length > 0 && (
+                      <details className="mcp-tool-details settings-mcp-tool-details">
+                        <summary>{t.toolsList} · {toolDetails.length}</summary>
+                        <div className="mcp-tool-list">
+                          {toolDetails.map((tool) => (
+                            <article className="mcp-tool-detail" key={`${display.name}:${tool.name}`}>
+                              <strong>{tool.name}</strong>
+                              {tool.description && <span>{tool.description}</span>}
+                              {tool.schema && <code title={tool.schema}>{t.toolSchema}: {tool.schema}</code>}
+                            </article>
+                          ))}
+                        </div>
+                      </details>
                     )}
                   </div>
                   <em className={cx("plugin-status-badge", server.status)}>{mcpStatusLabel(server.status, t)}</em>
@@ -14166,6 +14231,7 @@ export function App() {
           server.tools,
           server.toolsSummary,
           Array.isArray(server.toolNames) ? server.toolNames.join(" ") : server.toolNames,
+          Array.isArray(server.toolDetails) ? server.toolDetails.map((tool) => [tool?.name, tool?.description, tool?.schema].filter(Boolean).join(" ")).join(" ") : "",
           server.transport,
           server.source,
           server.error,
@@ -14203,6 +14269,7 @@ export function App() {
             server.tools,
             server.toolsSummary,
             Array.isArray(server.toolNames) ? server.toolNames.join(" ") : server.toolNames,
+            Array.isArray(server.toolDetails) ? server.toolDetails.map((tool) => [tool?.name, tool?.description, tool?.schema].filter(Boolean).join(" ")).join(" ") : "",
             server.transport,
             server.source,
             server.error,

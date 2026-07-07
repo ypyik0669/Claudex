@@ -1961,6 +1961,66 @@ function structuredToolLabels(value) {
     .filter(Boolean);
 }
 
+function summarizeToolSchema(value) {
+  if (!value) return "";
+  if (typeof value === "string") return value.trim();
+  if (Array.isArray(value)) return value
+    .map((item) => summarizeToolSchema(item))
+    .filter(Boolean)
+    .join(", ");
+  if (typeof value !== "object") return String(value || "").trim();
+  const properties = value.properties && typeof value.properties === "object"
+    ? Object.keys(value.properties)
+    : [];
+  const required = Array.isArray(value.required) ? value.required : [];
+  const type = String(value.type || "").trim();
+  const parts = [
+    type,
+    properties.length ? `properties:${properties.join(",")}` : "",
+    required.length ? `required:${required.join(",")}` : "",
+  ].filter(Boolean);
+  return parts.length ? parts.join(" · ") : summarizeStructuredList(value, " · ");
+}
+
+function structuredToolDetails(value) {
+  const details = [];
+  function pushTool(item, fallbackName = "") {
+    if (item === false || item === null || item === undefined || item === "") return;
+    if (typeof item === "string" || typeof item === "number") {
+      const name = String(item).trim();
+      if (name) details.push({ name, description: "", schema: "" });
+      return;
+    }
+    if (typeof item !== "object") return;
+    const name = String(item.name || item.id || item.tool || item.command || item.title || fallbackName || "").trim();
+    if (!name) return;
+    const description = String(item.description || item.summary || item.detail || "").trim();
+    const schema = summarizeToolSchema(item.inputSchema || item.input_schema || item.schema || item.parameters || item.args || item.arguments);
+    details.push({ name, description, schema });
+  }
+  if (Array.isArray(value)) {
+    value.forEach((item) => pushTool(item));
+  } else if (value && typeof value === "object") {
+    Object.entries(value).forEach(([key, itemValue]) => {
+      if (itemValue === true) pushTool(key);
+      else pushTool(itemValue, key);
+    });
+  } else {
+    String(value || "")
+      .split(/[,;\n]/)
+      .map((item) => item.trim())
+      .filter(Boolean)
+      .forEach((item) => pushTool(item));
+  }
+  const seen = new Set();
+  return details.filter((tool) => {
+    const key = tool.name.toLowerCase();
+    if (!key || seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+}
+
 function structuredToolCount(value) {
   if (typeof value === "number" && Number.isFinite(value)) return value;
   if (Array.isArray(value)) return value.length;
@@ -2060,6 +2120,7 @@ function normalizeMcpServers(jsonOutput, rawOutput) {
       seen.add(name.toLowerCase());
       const toolSource = item?.toolNames || item?.tools || item?.availableTools || item?.capabilities || item?.commands;
       const toolNames = structuredToolLabels(toolSource);
+      const toolDetails = structuredToolDetails(toolSource);
       const explicitToolCount = Number(item?.toolCount ?? item?.toolsCount ?? item?.tool_count);
       const tools = Number.isFinite(explicitToolCount)
         ? explicitToolCount
@@ -2076,6 +2137,7 @@ function normalizeMcpServers(jsonOutput, rawOutput) {
         raw: rawMatch.raw || JSON.stringify(item),
         tools,
         toolNames,
+        toolDetails,
         toolsSummary: toolNames.join(", "),
         transport,
         source,
