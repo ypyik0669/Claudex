@@ -481,6 +481,10 @@ const copy = {
     taskCenterFilterArchived: "已关闭",
     taskCenterFilteredCount: "{shown}/{total} 可见",
     taskCenterNoFilteredTasks: "当前过滤没有匹配任务",
+    taskCenterFailureSummaryTitle: "需要恢复",
+    taskCenterFailureSummary: "{total} 个失败任务 · 自动化 {automations} · 子代理 {subagents}",
+    taskCenterFailureSummaryHint: "来自真实 automation history 与 subagent run 状态；点击只切到失败过滤并聚焦第一条。",
+    taskCenterReviewFailures: "查看失败 / 恢复",
     automationTasks: "自动化任务",
     noAutomationTasks: "还没有自动化任务",
     automationLastRun: "最近运行",
@@ -5572,21 +5576,30 @@ function SubagentWorkbench({
   const [taskStatusFilter, setTaskStatusFilter] = useState("all");
   const [copiedAutomationRunId, setCopiedAutomationRunId] = useState("");
   const [copiedSubagentRunId, setCopiedSubagentRunId] = useState("");
+  const [localTaskFocus, setLocalTaskFocus] = useState(null);
   const taskInputRef = useRef(null);
   const activeRuns = runs.filter((run) => !run.archivedAt);
   const archivedRunCount = runs.length - activeRuns.length;
-  const focusedAutomationId = focus?.type === "automation" ? String(focus.id || "") : "";
-  const focusedSubagentId = focus?.type === "subagent" ? String(focus.id || "") : "";
+  const externalFocusedAutomationId = focus?.type === "automation" ? String(focus.id || "") : "";
+  const externalFocusedSubagentId = focus?.type === "subagent" ? String(focus.id || "") : "";
+  const localFocusedAutomationId = localTaskFocus?.type === "automation" ? String(localTaskFocus.id || "") : "";
+  const localFocusedSubagentId = localTaskFocus?.type === "subagent" ? String(localTaskFocus.id || "") : "";
+  const focusedAutomationId = externalFocusedAutomationId || localFocusedAutomationId;
+  const focusedSubagentId = externalFocusedSubagentId || localFocusedSubagentId;
+  const focusedTaskOptions = (externalFocusedAutomationId || externalFocusedSubagentId) ? focus : localTaskFocus || {};
   const focusedTaskFilter = ["all", "active", "failed", "archived"].includes(focus?.filter) ? focus.filter : "";
   const automationItems = Array.isArray(automations) ? automations : [];
+  const failedAutomationItems = automationItems.filter(automationNeedsRecovery);
+  const failedSubagentRuns = activeRuns.filter(subagentNeedsRecovery);
   const activeAutomationCount = automationItems.filter((item) => ["running", "scheduled"].includes(item.status)).length;
-  const failedAutomationCount = automationItems.filter((item) => item.status === "failed" || item.lastRun?.status === "failed").length;
+  const failedAutomationCount = failedAutomationItems.length;
   const runningSubagentCount = activeRuns.filter((run) => run.status === "running").length;
-  const failedSubagentCount = activeRuns.filter((run) => run.status === "error").length;
+  const failedSubagentCount = failedSubagentRuns.length;
+  const failedTaskCount = failedAutomationCount + failedSubagentCount;
   const taskFilterCounts = {
     all: automationItems.length + (showArchivedRuns ? runs.length : activeRuns.length),
     active: activeAutomationCount + runningSubagentCount,
-    failed: failedAutomationCount + failedSubagentCount,
+    failed: failedTaskCount,
     archived: archivedRunCount,
   };
   const taskFilterOptions = [
@@ -5597,13 +5610,13 @@ function SubagentWorkbench({
   ];
   const automationMatchesTaskFilter = (item) => {
     if (taskStatusFilter === "active") return ["running", "scheduled"].includes(item?.status);
-    if (taskStatusFilter === "failed") return item?.status === "failed" || item?.lastRun?.status === "failed";
+    if (taskStatusFilter === "failed") return automationNeedsRecovery(item);
     if (taskStatusFilter === "archived") return false;
     return true;
   };
   const subagentMatchesTaskFilter = (run) => {
     if (taskStatusFilter === "active") return !run?.archivedAt && run?.status === "running";
-    if (taskStatusFilter === "failed") return !run?.archivedAt && run?.status === "error";
+    if (taskStatusFilter === "failed") return !run?.archivedAt && subagentNeedsRecovery(run);
     if (taskStatusFilter === "archived") return Boolean(run?.archivedAt);
     return showArchivedRuns ? true : !run?.archivedAt;
   };
@@ -5625,6 +5638,10 @@ function SubagentWorkbench({
     { label: t.taskCenterFailed, value: failedAutomationCount + failedSubagentCount },
     { label: t.taskCenterArchived, value: archivedRunCount },
   ];
+  const failureSummary = t.taskCenterFailureSummary
+    .replace("{total}", failedTaskCount)
+    .replace("{automations}", failedAutomationCount)
+    .replace("{subagents}", failedSubagentCount);
 
   async function submit(event) {
     event.preventDefault();
@@ -5685,11 +5702,38 @@ function SubagentWorkbench({
     }
   }
 
+  function focusRecoverableTasks() {
+    const failedAutomation = failedAutomationItems[0];
+    const failedSubagent = failedSubagentRuns[0];
+    setTaskStatusFilter("failed");
+    setShowArchivedRuns(false);
+    if (failedAutomation?.id) {
+      setLocalTaskFocus({
+        type: "automation",
+        id: failedAutomation.id,
+        expandEvidence: true,
+        expandHistory: true,
+        nonce: Date.now(),
+      });
+      return;
+    }
+    const subagentId = failedSubagent?.id || failedSubagent?.requestId || "";
+    if (subagentId) {
+      setLocalTaskFocus({
+        type: "subagent",
+        id: subagentId,
+        expandEvidence: true,
+        expandArtifacts: true,
+        nonce: Date.now(),
+      });
+    }
+  }
+
   useEffect(() => {
-    if (!focusedSubagentId) return;
-    const run = runs.find((item) => item?.id === focusedSubagentId || item?.requestId === focusedSubagentId);
+    if (!externalFocusedSubagentId) return;
+    const run = runs.find((item) => item?.id === externalFocusedSubagentId || item?.requestId === externalFocusedSubagentId);
     if (run?.archivedAt) setShowArchivedRuns(true);
-  }, [focusedSubagentId, runs]);
+  }, [externalFocusedSubagentId, runs]);
 
   useEffect(() => {
     if (focusedTaskFilter) {
@@ -5697,9 +5741,9 @@ function SubagentWorkbench({
       if (focusedTaskFilter === "archived") setShowArchivedRuns(true);
       return;
     }
-    if (!focusedAutomationId && !focusedSubagentId) return;
+    if (!externalFocusedAutomationId && !externalFocusedSubagentId) return;
     setTaskStatusFilter("all");
-  }, [focusedAutomationId, focusedSubagentId, focusedTaskFilter, focus?.nonce]);
+  }, [externalFocusedAutomationId, externalFocusedSubagentId, focusedTaskFilter, focus?.nonce]);
 
   useEffect(() => {
     if (taskStatusFilter !== "archived" && !focusedSubagentId) setShowArchivedRuns(false);
@@ -5712,7 +5756,7 @@ function SubagentWorkbench({
       document.querySelector(".focused-task-card")?.scrollIntoView?.({ block: "center", behavior: "smooth" });
     }, 80);
     return () => window.clearTimeout(timer);
-  }, [focusedAutomationId, focusedSubagentId, focus?.nonce, showArchivedRuns]);
+  }, [focusedAutomationId, focusedSubagentId, focus?.nonce, localTaskFocus?.nonce, showArchivedRuns]);
 
   return (
     <div className="subagent-workbench">
@@ -5741,6 +5785,28 @@ function SubagentWorkbench({
           </div>
         ))}
       </section>
+      {failedTaskCount > 0 && (
+        <section
+          className="task-center-recovery-summary"
+          data-task-center-failure-summary=""
+          aria-label={t.taskCenterFailureSummaryTitle}
+        >
+          <div className="task-center-recovery-copy">
+            <span>{t.taskCenterFailureSummaryTitle}</span>
+            <strong>{failureSummary}</strong>
+            <p>{t.taskCenterFailureSummaryHint}</p>
+          </div>
+          <button
+            type="button"
+            className="plain-action subtle-action"
+            data-task-center-failure-action="focus-failed"
+            onClick={focusRecoverableTasks}
+          >
+            <AlertTriangle size={13} />
+            {t.taskCenterReviewFailures}
+          </button>
+        </section>
+      )}
       <div className="task-center-filters segmented-control compact-segmented" role="tablist" aria-label={t.taskCenterFilter}>
         {taskFilterOptions.map((item) => (
           <button
@@ -5749,6 +5815,7 @@ function SubagentWorkbench({
             className={cx(taskStatusFilter === item.id && "active")}
             data-task-filter={item.id}
             onClick={() => {
+              setLocalTaskFocus(null);
               setTaskStatusFilter(item.id);
               if (item.id === "archived") setShowArchivedRuns(true);
               else setShowArchivedRuns(false);
@@ -5771,8 +5838,8 @@ function SubagentWorkbench({
           <div className="automation-task-list">
             {visibleAutomationItems.slice(0, 4).map((item) => {
               const isFocusedAutomation = focusedAutomationId === item.id;
-              const openFocusedAutomationEvidence = Boolean(isFocusedAutomation && focus?.expandEvidence);
-              const openFocusedAutomationHistory = Boolean(isFocusedAutomation && (focus?.expandHistory || focus?.expandEvidence));
+              const openFocusedAutomationEvidence = Boolean(isFocusedAutomation && focusedTaskOptions?.expandEvidence);
+              const openFocusedAutomationHistory = Boolean(isFocusedAutomation && (focusedTaskOptions?.expandHistory || focusedTaskOptions?.expandEvidence));
               const lastRunDetail = item.lastRun?.error || item.lastRun?.detail || "";
               const recoveryEntry = automationRecoveryEntry(item);
               const history = Array.isArray(item.history) ? item.history.slice(0, 3) : [];
@@ -6009,8 +6076,8 @@ function SubagentWorkbench({
       <div className="subagent-run-list">
         {visibleRuns.map((run) => {
           const isFocusedRun = focusedSubagentId === run.id || focusedSubagentId === run.requestId;
-          const openFocusedEvidence = Boolean(isFocusedRun && focus?.expandEvidence);
-          const openFocusedArtifacts = Boolean(isFocusedRun && focus?.expandArtifacts);
+          const openFocusedEvidence = Boolean(isFocusedRun && focusedTaskOptions?.expandEvidence);
+          const openFocusedArtifacts = Boolean(isFocusedRun && focusedTaskOptions?.expandArtifacts);
           return (
           <article
             className={cx("subagent-run-card", run.status, run.archivedAt && "archived", isFocusedRun && "focused-task-card")}
@@ -12466,8 +12533,8 @@ export function App() {
       all: activeTaskFilterCommandTotal,
       active: automationItemsForCommands.filter((item) => ["running", "scheduled"].includes(item?.status)).length
         + activeSubagentRunsForCommands.filter((run) => run?.status === "running").length,
-      failed: automationItemsForCommands.filter((item) => item?.status === "failed" || item?.lastRun?.status === "failed").length
-        + activeSubagentRunsForCommands.filter((run) => run?.status === "error").length,
+      failed: automationItemsForCommands.filter(automationNeedsRecovery).length
+        + activeSubagentRunsForCommands.filter(subagentNeedsRecovery).length,
       archived: subagentRunsForCommands.filter((run) => run?.archivedAt).length,
     };
     const taskFilterCommands = [

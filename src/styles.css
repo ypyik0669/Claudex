@@ -6001,6 +6001,57 @@ button.runtime-health-row {
   font-weight: 650;
 }
 
+.task-center-recovery-summary {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 8px;
+  align-items: center;
+  border: 1px solid rgba(239, 113, 113, 0.22);
+  border-radius: var(--radius-sm);
+  background: linear-gradient(90deg, rgba(239, 113, 113, 0.08), rgba(209, 131, 87, 0.035));
+  padding: 8px 9px;
+}
+
+.task-center-recovery-copy {
+  min-width: 0;
+  display: grid;
+  gap: 2px;
+}
+
+.task-center-recovery-copy span {
+  color: #efb0b0;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.task-center-recovery-copy strong {
+  overflow: hidden;
+  color: #f1d0d0;
+  font-size: 12.5px;
+  font-weight: 650;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-center-recovery-copy p {
+  min-width: 0;
+  margin: 0;
+  overflow: hidden;
+  color: #b8b5ad;
+  font-size: 11.5px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.task-center-recovery-summary .plain-action {
+  min-height: 26px;
+  padding: 4px 8px;
+  font-size: 10.5px;
+  white-space: nowrap;
+}
+
 .task-center-filters {
   justify-content: flex-start;
   overflow-x: auto;
@@ -8898,9 +8949,23 @@ button.runtime-health-row {
   .browser-status-row {
     grid-template-columns: 1fr !important;
   }
+
+  .task-center-summary,
+  .task-center-recovery-summary {
+    grid-template-columns: 1fr 1fr;
+  }
+
+  .task-center-recovery-summary .plain-action {
+    justify-content: center;
+  }
 }
 
 @media (max-width: 560px) {
+  .task-center-summary,
+  .task-center-recovery-summary {
+    grid-template-columns: 1fr;
+  }
+
   .empty-state h1 {
     font-size: 26px;
   }
