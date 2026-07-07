@@ -571,6 +571,7 @@ const copy = {
     confirmCliActionTitle: "确认执行本机 CLI 操作",
     confirmCliActionWarning: "这会通过 Claude Code CLI 修改本机插件或市场状态：{command}",
     confirmCliActionButton: "确认执行",
+    pluginMutationRisk: "会通过 Claude Code CLI 修改本机插件状态，并把执行结果写入本地命令证据。",
     dismissAction: "取消",
     installedPlugins: "已安装的插件",
     pluginRefresh: "刷新",
@@ -9057,6 +9058,23 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
     ].filter(Boolean);
   }
 
+  function pluginActionReviewRows(plugin, actionLabel = t.pluginActions) {
+    return [
+      [t.plugins, plugin.id || plugin.name || actionLabel],
+      [t.status, pluginStatusDisplay(plugin, t)],
+      plugin.version && plugin.version !== "unknown" ? [t.version, plugin.version] : null,
+      plugin.scope ? [t.scope, plugin.scope] : null,
+      plugin.marketplace ? [t.marketplace, plugin.marketplace] : null,
+      plugin.source ? [t.source, plugin.source] : null,
+      plugin.installPath ? [t.installPath, plugin.installPath] : null,
+      plugin.tools ? [t.tools, plugin.tools] : null,
+      plugin.permissions ? [t.allowedTools, plugin.permissions] : null,
+      plugin.error ? [t.mcpError, plugin.error] : null,
+      [t.commandCwd, activeProject?.path || t.localWorkspace],
+      [t.marketplaceRisk, t.pluginMutationRisk],
+    ].filter(Boolean);
+  }
+
   function requestCapabilityClaude(args, label = "", reviewRows = []) {
     const nextArgs = String(args || "").trim();
     if (!nextArgs || cliWorking) return;
@@ -9713,7 +9731,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                     ? pluginActionArgsFromRun(recentRun, plugin.id)
                     : "";
                   const pluginRetry = pluginRetryArgs
-                    ? () => requestCapabilityClaude(pluginRetryArgs, `${t.pluginActions}: ${plugin.id}`)
+                    ? () => requestCapabilityClaude(pluginRetryArgs, `${t.pluginActions}: ${plugin.id}`, pluginActionReviewRows(plugin))
                     : null;
                   const pluginMeta = [
                     plugin.version && plugin.version !== "unknown" ? [t.version, plugin.version] : null,
@@ -9748,11 +9766,11 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                     <em className={cx("plugin-status-badge", pluginStatusKind(plugin))}>{pluginStatusDisplay(plugin, t)}</em>
                     <div className="structured-row-actions">
                       {plugin.enabled ? (
-                        <button type="button" className="plain-action subtle-action" onClick={() => requestCapabilityClaude(`plugin disable ${plugin.id}`, `${t.disablePlugin}: ${plugin.id}`)} disabled={cliWorking} title={cliWorking ? t.workingHint : undefined}>{t.disablePlugin}</button>
+                        <button type="button" className="plain-action subtle-action" onClick={() => requestCapabilityClaude(`plugin disable ${plugin.id}`, `${t.disablePlugin}: ${plugin.id}`, pluginActionReviewRows(plugin, t.disablePlugin))} disabled={cliWorking} title={cliWorking ? t.workingHint : undefined}>{t.disablePlugin}</button>
                       ) : (
-                        <button type="button" className="plain-action subtle-action" onClick={() => requestCapabilityClaude(`plugin enable ${plugin.id}`, `${t.enablePlugin}: ${plugin.id}`)} disabled={cliWorking} title={cliWorking ? t.workingHint : undefined}>{t.enablePlugin}</button>
+                        <button type="button" className="plain-action subtle-action" onClick={() => requestCapabilityClaude(`plugin enable ${plugin.id}`, `${t.enablePlugin}: ${plugin.id}`, pluginActionReviewRows(plugin, t.enablePlugin))} disabled={cliWorking} title={cliWorking ? t.workingHint : undefined}>{t.enablePlugin}</button>
                       )}
-                      <button type="button" className="plain-action subtle-action" onClick={() => requestCapabilityClaude(`plugin update ${plugin.id}`, `${t.updatePlugin}: ${plugin.id}`)} disabled={cliWorking} title={cliWorking ? t.workingHint : undefined}>{t.updatePlugin}</button>
+                      <button type="button" className="plain-action subtle-action" onClick={() => requestCapabilityClaude(`plugin update ${plugin.id}`, `${t.updatePlugin}: ${plugin.id}`, pluginActionReviewRows(plugin, t.updatePlugin))} disabled={cliWorking} title={cliWorking ? t.workingHint : undefined}>{t.updatePlugin}</button>
                       <button type="button" className="plain-action subtle-action" data-plugin-action="copy-evidence" onClick={() => copyPluginEvidence(plugin)} title={copiedPluginId === plugin.id ? t.copied : t.copyEvidence}>
                         {copiedPluginId === plugin.id ? <Check size={13} /> : <Copy size={13} />}
                         {copiedPluginId === plugin.id ? t.copied : t.copyEvidence}
