@@ -13988,8 +13988,7 @@ export function App() {
       });
 
     const skillCommandItems = (Array.isArray(capabilityCommandStatus?.skillItems) ? capabilityCommandStatus.skillItems : Array.isArray(capabilityCommandStatus?.skills) ? capabilityCommandStatus.skills : [])
-      .filter((skill) => skill?.id || skill?.name || skill?.path)
-      .slice(0, 24);
+      .filter((skill) => skill?.id || skill?.name || skill?.path);
     const skillRegistryCommands = skillCommandItems
       .map((skill) => {
         const id = skill.id || skill.name || skill.path;
