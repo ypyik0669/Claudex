@@ -4934,6 +4934,7 @@ function Conversation({
   const gitDiffRows = useMemo(() => buildGitDiffRows(focusedGitDiffText), [focusedGitDiffText]);
   const gitChangeSummaryRef = useRef(null);
   const gitSelectedEvidencePanelRef = useRef(null);
+  const gitLatestActionRef = useRef(null);
   const focusedGitPanelAction = bottomPanel === "changes" ? String(gitPanelFocus?.action || "").trim() : "";
   function gitActionFocused(action) {
     return Boolean(gitPanelFocus?.nonce && focusedGitPanelAction === action);
@@ -4955,7 +4956,8 @@ function Conversation({
   useEffect(() => {
     if (!focusedGitPanelAction || !gitPanelFocus?.nonce) return undefined;
     const timer = window.setTimeout(() => {
-      const target = gitSelectedEvidencePanelRef.current?.querySelector('[data-git-action-focused="true"]');
+      const target = gitSelectedEvidencePanelRef.current?.querySelector('[data-git-action-focused="true"]')
+        || gitLatestActionRef.current?.querySelector('[data-git-action-focused="true"]');
       target?.focus?.({ preventScroll: true });
       target?.scrollIntoView?.({ block: "center", behavior: "smooth" });
     }, 120);
@@ -6161,7 +6163,7 @@ function Conversation({
                   </div>
                 </section>
                 {latestGitActionEvent && (
-                  <section className={cx("git-latest-action", latestGitActionEvent.status)} aria-label={gitActionEvidenceLabel}>
+                  <section className={cx("git-latest-action", latestGitActionEvent.status)} aria-label={gitActionEvidenceLabel} ref={gitLatestActionRef}>
                     <div>
                       <span>{gitActionEvidenceLabel}</span>
                       <strong>{latestGitActionEvent.title || "Git"}</strong>
@@ -6181,6 +6183,7 @@ function Conversation({
                           type="button"
                           className="plain-action subtle-action"
                           data-git-action="copy-latest-evidence"
+                          {...gitActionFocusAttributes("copy-latest-evidence")}
                           onClick={copyLatestGitActionEvidence}
                           title={copiedLatestGitAction ? t.copied : t.copyGitEvidence}
                         >
@@ -6193,6 +6196,7 @@ function Conversation({
                           type="button"
                           className="plain-action subtle-action"
                           data-git-action="clear-focus"
+                          {...gitActionFocusAttributes("clear-focus")}
                           onClick={() => onClearRunTimelineFocus?.()}
                           title={t.returnToRecentGitAction}
                         >
@@ -6204,6 +6208,7 @@ function Conversation({
                         type="button"
                         className="plain-action subtle-action"
                         data-git-action="open-timeline"
+                        {...gitActionFocusAttributes("open-timeline")}
                         onClick={() => onOpenRunTimeline?.(latestGitActionEvent.id)}
                         title={t.openRunTimeline}
                       >
@@ -14808,6 +14813,73 @@ export function App() {
       if (!focusedId) return null;
       return gitActionCommandEvents.find((event) => event.id === focusedId || event.requestId === focusedId) || null;
     })();
+    const gitLatestActionControlCommandsForEvent = (event, {
+      idPrefix,
+      label,
+      priority = 62,
+      keywords = "",
+      includeClearFocus = false,
+    } = {}) => {
+      if (!event?.id) return [];
+      const run = findCommandRunForEvent(event, state.commandRuns);
+      const commandLine = String(event?.commandLine || run?.commandLine || run?.command || "").trim();
+      const cwd = String(event?.cwd || run?.cwd || run?.project?.path || event?.project?.path || "").trim();
+      const output = [
+        event?.stdout,
+        event?.stderr,
+        run?.stdout,
+        run?.stderr,
+      ].filter(Boolean).join("\n");
+      const controlSpecs = [
+        { action: "copy-latest-evidence", label: t.copyGitEvidence, keywords: "copy evidence clipboard focus button" },
+        { action: "open-timeline", label: t.openRunTimeline, keywords: "open run timeline output evidence focus button" },
+        includeClearFocus ? { action: "clear-focus", label: t.returnToRecentGitAction, keywords: "clear focus return recent latest focus button" } : null,
+      ].filter(Boolean);
+      return controlSpecs.map((spec, index) => ({
+        id: `${idPrefix}:${spec.action}:${commandIdSegment(event.id)}`,
+        title: `${spec.label}: ${event.title || label || "Git"}`,
+        subtitle: [
+          label,
+          runTimelineStatusLabel(event.status, t),
+          commandLine,
+          cwd,
+        ].filter(Boolean).join(" \u00b7 "),
+        group: t.changes,
+        target: "git-latest-action-action",
+        dataAttributes: {
+          "data-command-git-action": spec.action,
+          "data-command-git-action-event-id": String(event.id || ""),
+          "data-command-git-action-status": String(event.status || ""),
+          "data-command-git-action-command": commandLine,
+          "data-command-git-root": cwd,
+        },
+        priority: priority - index,
+        keywords: [
+          "git latest action control focus command palette evidence button",
+          keywords,
+          spec.keywords,
+          spec.label,
+          label,
+          t.focusedGitAction,
+          t.recentGitAction,
+          event.id,
+          event.type,
+          event.status,
+          event.title,
+          event.detail,
+          commandLine,
+          cwd,
+          event.project?.name,
+          event.project?.path,
+          output,
+        ].filter(Boolean).join(" "),
+        action: () => {
+          setRunTimelineFocus({ id: event.id, nonce: Date.now() });
+          setGitPanelFocus({ path: "", hunkId: "", action: spec.action, kind: "", all: false, nonce: Date.now() });
+          openBottomPanel("changes", { resetGitFocus: false });
+        },
+      }));
+    };
     const latestGitActionCommands = [
       gitActionPaletteCommand(latestGitActionCommandEvent, {
         idPrefix: "git-latest-action",
@@ -14858,6 +14930,33 @@ export function App() {
         },
       } : null,
     ].filter(Boolean);
+    const latestGitActionControlCommands = [
+      ...gitLatestActionControlCommandsForEvent(latestGitActionCommandEvent, {
+        idPrefix: "git-latest-action-action",
+        label: t.recentGitAction,
+        priority: 61,
+        keywords: "latest recent git action controls",
+      }),
+      ...gitLatestActionControlCommandsForEvent(latestFailedGitActionCommandEvent, {
+        idPrefix: "git-latest-failed-action-action",
+        label: t.recentFailedGitAction,
+        priority: 73,
+        keywords: "failed error git action controls",
+      }),
+      ...gitLatestActionControlCommandsForEvent(latestSuccessfulGitActionCommandEvent, {
+        idPrefix: "git-latest-successful-action-action",
+        label: t.recentSuccessfulGitAction,
+        priority: 59,
+        keywords: "successful ok git action controls",
+      }),
+      ...gitLatestActionControlCommandsForEvent(focusedGitActionCommandEvent, {
+        idPrefix: "git-focused-action-action",
+        label: t.focusedGitAction,
+        priority: 77,
+        keywords: "focused git action controls clear focus",
+        includeClearFocus: true,
+      }),
+    ];
 
     const gitCommandFiles = Array.isArray(environment?.git?.files) ? environment.git.files : [];
     const gitCommandFileByPath = new Map();
@@ -16853,6 +16952,7 @@ export function App() {
       ...capabilityRecoveryCommands,
       ...noticeCommands,
       ...latestGitActionCommands,
+      ...latestGitActionControlCommands,
       ...gitSummaryBucketCommands,
       ...gitFileCommands,
       ...gitFileActionCommands,
