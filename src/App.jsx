@@ -14016,6 +14016,98 @@ export function App() {
           }),
         };
       });
+    const skillCopyEvidenceCommands = skillCommandItems
+      .map((skill) => {
+        const id = skill.id || skill.name || skill.path;
+        const label = skill.name || id;
+        const evidence = skillEvidenceText(skill, t);
+        if (!id || !evidence) return null;
+        return {
+          id: `capability-skill-copy:${commandIdSegment(id)}`,
+          title: `${t.copyEvidence}: ${t.skills} / ${label}`,
+          subtitle: [
+            skill.source || t.localSkillRegistry,
+            skill.relativePath || compactPath(skill.path || "", 70),
+            skill.description,
+          ].filter(Boolean).join(" · "),
+          group: t.capabilities,
+          target: "clipboard",
+          priority: 18,
+          keywords: [
+            "copy evidence skill local registry SKILL.md clipboard capability",
+            t.copyEvidence,
+            t.skills,
+            skill.id,
+            skill.name,
+            skill.description,
+            skill.path,
+            skill.root,
+            skill.relativePath,
+            skill.source,
+            skill.status,
+            evidence,
+          ].filter(Boolean).join(" "),
+          action: () => copyMessage(evidence),
+        };
+      })
+      .filter(Boolean);
+    const skillPinEvidenceCommands = skillCommandItems
+      .map((skill) => {
+        const id = skill.id || skill.name || skill.path;
+        const label = skill.name || id;
+        const evidence = skillEvidenceText(skill, t);
+        if (!id || !evidence) return null;
+        return {
+          id: `capability-skill-pin:${commandIdSegment(id)}`,
+          title: `${t.pinSkillEvidence}: ${t.skills} / ${label}`,
+          subtitle: [
+            skill.source || t.localSkillRegistry,
+            skill.relativePath || compactPath(skill.path || "", 70),
+            skill.description,
+          ].filter(Boolean).join(" · "),
+          group: t.capabilities,
+          target: "timeline",
+          priority: 19,
+          keywords: [
+            "pin evidence skill local registry SKILL.md timeline outputs capability",
+            t.pinSkillEvidence,
+            t.openRunTimeline,
+            t.skills,
+            skill.id,
+            skill.name,
+            skill.description,
+            skill.path,
+            skill.root,
+            skill.relativePath,
+            skill.source,
+            skill.status,
+            evidence,
+          ].filter(Boolean).join(" "),
+          action: () => {
+            const eventId = `skill_registry_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+            recordRunEvent({
+              id: eventId,
+              type: "skill-registry",
+              status: "ok",
+              title: `${t.skillRegistryEvidence}: ${skill.name || id}`,
+              detail: skill.description || skill.path || "",
+              cwd: skill.root || activeProject?.path || "",
+              path: skill.relativePath || skill.path || "",
+              stdout: evidence,
+              project: skill.root ? { name: skill.name || t.skills, path: skill.root } : activeProject,
+              action: skill.relativePath && skill.root
+                ? workspaceFileAction(skill.relativePath, {
+                    projectPath: skill.root,
+                    projectLabel: skill.name || skill.id || t.skills,
+                  })
+                : "",
+              suppressNotice: true,
+            });
+            openRunTimeline(eventId);
+          },
+        };
+      })
+      .filter(Boolean);
 
     const mcpServerCommands = (Array.isArray(capabilityCommandStatus?.mcpServers) ? capabilityCommandStatus.mcpServers : [])
       .filter((server) => server?.name)
@@ -14364,6 +14456,8 @@ export function App() {
       ...installedPluginEvidenceCommands,
       ...skillRegistryCommands,
       ...skillOpenFileCommands,
+      ...skillCopyEvidenceCommands,
+      ...skillPinEvidenceCommands,
       ...mcpServerCommands,
       ...mcpServerEvidenceCommands,
       ...marketplaceSourceCommands,
