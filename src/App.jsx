@@ -13613,7 +13613,7 @@ export function App() {
 
     const automationRunCommands = automationItemsForCommands
       .filter((automation) => automation?.id)
-      .flatMap((automation) => automationRunEntries(automation).slice(0, 6).map((entry) => ({
+      .flatMap((automation) => automationRunEntries(automation).map((entry) => ({
         id: `automation-run:${commandIdSegment(entry.id)}`,
         title: `${t.openRunTimeline}: ${messageExcerpt(automation.prompt, 56)}`,
         subtitle: [
