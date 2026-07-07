@@ -13819,6 +13819,42 @@ export function App() {
           }),
         };
       });
+    const installedPluginEvidenceCommands = (Array.isArray(capabilityCommandStatus?.pluginItems) ? capabilityCommandStatus.pluginItems : [])
+      .filter((plugin) => plugin?.id || plugin?.name)
+      .slice(0, 16)
+      .map((plugin) => {
+        const id = plugin.id || plugin.name;
+        const evidence = pluginEvidenceText(plugin, t);
+        return {
+          id: `capability-plugin-copy:${commandIdSegment(id)}`,
+          title: `${t.copyEvidence}: ${t.plugins} / ${id}`,
+          subtitle: [
+            plugin.enabled ? t.pluginStatusEnabled : t.pluginStatusDisabled,
+            plugin.version && plugin.version !== "unknown" ? `${t.version}: ${plugin.version}` : "",
+            plugin.source,
+          ].filter(Boolean).join(" · "),
+          group: t.capabilities,
+          target: "clipboard",
+          priority: 18,
+          keywords: [
+            "copy evidence plugin installed capability claude code tool permissions clipboard",
+            t.copyEvidence,
+            t.plugins,
+            id,
+            plugin.name,
+            plugin.marketplace,
+            plugin.version,
+            plugin.scope,
+            plugin.status,
+            plugin.source,
+            plugin.tools,
+            plugin.permissions,
+            plugin.error,
+            evidence,
+          ].filter(Boolean).join(" "),
+          action: () => copyMessage(evidence),
+        };
+      });
 
     const skillCommandItems = (Array.isArray(capabilityCommandStatus?.skillItems) ? capabilityCommandStatus.skillItems : Array.isArray(capabilityCommandStatus?.skills) ? capabilityCommandStatus.skills : [])
       .filter((skill) => skill?.id || skill?.name || skill?.path)
@@ -13917,6 +13953,42 @@ export function App() {
           query: server.name,
         }),
       }));
+    const mcpServerEvidenceCommands = (Array.isArray(capabilityCommandStatus?.mcpServers) ? capabilityCommandStatus.mcpServers : [])
+      .filter((server) => server?.name)
+      .slice(0, 16)
+      .map((server) => {
+        const evidence = mcpServerEvidenceText(server, t);
+        return {
+          id: `capability-mcp-copy:${commandIdSegment(server.name)}`,
+          title: `${t.copyEvidence}: ${t.mcpServers} / ${server.name}`,
+          subtitle: [
+            mcpStatusLabel(server.status, t),
+            typeof server.tools === "number" ? `${t.tools}: ${server.tools}` : "",
+            server.transport,
+            server.source || server.detail,
+          ].filter(Boolean).join(" · "),
+          group: t.capabilities,
+          target: "clipboard",
+          priority: 18,
+          keywords: [
+            "copy evidence mcp server tool capability claude code transport source clipboard",
+            t.copyEvidence,
+            t.mcpServers,
+            server.name,
+            server.status,
+            server.detail,
+            server.raw,
+            server.tools,
+            server.toolsSummary,
+            Array.isArray(server.toolNames) ? server.toolNames.join(" ") : server.toolNames,
+            server.transport,
+            server.source,
+            server.error,
+            evidence,
+          ].filter(Boolean).join(" "),
+          action: () => copyMessage(evidence),
+        };
+      });
 
     const marketplaceSourceCommands = (Array.isArray(capabilityCommandStatus?.marketplaces) ? capabilityCommandStatus.marketplaces : [])
       .filter((marketplace) => marketplace?.name)
@@ -13948,6 +14020,40 @@ export function App() {
           query: marketplace.name,
         }),
       }));
+    const marketplaceSourceEvidenceCommands = (Array.isArray(capabilityCommandStatus?.marketplaces) ? capabilityCommandStatus.marketplaces : [])
+      .filter((marketplace) => marketplace?.name)
+      .slice(0, 16)
+      .map((marketplace) => {
+        const evidence = marketplaceSourceEvidenceText(marketplace, t);
+        return {
+          id: `capability-marketplace-source-copy:${commandIdSegment(marketplace.name)}`,
+          title: `${t.copyEvidence}: ${t.marketplaceSources} / ${marketplace.name}`,
+          subtitle: [
+            marketplace.status,
+            marketplace.version && `${t.version}: ${marketplace.version}`,
+            marketplace.repo || marketplace.source || marketplace.installLocation,
+          ].filter(Boolean).join(" · "),
+          group: t.capabilities,
+          target: "clipboard",
+          priority: 18,
+          keywords: [
+            "copy evidence marketplace source plugin catalog capability claude code clipboard",
+            t.copyEvidence,
+            t.marketplaceSources,
+            marketplace.name,
+            marketplace.status,
+            marketplace.version,
+            marketplace.source,
+            marketplace.repo,
+            marketplace.installLocation,
+            marketplace.tools,
+            marketplace.permissions,
+            marketplace.error,
+            evidence,
+          ].filter(Boolean).join(" "),
+          action: () => copyMessage(evidence),
+        };
+      });
 
     const customMarketplaceCommands = (Array.isArray(state.settings?.customMarketplaces) ? state.settings.customMarketplaces : [])
       .filter(Boolean)
@@ -14041,6 +14147,43 @@ export function App() {
           }),
         };
       });
+    const marketplacePluginEvidenceCommands = (Array.isArray(capabilityCommandStatus?.marketplacePlugins) ? capabilityCommandStatus.marketplacePlugins : [])
+      .filter((plugin) => plugin?.id || plugin?.name)
+      .slice(0, 24)
+      .map((plugin) => {
+        const id = plugin.id || plugin.name;
+        const evidence = marketplacePluginEvidenceText(plugin, t);
+        return {
+          id: `capability-marketplace-plugin-copy:${commandIdSegment(id)}`,
+          title: `${t.copyEvidence}: ${t.marketplace} / ${plugin.name || id}`,
+          subtitle: [
+            plugin.marketplace,
+            plugin.installed ? t.installedLocal : t.installFromMarketplace,
+            plugin.version && plugin.version !== "unknown" ? `${t.version}: ${plugin.version}` : "",
+            plugin.risk ? t.marketplaceRisk : "",
+          ].filter(Boolean).join(" · "),
+          group: t.capabilities,
+          target: "clipboard",
+          priority: 18,
+          keywords: [
+            "copy evidence marketplace plugin catalog install capability claude code source permissions risk clipboard",
+            t.copyEvidence,
+            t.marketplace,
+            plugin.id,
+            plugin.name,
+            plugin.marketplace,
+            plugin.version,
+            plugin.description,
+            plugin.category,
+            plugin.author,
+            plugin.source,
+            plugin.permissions,
+            plugin.risk,
+            evidence,
+          ].filter(Boolean).join(" "),
+          action: () => copyMessage(evidence),
+        };
+      });
 
     const marketplaceInstallCommands = marketplacePluginItemsForCommands
       .filter((plugin) => (plugin?.id || plugin?.name) && !plugin?.installed)
@@ -14120,14 +14263,18 @@ export function App() {
       ...subagentRecoveryCommands,
       ...capabilityFilterCommands,
       ...installedPluginCommands,
+      ...installedPluginEvidenceCommands,
       ...skillRegistryCommands,
       ...skillOpenFileCommands,
       ...mcpServerCommands,
+      ...mcpServerEvidenceCommands,
       ...marketplaceSourceCommands,
+      ...marketplaceSourceEvidenceCommands,
       ...customMarketplaceCommands,
       ...marketplaceFilterCommands,
       ...marketplaceInstallCommands,
       ...marketplacePluginCommands,
+      ...marketplacePluginEvidenceCommands,
     ];
   }, [state.projects, state.sessions, state.notices, state.sourceRefs, state.browserVisits, state.automations, state.subagentRuns, state.commandRuns, state.runEvents, state.settings?.customMarketplaces, capabilityCommandStatus, runEvents, environment, t, activeProject?.path, activeProject?.name, runTimelineFocus?.id, runTimelineFocus?.nonce]);
 
