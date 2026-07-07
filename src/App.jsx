@@ -14968,6 +14968,45 @@ export function App() {
         action: () => openRunTimeline(entry.id),
       })));
 
+    const automationHistoryCopyCommands = automationItemsForCommands
+      .filter((automation) => automation?.id)
+      .flatMap((automation) => {
+        const statusFilter = taskCenterFilterForAutomation(automation);
+        return automationRunEntries(automation).map((entry) => ({
+          id: `automation-history-copy:${commandIdSegment(entry.id)}`,
+          title: `${t.copyAutomationEvidence}: ${messageExcerpt(automation.prompt, 56)}`,
+          subtitle: [
+            automationStatusLabel(entry.status || automation.status, t),
+            entry.summary || entry.error || entry.detail,
+            entry.endedAt ? formatDate(entry.endedAt) : "",
+          ].filter(Boolean).join(" · "),
+          group: t.taskCenter,
+          target: "clipboard",
+          priority: 13,
+          dataAttributes: taskTraceAttributes({ kind: "automation", action: "copy-evidence", item: automation, entry, filter: statusFilter }),
+          keywords: [
+            "automation run history copy evidence stdout stderr command palette",
+            "自动化 历史 复制 证据 命令面板",
+            t.copyAutomationEvidence,
+            automation.id,
+            automation.prompt,
+            automation.project?.name,
+            automation.project?.path,
+            automation.threadId,
+            entry.id,
+            entry.status,
+            entry.trigger,
+            entry.summary,
+            entry.error,
+            entry.detail,
+            entry.stdout,
+            entry.stderr,
+            entry.sessionId,
+          ].filter(Boolean).join(" "),
+          action: () => copyMessage(automationEvidenceText(automation, entry, t, state.sessions)),
+        }));
+      });
+
     const automationRecoveryCommands = automationItemsForCommands
       .filter(automationNeedsRecovery)
       .flatMap((automation) => {
@@ -16011,6 +16050,7 @@ export function App() {
       ...taskFilterCommands,
       ...automationCommands,
       ...automationRunCommands,
+      ...automationHistoryCopyCommands,
       ...automationRecoveryCommands,
       ...scheduledActionCommands,
       ...subagentCommands,
