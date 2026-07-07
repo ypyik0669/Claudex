@@ -485,6 +485,7 @@ const copy = {
     taskCenterFailureSummary: "{total} 个失败任务 · 自动化 {automations} · 子代理 {subagents}",
     taskCenterFailureSummaryHint: "来自真实 automation history 与 subagent run 状态；点击只切到失败过滤并聚焦第一条。",
     taskCenterFailureBadge: "失败可恢复 {count}",
+    taskCenterFailureBadgeDetail: "失败可恢复 {total} · 自动化 {automations} · 子代理 {subagents}",
     taskCenterReviewFailures: "查看失败 / 恢复",
     automationTasks: "自动化任务",
     noAutomationTasks: "还没有自动化任务",
@@ -4117,6 +4118,12 @@ function Conversation({
   const failedTaskBadgeLabel = failedTaskCount
     ? t.taskCenterFailureBadge.replace("{count}", failedTaskCount)
     : "";
+  const failedTaskBadgeDetail = failedTaskCount
+    ? t.taskCenterFailureBadgeDetail
+      .replace("{total}", failedTaskCount)
+      .replace("{automations}", taskFailureBucketsForUi.automationFailures.length)
+      .replace("{subagents}", taskFailureBucketsForUi.subagentFailures.length)
+    : "";
   const workspaceCommandRuns = useMemo(() => commandRunsToHistory(commandRuns, "workspace"), [commandRuns]);
   const claudeCommandRuns = useMemo(() => commandRunsToHistory(commandRuns, "claude"), [commandRuns]);
   const capabilityCommandRuns = useMemo(() => commandRunsToHistory(commandRuns, "capability"), [commandRuns]);
@@ -4370,6 +4377,8 @@ function Conversation({
       label: t.subagents,
       icon: Bot,
       meta: failedTaskBadgeLabel || (activeTaskCount ? String(activeTaskCount) : ""),
+      titleMeta: failedTaskBadgeDetail || failedTaskBadgeLabel || (activeTaskCount ? String(activeTaskCount) : ""),
+      ariaMeta: failedTaskBadgeDetail || failedTaskBadgeLabel || (activeTaskCount ? String(activeTaskCount) : ""),
       badge: failedTaskCount ? String(failedTaskCount) : "",
       status: failedTaskCount ? "error" : "",
       onBadgeClick: failedTaskCount
@@ -4558,7 +4567,8 @@ function Conversation({
         <div className="workspace-context-tabs" role="tablist" aria-label={t.bottomPanel}>
           {contextTabs.map((item) => {
             const Icon = item.icon;
-            const tabTitle = item.meta ? `${item.label} · ${item.meta}` : item.label;
+            const tabTitle = item.titleMeta ? `${item.label} · ${item.titleMeta}` : item.meta ? `${item.label} · ${item.meta}` : item.label;
+            const tabAriaMeta = item.ariaMeta || item.meta;
             return (
               <button
                 type="button"
@@ -4568,7 +4578,7 @@ function Conversation({
                 data-status={item.status || ""}
                 onClick={(event) => activateContextTab(item, event)}
                 title={tabTitle}
-                aria-label={item.meta ? `${item.label}: ${item.meta}` : item.label}
+                aria-label={tabAriaMeta ? `${item.label}: ${tabAriaMeta}` : item.label}
                 aria-selected={bottomPanel === item.id}
               >
                 <Icon size={14} />
@@ -4752,7 +4762,7 @@ function Conversation({
                   onClick={(event) => openBottomContextTab(item, event)}
                   role="tab"
                   aria-selected={bottomPanel === id}
-                  title={item.meta ? `${label} · ${item.meta}` : label}
+                  title={item.titleMeta ? `${label} · ${item.titleMeta}` : item.meta ? `${label} · ${item.meta}` : label}
                 >
                   <Icon size={14} />
                   {label}

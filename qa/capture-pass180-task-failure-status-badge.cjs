@@ -322,6 +322,10 @@ async function runTest() {
         badge &&
         badge.textContent.trim() === '2' &&
         /\\u5931\\u8d25\\u53ef\\u6062\\u590d 2/.test(button.getAttribute('aria-label') || '') &&
+        /\\u81ea\\u52a8\\u5316 1/.test(button.getAttribute('aria-label') || '') &&
+        /\\u5b50\\u4ee3\\u7406 1/.test(button.getAttribute('aria-label') || '') &&
+        /\\u81ea\\u52a8\\u5316 1/.test(button.getAttribute('title') || '') &&
+        /\\u5b50\\u4ee3\\u7406 1/.test(button.getAttribute('title') || '') &&
         button.getBoundingClientRect().width <= 40
       );
     })();
