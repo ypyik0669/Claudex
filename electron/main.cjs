@@ -2278,7 +2278,23 @@ function parseGitStatusFiles(lines) {
     const staged = Boolean(code[0] && code[0] !== " " && code[0] !== "?");
     const unstaged = Boolean(code[1] && code[1] !== " " && code[1] !== "?");
     const conflict = /U|AA|DD/.test(code);
-    const kind = isUntracked ? "untracked" : staged && unstaged ? "mixed" : staged ? "staged" : unstaged ? "unstaged" : "changed";
+    const renamed = /R/.test(code) || Boolean(to);
+    const deleted = /D/.test(code);
+    const kind = conflict
+      ? "conflict"
+      : isUntracked
+        ? "untracked"
+        : renamed
+          ? "renamed"
+          : deleted
+            ? "deleted"
+            : staged && unstaged
+              ? "mixed"
+              : staged
+                ? "staged"
+                : unstaged
+                  ? "unstaged"
+                  : "changed";
     return {
       status: code.trim() || code,
       staged,

@@ -901,6 +901,7 @@ const copy = {
     gitDiffPreview: "Git Diff",
     gitDiffTruncated: "Diff 已截断，仅显示前面的部分。",
     gitRawStatus: "Raw Status",
+    gitPreviousPath: "\u539f\u8def\u5f84",
     noGitDiff: "当前没有可显示的 diff 统计。",
     allChanges: "全部变更",
     allHunks: "全部 hunks",
@@ -3632,6 +3633,7 @@ function gitEvidenceText({
     `${t.gitSummary}: ${summary || "-"}`,
     `${t.gitHunks}: ${hunkCount || 0}`,
     selectedHunk ? `${t.selectedHunk}: ${selectedHunk.filePath || "-"} ${selectedHunk.header || ""} +${selectedHunk.additions || 0} -${selectedHunk.deletions || 0}` : "",
+    selectedFile?.previousPath ? `${t.gitPreviousPath}: ${selectedFile.previousPath}` : "",
     selectedFile ? `${t.changedLines}: +${selectedFile.additions || 0} -${selectedFile.deletions || 0}` : "",
     selectedFile?.status ? `status: ${selectedFile.status}` : "",
     "",
@@ -5472,6 +5474,7 @@ function Conversation({
                             title={item.previousPath ? `${item.previousPath} -> ${item.path}` : `${t.focusFileDiff}: ${item.path}`}
                           >
                             <span className="git-change-status">{item.status}</span>
+                            {item.previousPath && <small title={item.previousPath}>{item.previousPath} -&gt;</small>}
                             <strong title={item.previousPath ? `${item.previousPath} -> ${item.path}` : item.path}>{item.path}</strong>
                             {(typeof item.additions === "number" || typeof item.deletions === "number") && (
                               <em>{`+${item.additions || 0} -${item.deletions || 0}`}</em>
@@ -5572,6 +5575,7 @@ function Conversation({
                       <div><dt>{t.changedLines}</dt><dd>{selectedGitFile ? `+${selectedGitFile.additions || 0} -${selectedGitFile.deletions || 0}` : `${gitFiles.length}`}</dd></div>
                       <div><dt>{t.gitHunks}</dt><dd>{gitHunks.length}</dd></div>
                       {selectedGitHunk && <div><dt>{t.selectedHunk}</dt><dd>{`+${selectedGitHunk.additions || 0} -${selectedGitHunk.deletions || 0}`}</dd></div>}
+                      {selectedGitFile?.previousPath && <div><dt>{t.gitPreviousPath}</dt><dd title={selectedGitFile.previousPath}>{selectedGitFile.previousPath}</dd></div>}
                       <div><dt>{t.gitRawStatus}</dt><dd>{selectedGitFile?.status || "Σ"}</dd></div>
                       <div><dt>{t.gitRoot}</dt><dd title={gitRootPath || ""}>{gitRootPath ? gitRootLabel : t.gitUnavailable}</dd></div>
                       {gitRelativePath && gitRelativePath !== "." && <div><dt>{t.gitRelativePath}</dt><dd>{gitRelativeLabel}</dd></div>}
