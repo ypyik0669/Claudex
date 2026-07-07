@@ -4962,15 +4962,18 @@ function Conversation({
   function tabBadgeWasClicked(event) {
     return Boolean(event?.target?.closest?.(".context-tab-badge"));
   }
+  function shouldOpenContextTabAction(item, event) {
+    return Boolean(item?.onBadgeClick && (tabBadgeWasClicked(event) || item.status === "error"));
+  }
   function activateContextTab(item, event) {
-    if (tabBadgeWasClicked(event) && item?.onBadgeClick) {
+    if (shouldOpenContextTabAction(item, event)) {
       item.onBadgeClick();
       return;
     }
     toggleBottomPanel(item.id);
   }
   function openBottomContextTab(item, event) {
-    if (tabBadgeWasClicked(event) && item?.onBadgeClick) {
+    if (shouldOpenContextTabAction(item, event)) {
       item.onBadgeClick();
       return;
     }
