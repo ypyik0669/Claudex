@@ -5657,6 +5657,7 @@ function Conversation({
                       browserVisits={browserVisits}
                       onOpenVisit={onOpenBrowserVisit}
                       onOpenExternalVisit={onOpenExternalBrowserVisit}
+                      onOpenTimeline={onOpenRunTimeline}
                       scope="bottom"
                       t={t}
                     />
@@ -6695,10 +6696,11 @@ function SubagentWorkbench({
   );
 }
 
-function BrowserEvidenceSummary({ browserVisits = [], onOpenVisit, onOpenExternalVisit, scope = "", t }) {
+function BrowserEvidenceSummary({ browserVisits = [], onOpenVisit, onOpenExternalVisit, onOpenTimeline, scope = "", t }) {
   if (!browserVisits?.length) return null;
   const browserContext = browserVisitsContextSummary({ browserVisits, t });
   const browserPriorityVisit = prioritizedBrowserVisit(browserVisits);
+  const browserPriorityKey = browserVisitKey(browserPriorityVisit);
   const browserPriorityStatus = browserPriorityVisit?.status || "";
   const browserPriorityActionable = browserPriorityStatus === "error" || browserPriorityStatus === "loading";
   return (
@@ -6731,6 +6733,18 @@ function BrowserEvidenceSummary({ browserVisits = [], onOpenVisit, onOpenExterna
         >
           <ExternalLink size={13} />
           {t.openExternal}
+        </button>
+      )}
+      {browserPriorityKey && onOpenTimeline && (
+        <button
+          type="button"
+          className="plain-action subtle-action"
+          data-browser-evidence-action="timeline"
+          onClick={() => onOpenTimeline(browserPriorityKey)}
+          title={browserPriorityKey}
+        >
+          <History size={13} />
+          {t.openRunTimeline}
         </button>
       )}
     </div>
@@ -7478,6 +7492,7 @@ function ToolsPanel({
   onOpenBrowserUrl,
   onCapabilities,
   onOpenBottomPanel,
+  onOpenRunTimeline,
   onRunEvent,
   onSourceRefs,
   subagentRuns = [],
@@ -8701,6 +8716,7 @@ function ToolsPanel({
                 browserVisits={browserVisits}
                 onOpenVisit={openBrowserHistoryVisit}
                 onOpenExternalVisit={onOpenBrowserUrl ? openExternalBrowserHistoryVisit : null}
+                onOpenTimeline={onOpenRunTimeline}
                 scope="tool"
                 t={t}
               />
@@ -14751,6 +14767,7 @@ export function App() {
           onOpenBrowserUrl={openBrowserUrl}
           onCapabilities={openCapabilitiesSurface}
           onOpenBottomPanel={openBottomPanel}
+          onOpenRunTimeline={openRunTimeline}
           onRunEvent={recordRunEvent}
           onSourceRefs={(sourceRefs) => setState((current) => ({ ...current, sourceRefs }))}
           subagentRuns={state.subagentRuns}
