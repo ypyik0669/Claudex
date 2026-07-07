@@ -14028,36 +14028,46 @@ export function App() {
 
     const subagentCommands = subagentRunsForCommands
       .filter((run) => run?.id || run?.requestId)
-      .map((run) => ({
-        id: `subagent:${commandIdSegment(run.id || run.requestId)}`,
-        title: `${t.subagents}: ${run.nickname || "Subagent"}`,
-        subtitle: [
-          run.task,
-          subagentStatusLabel(run.status, t),
-          run.archivedAt ? t.showArchivedSubagents : "",
-        ].filter(Boolean).join(" · "),
-        group: t.taskCenter,
-        keywords: [
-          "subagent agent task center run artifact failure evidence",
-          run.id,
-          run.requestId,
-          run.nickname,
-          run.task,
-          run.status,
-          run.summary,
-          run.stdout,
-          run.stderr,
-          run.sessionId,
-          run.project?.name,
-          run.project?.path,
-          run.cwd,
-          ...(Array.isArray(run.artifacts) ? run.artifacts.map((artifact) => [artifact?.label, artifact?.path, artifact?.type, subagentArtifactContent(artifact)].filter(Boolean).join(" ")) : []),
-        ].filter(Boolean).join(" "),
-        action: () => openTaskCenterFocus("subagent", run.id || run.requestId, {
-          expandEvidence: true,
-          expandArtifacts: Array.isArray(run.artifacts) && run.artifacts.length > 0,
-        }),
-      }));
+      .map((run) => {
+        const statusFilter = run.archivedAt
+          ? "archived"
+          : subagentNeedsRecovery(run)
+            ? "failed"
+            : run.status === "running"
+              ? "active"
+              : "";
+        return {
+          id: `subagent:${commandIdSegment(run.id || run.requestId)}`,
+          title: `${t.subagents}: ${run.nickname || "Subagent"}`,
+          subtitle: [
+            run.task,
+            subagentStatusLabel(run.status, t),
+            run.archivedAt ? t.showArchivedSubagents : "",
+          ].filter(Boolean).join(" · "),
+          group: t.taskCenter,
+          keywords: [
+            "subagent agent task center run artifact failure evidence",
+            run.id,
+            run.requestId,
+            run.nickname,
+            run.task,
+            run.status,
+            run.summary,
+            run.stdout,
+            run.stderr,
+            run.sessionId,
+            run.project?.name,
+            run.project?.path,
+            run.cwd,
+            ...(Array.isArray(run.artifacts) ? run.artifacts.map((artifact) => [artifact?.label, artifact?.path, artifact?.type, subagentArtifactContent(artifact)].filter(Boolean).join(" ")) : []),
+          ].filter(Boolean).join(" "),
+          action: () => openTaskCenterFocus("subagent", run.id || run.requestId, {
+            filter: statusFilter,
+            expandEvidence: true,
+            expandArtifacts: Array.isArray(run.artifacts) && run.artifacts.length > 0,
+          }),
+        };
+      });
 
     const subagentRunCommands = subagentRunsForCommands
       .filter((run) => run?.id || run?.requestId)
