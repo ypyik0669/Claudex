@@ -2937,6 +2937,42 @@ function taskSurfaceTraceAttributes({ kind, action = "open", surface = "task-cen
   };
 }
 
+function taskArtifactTraceAttributes({ action, surface = "task-center", run = {}, artifact = {}, index = 0, label = "" }) {
+  const artifactPath = subagentArtifactPathValue(artifact);
+  const projectPath = subagentArtifactProjectPath(artifact, run?.project?.path || run?.cwd || "");
+  return {
+    ...taskSurfaceTraceAttributes({ kind: "subagent", action, surface, item: run }),
+    "data-task-artifact-index": taskTraceAttrValue(index),
+    "data-task-artifact-label": taskTraceAttrValue(label),
+    "data-task-artifact-path": taskTraceAttrValue(artifactPath),
+    "data-task-artifact-project-path": taskTraceAttrValue(projectPath),
+    "data-task-artifact-type": taskTraceAttrValue(artifact?.type),
+    "data-task-artifact-openable": String(isOpenableSubagentArtifact(artifact)),
+  };
+}
+
+function runTimelineArtifactTraceAttributes({ action, event = {}, evidence = {}, artifact = {}, index = 0, label = "" }) {
+  const eventId = runTimelineEventId(event, evidence);
+  const projectPath = subagentArtifactProjectPath(artifact, runTimelineProjectPath(event, evidence));
+  const run = {
+    id: evidence?.subagentRunId || eventId,
+    requestId: evidence?.subagentRequestId || eventId,
+    status: evidence?.status || event?.status || "",
+    project: { name: evidence?.project || "", path: projectPath },
+    cwd: projectPath,
+    sessionId: runTimelineSessionId(event, evidence),
+    code: evidence?.code,
+    durationMs: evidence?.durationMs,
+    startedAt: event?.startedAt || event?.createdAt || "",
+    endedAt: event?.endedAt || "",
+    artifacts: Array.isArray(evidence?.artifacts) ? evidence.artifacts : [],
+  };
+  return {
+    ...runTimelineTraceAttributes(event, evidence),
+    ...taskArtifactTraceAttributes({ action, surface: "timeline", run, artifact, index, label }),
+  };
+}
+
 function findCommandRunForEvent(event, commandRuns = []) {
   const eventId = String(event?.id || "");
   const commandLine = String(event?.commandLine || "").trim();
@@ -7184,6 +7220,7 @@ function SubagentWorkbench({
                                     type="button"
                                     className="plain-action subtle-action"
                                     data-subagent-artifact-open={index}
+                                    {...taskArtifactTraceAttributes({ action: "artifact-open", run, artifact, index, label })}
                                     onClick={() => openSubagentArtifact(run, artifact)}
                                     title={t.openSubagentArtifact}
                                   >
@@ -7195,6 +7232,7 @@ function SubagentWorkbench({
                                   type="button"
                                   className="plain-action subtle-action"
                                   data-subagent-artifact-copy={index}
+                                  {...taskArtifactTraceAttributes({ action: "artifact-copy", run, artifact, index, label })}
                                   onClick={() => copySubagentArtifact(artifact, index)}
                                   title={t.copySubagentArtifact}
                                 >
@@ -7684,6 +7722,7 @@ function RunEvidenceDetails({ event, evidence, onCopy, onOpenWorkspaceFile, t, p
                               type="button"
                               className="plain-action subtle-action"
                               data-run-timeline-artifact-open={index}
+                              {...runTimelineArtifactTraceAttributes({ action: "artifact-open", event, evidence, artifact, index, label })}
                               onClick={() => openRunArtifact(artifact)}
                               title={t.openSubagentArtifact}
                             >
@@ -7695,6 +7734,7 @@ function RunEvidenceDetails({ event, evidence, onCopy, onOpenWorkspaceFile, t, p
                             type="button"
                             className="plain-action subtle-action"
                             data-run-timeline-artifact-copy={index}
+                            {...runTimelineArtifactTraceAttributes({ action: "artifact-copy", event, evidence, artifact, index, label })}
                             onClick={() => copyRunArtifact(artifact, index)}
                             title={t.copySubagentArtifact}
                           >
@@ -12900,6 +12940,7 @@ function ScheduledModal({
                               <button
                                 type="button"
                                 data-automation-history-action="copy"
+                                {...taskSurfaceTraceAttributes({ kind: "automation", action: "copy-evidence", surface: "scheduled", item, entry })}
                                 onClick={() => copyAutomationEvidence(item, entry)}
                                 title={t.copyAutomationEvidence}
                               >
@@ -12910,6 +12951,7 @@ function ScheduledModal({
                                 <button
                                   type="button"
                                   data-automation-history-action="timeline"
+                                  {...taskSurfaceTraceAttributes({ kind: "automation", action: "timeline", surface: "scheduled", item, entry })}
                                   onClick={() => onOpenRunTimeline?.(entry.id)}
                                   title={t.openRunTimeline}
                                 >
