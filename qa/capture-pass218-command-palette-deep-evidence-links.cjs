@@ -320,12 +320,17 @@ async function runTest() {
     (function() {
       const active = document.querySelector('.bottom-panel-tabs button.active')?.textContent || '';
       const row = document.querySelector('.run-timeline-row.selected')?.textContent || '';
-      const panel = document.querySelector('.selected-run-evidence-panel')?.textContent || '';
+      const evidencePanel = document.querySelector('.selected-run-evidence-panel');
+      const retry = evidencePanel?.querySelector('[data-run-recovery-action="retry-browser"]');
+      const panel = evidencePanel?.textContent || '';
       return Boolean(
         /\u8f93\u51fa/.test(active) &&
         /pass218 deep browser 25 title token/.test(row) &&
         /pass218 deep browser 25 excerpt evidence token/.test(panel) &&
-        panel.includes('https://pass218.example.test/25/final')
+        panel.includes('https://pass218.example.test/25/final') &&
+        retry &&
+        retry.getAttribute('data-run-recovery-action-focused') === 'true' &&
+        document.activeElement === retry
       );
     })();
   `, 10000));

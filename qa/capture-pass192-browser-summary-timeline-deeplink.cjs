@@ -238,6 +238,7 @@ async function runTest() {
     (function() {
       const active = document.querySelector('.bottom-panel-tabs button[data-bottom-tab="outputs"].active');
       const panel = document.querySelector('.selected-run-evidence-panel.error');
+      const retry = panel?.querySelector('[data-run-recovery-action="retry-browser"]');
       const text = panel?.textContent || '';
       return Boolean(
         active &&
@@ -246,7 +247,9 @@ async function runTest() {
         /PASS192_BROWSER_ERROR/.test(text) &&
         /pass192-error/.test(text) &&
         panel.querySelector('[data-run-event-type="browser"]') &&
-        panel.querySelector('[data-run-recovery-action="retry-browser"]') &&
+        retry &&
+        retry.getAttribute('data-run-recovery-action-focused') === 'true' &&
+        document.activeElement === retry &&
         panel.querySelector('[data-run-recovery-action="external-browser"]')
       );
     })();
@@ -277,6 +280,7 @@ async function runTest() {
     (function() {
       const active = document.querySelector('.bottom-panel-tabs button[data-bottom-tab="outputs"].active');
       const panel = document.querySelector('.selected-run-evidence-panel.running');
+      const retry = panel?.querySelector('[data-run-recovery-action="retry-browser"]');
       const text = panel?.textContent || '';
       return Boolean(
         active &&
@@ -284,7 +288,9 @@ async function runTest() {
         /pass192 loading timeline summary/.test(text) &&
         /pass192-loading/.test(text) &&
         panel.querySelector('[data-run-event-type="browser"]') &&
-        panel.querySelector('[data-run-recovery-action="retry-browser"]') &&
+        retry &&
+        retry.getAttribute('data-run-recovery-action-focused') === 'true' &&
+        document.activeElement === retry &&
         panel.querySelector('[data-run-recovery-action="external-browser"]')
       );
     })();
@@ -314,13 +320,17 @@ async function runTest() {
   assertStep("PASS192_INFO_TIMELINE_FOCUSES_OK_EVENT", await waitFor(win, `
     (function() {
       const panel = document.querySelector('.selected-run-evidence-panel.ok');
+      const retry = panel?.querySelector('[data-run-recovery-action="retry-browser"]');
       const text = panel?.textContent || '';
       return Boolean(
         document.querySelector('.bottom-panel-tabs button[data-bottom-tab="outputs"].active') &&
         panel &&
         /pass192 loading resolved timeline summary/.test(text) &&
         /pass192-loading/.test(text) &&
-        panel.querySelector('[data-run-event-type="browser"]')
+        panel.querySelector('[data-run-event-type="browser"]') &&
+        retry &&
+        retry.getAttribute('data-run-recovery-action-focused') === 'true' &&
+        document.activeElement === retry
       );
     })();
   `, 10000));

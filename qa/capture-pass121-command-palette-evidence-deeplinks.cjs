@@ -299,12 +299,15 @@ async function runTest() {
     (function() {
       const active = document.querySelector('.bottom-panel-tabs button.active')?.textContent || '';
       const panel = document.querySelector('.selected-run-evidence-panel.ok');
+      const retry = panel?.querySelector('[data-run-recovery-action="retry-browser"]');
       const text = panel?.textContent || '';
       return /\\u8f93\\u51fa/.test(active) &&
         /pass121 browser target title/.test(text) &&
         /pass121 target browser excerpt/.test(text) &&
         /http:\\/\\/127\\.0\\.0\\.1\\/pass121-browser-target\\/final/.test(text) &&
-        panel.querySelector('[data-run-recovery-action="retry-browser"]') &&
+        retry &&
+        retry.getAttribute('data-run-recovery-action-focused') === 'true' &&
+        document.activeElement === retry &&
         panel.querySelector('[data-run-recovery-action="external-browser"]');
     })()
   `, 10000));

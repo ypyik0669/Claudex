@@ -3382,6 +3382,10 @@ function browserVisitRunEvent(visit = {}, t) {
   };
 }
 
+function browserVisitRecoveryFocusAction(visit = {}) {
+  return browserVisitKey(visit) ? "retry-browser" : "";
+}
+
 function fallbackRunEventForId(eventId, { commandRuns = [], automations = [], subagentRuns = [], browserVisits = [], t } = {}) {
   const id = String(eventId || "").trim();
   if (!id) return null;
@@ -7928,7 +7932,7 @@ function BrowserEvidenceSummary({ browserVisits = [], onOpenVisit, onOpenExterna
           type="button"
           className="plain-action subtle-action"
           data-browser-evidence-action="timeline"
-          onClick={() => onOpenTimeline(browserPriorityKey)}
+          onClick={() => onOpenTimeline(browserPriorityKey, { action: browserVisitRecoveryFocusAction(browserPriorityVisit) })}
           title={browserPriorityKey}
         >
           <History size={13} />
@@ -15632,7 +15636,7 @@ export function App() {
             visit.project?.name,
             visit.project?.path,
           ].filter(Boolean).join(" "),
-          action: () => openRunTimeline(visitKey || finalUrl),
+          action: () => openRunTimeline(visitKey || finalUrl, { action: browserVisitRecoveryFocusAction(visit) }),
         };
       });
 
