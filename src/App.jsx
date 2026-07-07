@@ -1902,8 +1902,7 @@ function sessionMatchesProjectForUi(session, activeProject) {
 function selectSessionIdForProject(nextState, t, activeProject, preferredId = "", projectScope = "current") {
   const items = sidebarThreadItems(nextState?.sessions || [], t, activeProject || nextState?.activeProject, projectScope);
   if (preferredId && items.some((item) => item.session.id === preferredId)) return preferredId;
-  if (projectScope === "archived") return items[0]?.session.id || "";
-  return items[0]?.session.id || (nextState?.sessions || []).find((session) => !session.archived)?.id || nextState?.sessions?.[0]?.id || "";
+  return items[0]?.session.id || "";
 }
 
 function commandIdSegment(value) {
@@ -12733,14 +12732,13 @@ export function App() {
       (projectScope === "all" || sessionMatchesProjectForUi(session, activeProject))
     ))
     || visibleThreadItems[0]?.session
-    || state.sessions.find((session) => !session.archived)
-    || state.sessions[0];
+    || null;
   const hasKey = Boolean(state.settings.apiKeys?.[state.settings.provider]);
   const streamingSessionId = busy ? optimisticUser?.sessionId : null;
 
   useEffect(() => {
     const nextSessionId = selectSessionIdForProject(state, t, activeProject, activeSessionId, projectScope);
-    if (nextSessionId && nextSessionId !== activeSessionId) setActiveSessionId(nextSessionId);
+    if (nextSessionId !== activeSessionId) setActiveSessionId(nextSessionId);
   }, [state, activeProject, activeSessionId, projectScope, t]);
 
   async function refreshEnvironment() {
