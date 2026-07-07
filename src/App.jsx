@@ -12814,9 +12814,8 @@ export function App() {
   }
 
   const stateDeepLinkCommands = useMemo(() => {
-    const projectCommands = (state.projects || [])
+    const projectCommands = visibleProjectsForUi(state, t)
       .filter((project) => project?.path || project?.name)
-      .slice(0, 12)
       .map((project) => {
         const label = projectLabel(project, t);
         const key = project.path || project.name;
