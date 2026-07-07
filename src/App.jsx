@@ -2736,8 +2736,17 @@ function commandRunTimelineStatus(run = {}) {
   return run.code === 0 ? "ok" : "error";
 }
 
+function isGitCommandLine(command = "") {
+  return /^git(?:\.exe)?(?:\s|$)/i.test(String(command || "").trim());
+}
+
+function isGitCommandRun(run = {}) {
+  const runId = String(run?.requestId || run?.id || "");
+  return run?.kind === "git" || runId.startsWith("git_command_") || isGitCommandLine(run?.command || run?.commandLine);
+}
+
 function commandRunTimelineType(run = {}) {
-  if ((run.requestId || run.id || "").startsWith("git_command_")) return "git-command";
+  if (isGitCommandRun(run)) return "git-command";
   if (run.kind === "claude") return "claude-command";
   if (run.kind === "capability") return "capability-command";
   return "workspace-command";
@@ -4443,9 +4452,24 @@ function Conversation({
   const [bottomWorkspaceRetryingId, setBottomWorkspaceRetryingId] = useState("");
   const [bottomClaudeRetryingId, setBottomClaudeRetryingId] = useState("");
   const [bottomCapabilityRetryingId, setBottomCapabilityRetryingId] = useState("");
+  const [selectedRunEventId, setSelectedRunEventId] = useState("");
+  const fallbackSelectedRunEvent = useMemo(() => fallbackRunEventForId(selectedRunEventId, {
+    commandRuns,
+    automations: automationItemsForUi,
+    subagentRuns,
+    browserVisits,
+    t,
+  }), [selectedRunEventId, commandRuns, automationItemsForUi, subagentRuns, browserVisits, t]);
+  const runTimelineEvents = useMemo(() => timelineEventsForUi(runEvents, {
+    commandRuns,
+    automations: automationItemsForUi,
+    subagentRuns,
+    browserVisits,
+    t,
+  }), [runEvents, commandRuns, automationItemsForUi, subagentRuns, browserVisits, t]);
   const latestGitActionEvent = useMemo(() => (
-    (runEvents || []).find((event) => event.type === "git-command" && event.status !== "running") || null
-  ), [runEvents]);
+    (runTimelineEvents || []).find((event) => event.type === "git-command" && event.status !== "running") || null
+  ), [runTimelineEvents]);
   const latestGitActionRun = latestGitActionEvent ? findCommandRunForEvent(latestGitActionEvent, commandRuns) : null;
   const latestGitActionEvidence = useMemo(() => gitLatestActionEvidenceText({
     event: latestGitActionEvent,
@@ -4468,21 +4492,6 @@ function Conversation({
     if (copiedLatestGitActionTimer.current) window.clearTimeout(copiedLatestGitActionTimer.current);
     copiedLatestGitActionTimer.current = window.setTimeout(() => setCopiedLatestGitAction(false), 1200);
   }
-  const [selectedRunEventId, setSelectedRunEventId] = useState("");
-  const fallbackSelectedRunEvent = useMemo(() => fallbackRunEventForId(selectedRunEventId, {
-    commandRuns,
-    automations: automationItemsForUi,
-    subagentRuns,
-    browserVisits,
-    t,
-  }), [selectedRunEventId, commandRuns, automationItemsForUi, subagentRuns, browserVisits, t]);
-  const runTimelineEvents = useMemo(() => timelineEventsForUi(runEvents, {
-    commandRuns,
-    automations: automationItemsForUi,
-    subagentRuns,
-    browserVisits,
-    t,
-  }), [runEvents, commandRuns, automationItemsForUi, subagentRuns, browserVisits, t]);
   const outputActivitySummary = useMemo(() => runTimelineActivitySummary(runTimelineEvents), [runTimelineEvents]);
   const outputActivityLabel = outputActivitySummary.status === "error"
     ? `${t.commandFailed} ${outputActivitySummary.errors}`
@@ -12815,6 +12824,13 @@ export function App() {
       });
 
     const commandRunEvents = mergeRunEvents(runEvents || [], state.runEvents || []);
+    const commandPaletteTimelineEvents = timelineEventsForUi(commandRunEvents, {
+      commandRuns: state.commandRuns,
+      automations: state.automations,
+      subagentRuns: state.subagentRuns,
+      browserVisits: state.browserVisits,
+      t,
+    });
     const runEvidenceCommands = (commandRunEvents || [])
       .filter((event) => event?.id)
       .slice(0, 16)
@@ -12948,7 +12964,7 @@ export function App() {
         };
       });
 
-    const latestGitActionCommandEvent = (commandRunEvents || [])
+    const latestGitActionCommandEvent = (commandPaletteTimelineEvents || [])
       .find((event) => event?.id && event.type === "git-command" && event.status !== "running");
     const latestGitActionCommandRun = latestGitActionCommandEvent
       ? findCommandRunForEvent(latestGitActionCommandEvent, state.commandRuns)

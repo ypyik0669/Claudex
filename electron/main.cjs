@@ -657,7 +657,7 @@ function normalizeCommandRun(item, store) {
   const endedAt = isoOrEmpty(item?.endedAt) || startedAt;
   const command = String(item?.command || item?.commandLine || "").trim();
   const rawKind = String(item?.kind || "workspace").trim();
-  const kind = ["workspace", "claude", "capability"].includes(rawKind) ? rawKind : "workspace";
+  const kind = ["workspace", "claude", "capability", "git"].includes(rawKind) ? rawKind : "workspace";
   return {
     id: item?.id || id("command"),
     requestId: item?.requestId || "",
@@ -676,6 +676,15 @@ function normalizeCommandRun(item, store) {
   };
 }
 
+function isGitCommandLine(command = "") {
+  return /^git(?:\.exe)?(?:\s|$)/i.test(String(command || "").trim());
+}
+
+function isGitCommandRun(run = {}) {
+  const runId = String(run?.requestId || run?.id || "");
+  return run?.kind === "git" || runId.startsWith("git_command_") || isGitCommandLine(run?.command || run?.commandLine);
+}
+
 function upsertCommandRun(store, run) {
   const normalized = normalizeCommandRun(run, store);
   store.commandRuns = [
@@ -686,8 +695,7 @@ function upsertCommandRun(store, run) {
 }
 
 function commandRunEventType(run, fallbackType = "workspace-command") {
-  const runId = String(run?.requestId || run?.id || "");
-  if (runId.startsWith("git_command_")) return "git-command";
+  if (isGitCommandRun(run)) return "git-command";
   return fallbackType;
 }
 
@@ -4260,7 +4268,7 @@ ipcMain.handle("workspace:cancel-command", (_event, { requestId } = {}) => {
       const store = readStore();
       const persisted = upsertCommandRun(store, {
         ...snapshot,
-        kind: "workspace",
+        kind: isGitCommandLine(snapshot.command || snapshot.commandLine) ? "git" : "workspace",
         project: projectFromPath(snapshot.cwd),
       });
       const runEvent = upsertCommandRunEvent(store, persisted, "cancelled");
@@ -4393,7 +4401,7 @@ ipcMain.handle("workspace:run-command", async (_event, { projectPath, command, r
     ...result,
     id: runId,
     requestId: runId,
-    kind: "workspace",
+    kind: isGitCommandLine(cmd) ? "git" : "workspace",
     project,
   });
   const runEvent = upsertCommandRunEvent(
