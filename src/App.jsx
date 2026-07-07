@@ -7330,6 +7330,7 @@ function ToolRail({
   onActivateTool,
   onOpenBottomPanel,
   onOpenBrowserEvidence,
+  onOpenRunTimeline,
   onSettings,
   onCapabilities,
   busy,
@@ -7344,6 +7345,13 @@ function ToolRail({
   const activeNotices = useMemo(() => (notices || []).filter((notice) => !notice.dismissedAt), [notices]);
   const latestWorkspaceRun = useMemo(() => commandRunsToHistory(commandRuns, "workspace")[0], [commandRuns]);
   const latestWorkspaceFailed = latestWorkspaceRun && typeof latestWorkspaceRun.code === "number" && latestWorkspaceRun.code !== 0;
+  const openWorkspaceRailTarget = () => {
+    if (latestWorkspaceFailed && latestWorkspaceRun?.id) {
+      onOpenRunTimeline?.(latestWorkspaceRun.id);
+      return;
+    }
+    onActivateTool("workspace");
+  };
   const runtimeSummary = runtimeHealthSummary(capabilityStatus, settings, activeProject, t);
   const runtimeIssueCount = Array.isArray(runtimeSummary?.issues) ? runtimeSummary.issues.length : 0;
   const pluginIssueCount = [
@@ -7374,7 +7382,7 @@ function ToolRail({
       badge: latestWorkspaceFailed ? "!" : countBadge(gitChanges),
       status: projectMissing || latestWorkspaceFailed ? "error" : gitChanges > 0 ? "warning" : activeProject?.path ? "ready" : "idle",
       detail: latestWorkspaceFailed ? t.commandFailed : projectMissing ? t.projectPathMissing : gitChanges > 0 ? `${t.changes}: ${gitChanges}` : activeProject?.path || t.noProjectPath,
-      action: () => onActivateTool("workspace"),
+      action: openWorkspaceRailTarget,
     },
     {
       id: "claude",
@@ -14739,6 +14747,7 @@ export function App() {
             onActivateTool={activateTool}
             onOpenBottomPanel={openBottomPanel}
             onOpenBrowserEvidence={openBrowserEvidence}
+            onOpenRunTimeline={openRunTimeline}
             onSettings={openSettingsSurface}
             onCapabilities={openCapabilitiesSurface}
             busy={busy}
