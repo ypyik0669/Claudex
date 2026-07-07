@@ -3837,6 +3837,7 @@ function Sidebar({
   onProjectScopeChange,
   activeSessionId,
   setActiveSessionId,
+  onOpenThread,
   query,
   setQuery,
   onNewChat,
@@ -4019,7 +4020,14 @@ function Sidebar({
                     data-thread-archived={session.archived ? "true" : "false"}
                     data-thread-message-count={item.messageCount}
                   >
-                    <button type="button" className="thread-open-button" onClick={() => setActiveSessionId(session.id)}>
+                    <button
+                      type="button"
+                      className="thread-open-button"
+                      onClick={() => {
+                        if (onOpenThread) onOpenThread(session);
+                        else setActiveSessionId(session.id);
+                      }}
+                    >
                       <span className="thread-main">
                       <strong>
                         {session.pinned && <Pin size={12} className="thread-pin-badge" title={t.pinThread} />}
@@ -13092,6 +13100,28 @@ export function App() {
     }
   }
 
+  async function openThread(session) {
+    if (!session?.id) return;
+    const targetScope = session.archived ? "archived" : "current";
+    const targetProject = {
+      name: session.project || activeProject?.name || t.localWorkspace,
+      path: session.projectPath || "",
+    };
+    const currentKey = String(activeProject?.path || activeProject?.name || "").trim().toLowerCase();
+    const targetKey = String(targetProject.path || targetProject.name || "").trim().toLowerCase();
+    try {
+      if (desktopApi?.setActiveProject && targetKey && targetKey !== currentKey) {
+        setProjectScope(targetScope);
+        const next = await desktopApi.setActiveProject(targetProject);
+        applySessionState(next, session.id, targetScope);
+        return;
+      }
+      setActiveSessionId(session.id);
+    } catch (error) {
+      showToast(error.message || String(error));
+    }
+  }
+
   async function resumeThread(session) {
     if (!session) return;
     const targetScope = session.archived ? "archived" : "current";
@@ -15617,6 +15647,7 @@ export function App() {
           onProjectScopeChange={setProjectScope}
           activeSessionId={activeSession?.id}
           setActiveSessionId={setActiveSessionId}
+          onOpenThread={openThread}
           query={query}
           setQuery={setQuery}
           onNewChat={createSession}
