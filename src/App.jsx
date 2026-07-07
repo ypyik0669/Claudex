@@ -13028,6 +13028,17 @@ export function App() {
     setComposerFocusToken((current) => current + 1);
   }
 
+  function enterThreadWorkspace(scope = projectScope) {
+    setSettingsOpen(false);
+    setCapabilitiesOpen(false);
+    setProjectsOpen(false);
+    setScheduledOpen(false);
+    setCommandsOpen(false);
+    setBottomPanel("");
+    setSidebarVisible(true);
+    if (scope) setProjectScope(scope);
+  }
+
   async function createSession() {
     if (!desktopApi) return;
     const next = await desktopApi.createSession();
@@ -13110,6 +13121,7 @@ export function App() {
     const currentKey = String(activeProject?.path || activeProject?.name || "").trim().toLowerCase();
     const targetKey = String(targetProject.path || targetProject.name || "").trim().toLowerCase();
     try {
+      enterThreadWorkspace(session.archived ? targetScope : projectScope);
       if (desktopApi?.setActiveProject && targetKey && targetKey !== currentKey) {
         setProjectScope(targetScope);
         const next = await desktopApi.setActiveProject(targetProject);
@@ -13125,14 +13137,7 @@ export function App() {
   async function resumeThread(session) {
     if (!session) return;
     const targetScope = session.archived ? "archived" : "current";
-    setSettingsOpen(false);
-    setCapabilitiesOpen(false);
-    setProjectsOpen(false);
-    setScheduledOpen(false);
-    setCommandsOpen(false);
-    setBottomPanel("");
-    setSidebarVisible(true);
-    setProjectScope(targetScope);
+    enterThreadWorkspace(targetScope);
     setDraft("");
     try {
       const targetProject = {
