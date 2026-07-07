@@ -906,6 +906,14 @@ const copy = {
     diffPreview: "差异预览",
     diffPreviewSkippedLarge: "文件超过 1MB，已禁用差异预览以保持输入流畅。",
     fileConflictReload: "重新读取文件",
+    fileSaveConflictEvidence: "保存冲突证据",
+    fileSaveBaseUpdatedAt: "读取时间",
+    fileSaveCurrentUpdatedAt: "磁盘时间",
+    fileSaveBaseSha: "读取 SHA",
+    fileSaveCurrentSha: "磁盘 SHA",
+    fileSaveAttemptSha: "草稿 SHA",
+    fileSaveDraftBytes: "草稿字节",
+    fileSaveDiskBytes: "磁盘字节",
     gitDiffStat: "Diff 统计",
     gitDiffPreview: "Git Diff",
     gitDiffTruncated: "Diff 已截断，仅显示前面的部分。",
@@ -3422,6 +3430,32 @@ function isPermissionDeniedError(message) {
 
 function isFileConflictError(message) {
   return /外部修改|WORKSPACE_FILE_CONFLICT/i.test(String(message || ""));
+}
+
+function utf8ByteLength(value) {
+  const text = String(value ?? "");
+  try {
+    return new TextEncoder().encode(text).length;
+  } catch {
+    return text.length;
+  }
+}
+
+function fileSaveConflictEvidenceText({ file, content, error, t }) {
+  const details = error?.details && typeof error.details === "object" ? error.details : {};
+  const lines = [
+    `${t.fileSaveConflictEvidence}: ${file?.path || "-"}`,
+    `${t.path}: ${file?.path || "-"}`,
+    `${t.commandCwd}: ${file?.projectPath || "-"}`,
+    `${t.fileSaveBaseUpdatedAt}: ${details.baseUpdatedAt || file?.updatedAt || "-"}`,
+    `${t.fileSaveCurrentUpdatedAt}: ${details.currentUpdatedAt || "-"}`,
+    `${t.fileSaveBaseSha}: ${details.baseSha256 || file?.sha256 || "-"}`,
+    `${t.fileSaveCurrentSha}: ${details.currentSha256 || "-"}`,
+    `${t.fileSaveAttemptSha}: ${details.attemptedSha256 || "-"}`,
+    `${t.fileSaveDraftBytes}: ${Number.isFinite(details.attemptedBytes) ? details.attemptedBytes : utf8ByteLength(content)}`,
+    `${t.fileSaveDiskBytes}: ${Number.isFinite(details.currentBytes) ? details.currentBytes : "-"}`,
+  ];
+  return lines.join("\n");
 }
 
 const LARGE_FILE_DIFF_LIMIT_BYTES = 1024 * 1024;
@@ -8416,6 +8450,12 @@ function ToolsPanel({
         baseUpdatedAt: file.updatedAt,
         baseSha256: file.sha256,
       });
+      if (result?.conflict) {
+        const conflictError = new Error(result.message || "WORKSPACE_FILE_CONFLICT");
+        conflictError.code = result.code || "WORKSPACE_FILE_CONFLICT";
+        conflictError.details = result.details || {};
+        throw conflictError;
+      }
       const nextFile = { ...result, projectPath: file.projectPath || activeProject.path, projectLabel: file.projectLabel || "" };
       cacheFileRead(fileCacheRef, `${file.projectPath || activeProject?.path || ""}::${file.path}`, nextFile);
       setFile(nextFile);
@@ -8437,7 +8477,10 @@ function ToolsPanel({
         }),
       });
     } catch (error) {
-      setWorkspaceError(error.message || String(error));
+      const errorMessage = error.message || String(error);
+      const conflict = isFileConflictError(error.code || errorMessage);
+      const conflictEvidence = conflict ? fileSaveConflictEvidenceText({ file, content: fileDraft, error, t }) : "";
+      setWorkspaceError(errorMessage);
       setWorkspaceErrorRetry(() => () => openFile({ type: "file", path: file.path, projectPath: file.projectPath, projectLabel: file.projectLabel }, { force: true }));
       setSaveStatus("error");
       onRunEvent?.({
@@ -8445,13 +8488,15 @@ function ToolsPanel({
         type: "file-save",
         status: "error",
         title: `${t.saveFile}: ${file.path}`,
-        detail: error.message || String(error),
+        detail: errorMessage,
         cwd: file.projectPath || activeProject?.path || "",
         path: file.path,
         action: workspaceFileAction(file.path, {
           projectPath: file.projectPath || activeProject?.path || "",
           projectLabel: file.projectLabel || projectLabel(activeProject, t),
         }),
+        stdout: conflictEvidence,
+        stderr: conflict ? "" : errorMessage,
       });
     } finally {
       setWorkspaceBusy(false);

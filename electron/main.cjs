@@ -4323,6 +4323,7 @@ ipcMain.handle("workspace:read-file", (_event, { projectPath, relativePath } = {
 
 ipcMain.handle("workspace:save-file", (_event, { projectPath, relativePath, content, baseUpdatedAt, baseSha256 } = {}) => {
   const { target, relative } = resolveInsideProject(projectPath, relativePath);
+  const nextContent = String(content ?? "");
   const stat = fs.existsSync(target) ? fs.statSync(target) : null;
   if (stat && !stat.isFile()) throw new Error("所选路径不是文件。");
   if (stat && (baseUpdatedAt || baseSha256)) {
@@ -4332,17 +4333,26 @@ ipcMain.handle("workspace:save-file", (_event, { projectPath, relativePath, cont
     const mtimeChanged = baseUpdatedAt && baseUpdatedAt !== currentUpdatedAt;
     const hashChanged = baseSha256 && baseSha256 !== currentSha256;
     if (mtimeChanged || hashChanged) {
-      const error = new Error("文件已被外部修改。请重新读取后再保存，避免覆盖别人的改动。");
-      error.code = "WORKSPACE_FILE_CONFLICT";
-      error.details = {
-        currentUpdatedAt,
-        currentSha256,
+      return {
+        ok: false,
+        conflict: true,
+        code: "WORKSPACE_FILE_CONFLICT",
+        message: "文件已被外部修改。请重新读取后再保存，避免覆盖别人的改动。",
+        path: relative,
+        details: {
+          baseUpdatedAt: String(baseUpdatedAt || ""),
+          baseSha256: String(baseSha256 || ""),
+          currentUpdatedAt,
+          currentSha256,
+          attemptedSha256: hashBuffer(Buffer.from(nextContent, "utf8")),
+          attemptedBytes: Buffer.byteLength(nextContent, "utf8"),
+          currentBytes: currentBuffer.length,
+        },
       };
-      throw error;
     }
   }
   fs.mkdirSync(path.dirname(target), { recursive: true });
-  fs.writeFileSync(target, String(content ?? ""), "utf8");
+  fs.writeFileSync(target, nextContent, "utf8");
   return {
     ...fileSnapshot(target),
     path: relative,
