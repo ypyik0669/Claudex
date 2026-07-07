@@ -2540,6 +2540,26 @@ function automationRunEntries(automation = {}) {
   return entries;
 }
 
+function automationRunNeedsRecovery(entry = {}) {
+  return entry?.status === "failed"
+    || entry?.status === "error"
+    || (typeof entry?.code === "number" && entry.code !== 0);
+}
+
+function automationNeedsRecovery(automation = {}) {
+  if (!automation?.id) return false;
+  return automation.status === "failed"
+    || automationRunNeedsRecovery(automation.lastRun)
+    || automationRunEntries(automation).some(automationRunNeedsRecovery);
+}
+
+function automationRecoveryEntry(automation = {}) {
+  const entries = automationRunEntries(automation);
+  return entries.find(automationRunNeedsRecovery)
+    || (automationRunNeedsRecovery(automation.lastRun) ? automation.lastRun : null)
+    || null;
+}
+
 function findCommandRunForEvent(event, commandRuns = []) {
   const eventId = String(event?.id || "");
   const commandLine = String(event?.commandLine || "").trim();
@@ -5365,6 +5385,77 @@ function CommandHistory({
   );
 }
 
+function AutomationRecoveryStrip({
+  item,
+  entry,
+  surface,
+  working = false,
+  copied = false,
+  onRunNow,
+  onCopyEvidence,
+  onOpenTimeline,
+  t,
+}) {
+  const recoveryEntry = entry || automationRecoveryEntry(item);
+  if (!item?.id || !recoveryEntry || !automationNeedsRecovery(item)) return null;
+  const detail = recoveryEntry.error || recoveryEntry.detail || recoveryEntry.summary || t.automationFailed;
+  const runId = recoveryEntry.id || item.lastRun?.id || "";
+  return (
+    <div
+      className="automation-recovery-strip"
+      data-automation-recovery-surface={surface}
+      data-automation-id={item.id}
+      data-automation-run-id={runId}
+      aria-label={t.errorActions}
+    >
+      <div className="automation-recovery-copy">
+        <span>{t.errorActions}</span>
+        <strong>{automationStatusLabel(recoveryEntry.status || item.status, t)}</strong>
+        <p>{messageExcerpt(detail, 150)}</p>
+        <small>
+          {automationProjectLabel(item, t)}
+          {runId ? ` · ${t.automationRunId}: ${runId}` : ""}
+        </small>
+      </div>
+      <div className="automation-recovery-actions">
+        <button
+          type="button"
+          className="plain-action subtle-action"
+          data-automation-recovery-action="run-now"
+          onClick={onRunNow}
+          disabled={working || item.status === "running"}
+          title={t.runNow}
+        >
+          <Send size={12} />
+          {working ? t.automationRunning : t.runNow}
+        </button>
+        <button
+          type="button"
+          className="plain-action subtle-action"
+          data-automation-recovery-action="copy-evidence"
+          onClick={onCopyEvidence}
+          title={copied ? t.copied : t.copyAutomationEvidence}
+        >
+          {copied ? <Check size={12} /> : <Copy size={12} />}
+          {copied ? t.copied : t.copyAutomationEvidence}
+        </button>
+        {runId && (
+          <button
+            type="button"
+            className="plain-action subtle-action"
+            data-automation-recovery-action="timeline"
+            onClick={onOpenTimeline}
+            title={t.openRunTimeline}
+          >
+            <FileText size={12} />
+            {t.openRunTimeline}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function SubagentWorkbench({
   runs = [],
   automations = [],
@@ -5596,6 +5687,7 @@ function SubagentWorkbench({
               const openFocusedAutomationEvidence = Boolean(isFocusedAutomation && focus?.expandEvidence);
               const openFocusedAutomationHistory = Boolean(isFocusedAutomation && (focus?.expandHistory || focus?.expandEvidence));
               const lastRunDetail = item.lastRun?.error || item.lastRun?.detail || "";
+              const recoveryEntry = automationRecoveryEntry(item);
               const history = Array.isArray(item.history) ? item.history.slice(0, 3) : [];
               const timing = item.lastRun?.endedAt
                 ? `${t.automationLastRun}: ${formatDate(item.lastRun.endedAt)}`
@@ -5650,6 +5742,17 @@ function SubagentWorkbench({
                       </div>
                     )}
                     {lastRunDetail && <p className="automation-task-detail">{lastRunDetail}</p>}
+                    <AutomationRecoveryStrip
+                      item={item}
+                      entry={recoveryEntry}
+                      surface="task-center"
+                      working={automationWorkingId === item.id}
+                      copied={Boolean(recoveryEntry?.id && copiedAutomationRunId === recoveryEntry.id)}
+                      onRunNow={() => handleAutomationAction(item, onRunAutomationNow)}
+                      onCopyEvidence={() => copyAutomationEvidence(item, recoveryEntry)}
+                      onOpenTimeline={() => recoveryEntry?.id && onOpenRunTimeline?.(recoveryEntry.id)}
+                      t={t}
+                    />
                     {history.length > 0 && (
                       <details className="automation-task-history" open={openFocusedAutomationHistory || undefined}>
                         <summary>{t.automationRunHistoryShort}</summary>
@@ -11043,8 +11146,10 @@ function ScheduledModal({
             </div>
           </div>
           <div className="schedule-list">
-            {items.map((item) => (
-              <article key={item.id} className="schedule-item">
+            {items.map((item) => {
+              const recoveryEntry = automationRecoveryEntry(item);
+              return (
+                <article key={item.id} className="schedule-item" data-automation-id={item.id}>
                 <div className="schedule-item-main">
                   <div className="schedule-item-title">
                     <strong>{item.prompt}</strong>
@@ -11074,6 +11179,17 @@ function ScheduledModal({
                       <dd>{item.lastRun?.endedAt ? formatDate(item.lastRun.endedAt, lang) : t.noAutomationHistory}</dd>
                     </div>
                   </dl>
+                  <AutomationRecoveryStrip
+                    item={item}
+                    entry={recoveryEntry}
+                    surface="scheduled"
+                    working={workingId === item.id}
+                    copied={Boolean(recoveryEntry?.id && copiedAutomationRunId === recoveryEntry.id)}
+                    onRunNow={() => handleAction(item.id, () => onRunNow?.(item))}
+                    onCopyEvidence={() => copyAutomationEvidence(item, recoveryEntry)}
+                    onOpenTimeline={() => recoveryEntry?.id && onOpenRunTimeline?.(recoveryEntry.id)}
+                    t={t}
+                  />
                   <details className="schedule-history">
                     <summary>{t.scheduleHistory}</summary>
                     {item.history?.length ? (
@@ -11174,8 +11290,9 @@ function ScheduledModal({
                     {t.delete}
                   </button>
                 </div>
-              </article>
-            ))}
+                </article>
+              );
+            })}
             {items.length === 0 && (
               <div className="empty-panel">
                 <Clock3 size={20} />
@@ -12352,17 +12469,11 @@ export function App() {
       })));
 
     const automationRecoveryCommands = automationItemsForCommands
-      .filter((automation) => {
-        if (!automation?.id) return false;
-        const entries = automationRunEntries(automation);
-        return automation.status === "failed"
-          || automation.lastRun?.status === "failed"
-          || entries.some((entry) => entry?.status === "failed" || entry?.status === "error" || (typeof entry?.code === "number" && entry.code !== 0));
-      })
+      .filter(automationNeedsRecovery)
       .slice(0, 16)
       .flatMap((automation) => {
         const entries = automationRunEntries(automation);
-        const failedEntry = entries.find((entry) => entry?.status === "failed" || entry?.status === "error" || (typeof entry?.code === "number" && entry.code !== 0))
+        const failedEntry = automationRecoveryEntry(automation)
           || automation.lastRun
           || entries[0]
           || {};
