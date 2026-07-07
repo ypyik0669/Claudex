@@ -7345,12 +7345,21 @@ function ToolRail({
   const activeNotices = useMemo(() => (notices || []).filter((notice) => !notice.dismissedAt), [notices]);
   const latestWorkspaceRun = useMemo(() => commandRunsToHistory(commandRuns, "workspace")[0], [commandRuns]);
   const latestWorkspaceFailed = latestWorkspaceRun && typeof latestWorkspaceRun.code === "number" && latestWorkspaceRun.code !== 0;
+  const latestClaudeRun = useMemo(() => commandRunsToHistory(commandRuns, "claude")[0], [commandRuns]);
+  const latestClaudeFailed = latestClaudeRun && typeof latestClaudeRun.code === "number" && latestClaudeRun.code !== 0;
   const openWorkspaceRailTarget = () => {
     if (latestWorkspaceFailed && latestWorkspaceRun?.id) {
       onOpenRunTimeline?.(latestWorkspaceRun.id);
       return;
     }
     onActivateTool("workspace");
+  };
+  const openClaudeRailTarget = () => {
+    if (latestClaudeFailed && latestClaudeRun?.id) {
+      onOpenRunTimeline?.(latestClaudeRun.id);
+      return;
+    }
+    onActivateTool("claude");
   };
   const runtimeSummary = runtimeHealthSummary(capabilityStatus, settings, activeProject, t);
   const runtimeIssueCount = Array.isArray(runtimeSummary?.issues) ? runtimeSummary.issues.length : 0;
@@ -7388,10 +7397,10 @@ function ToolRail({
       id: "claude",
       label: t.claudeCodeTool,
       icon: Bot,
-      badge: busy ? "●" : runtimeIssueCount ? countBadge(runtimeIssueCount) : "",
-      status: busy ? "running" : runtimeIssueCount ? "error" : capabilityStatus?.available ? "ready" : "idle",
-      detail: busy ? t.commandRunning : runtimeSummary?.headline || t.claudeStatus,
-      action: () => onActivateTool("claude"),
+      badge: busy ? "●" : latestClaudeFailed ? "!" : runtimeIssueCount ? countBadge(runtimeIssueCount) : "",
+      status: busy ? "running" : latestClaudeFailed || runtimeIssueCount ? "error" : capabilityStatus?.available ? "ready" : "idle",
+      detail: busy ? t.commandRunning : latestClaudeFailed ? t.commandFailed : runtimeSummary?.headline || t.claudeStatus,
+      action: openClaudeRailTarget,
     },
     {
       id: "browser",
