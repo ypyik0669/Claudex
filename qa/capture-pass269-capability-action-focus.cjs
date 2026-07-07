@@ -349,7 +349,27 @@ async function runTest() {
     action: "install",
     capabilityId: MARKET_PLUGIN_ID,
     requiredText: ["pass269-catalog-plugin", MARKET_TOOL_NAME, "PASS269 local plugin code risk"],
-    extraCheck: `Boolean(document.querySelector('.plugin-cli-confirm') && /plugin install pass269-catalog-plugin@pass269-market/.test(document.querySelector('.plugin-cli-confirm')?.textContent || ''))`,
+    extraCheck: `
+      (async function() {
+        const installCommand = ${JSON.stringify(`plugin install ${MARKET_PLUGIN_ID}`)};
+        const action = document.querySelector(${JSON.stringify(`.capability-modal [data-marketplace-plugin-id="${MARKET_PLUGIN_ID}"] [data-marketplace-plugin-action="install"]`)});
+        const hasInstallRun = async () => {
+          const state = await window.claudexDesktop.getState();
+          return Boolean((state.commandRuns || []).some((run) => String(run.command || run.commandLine || "").includes(installCommand)));
+        };
+        if (!action || document.querySelector('.plugin-cli-confirm') || await hasInstallRun()) return false;
+        action.click();
+        const startedAt = Date.now();
+        while (Date.now() - startedAt < 5000) {
+          const confirm = document.querySelector('.plugin-cli-confirm');
+          if (confirm && (confirm.textContent || '').includes(installCommand)) {
+            return !(await hasInstallRun());
+          }
+          await new Promise((resolve) => setTimeout(resolve, 100));
+        }
+        return false;
+      })()
+    `,
   });
 
   console.log("PASS269_CAPABILITY_ACTION_FOCUS_DONE");

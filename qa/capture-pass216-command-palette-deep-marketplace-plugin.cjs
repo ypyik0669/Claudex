@@ -242,13 +242,12 @@ async function runTest() {
   ));
 
   assertStep("PASS216_OPEN_DEEP_MARKETPLACE_INSTALL_COMMAND", await runPaletteCommand(win, "install pass216 deep 31", expectedInstallCommandId));
-  assertStep("PASS216_DEEP_MARKETPLACE_CONFIRM_FOCUSED", await waitFor(win, `
+  assertStep("PASS216_DEEP_MARKETPLACE_ACTION_FOCUSED", await waitFor(win, `
     (function() {
       const activeTab = document.querySelector('.plugin-manager-tabs button.active')?.textContent || '';
-      const confirm = document.querySelector('.plugin-cli-confirm');
-      const confirmText = confirm?.textContent || '';
       const card = document.querySelector('[data-marketplace-plugin-id=${JSON.stringify(TARGET_ID)}]');
       const cardText = card?.textContent || '';
+      const action = card?.querySelector('[data-marketplace-plugin-action="install"]');
       return Boolean(
         /\\u5e02\\u573a/.test(activeTab) &&
         document.querySelector('.marketplace-filter-control [data-marketplace-filter="available"].active') &&
@@ -256,6 +255,25 @@ async function runTest() {
         /pass216-deep-plugin-31/.test(cardText) &&
         /agent-tools/.test(cardText) &&
         /network access/.test(cardText) &&
+        action?.getAttribute('data-capability-action-focused') === 'true' &&
+        action?.getAttribute('data-capability-action') === 'install' &&
+        !document.querySelector('.plugin-cli-confirm')
+      );
+    })();
+  `, 15000));
+  assertStep("PASS216_CLICK_DEEP_MARKETPLACE_INSTALL_ACTION", await win.webContents.executeJavaScript(`
+    (function() {
+      const action = document.querySelector('[data-marketplace-plugin-id=${JSON.stringify(TARGET_ID)}] [data-marketplace-plugin-action="install"]');
+      if (!action) return false;
+      action.click();
+      return true;
+    })();
+  `));
+  assertStep("PASS216_DEEP_MARKETPLACE_CONFIRM_VISIBLE", await waitFor(win, `
+    (function() {
+      const confirm = document.querySelector('.plugin-cli-confirm');
+      const confirmText = confirm?.textContent || '';
+      return Boolean(
         confirm &&
         /plugin install pass216-deep-plugin-31@pass216-market/.test(confirmText) &&
         /runs local plugin code/.test(confirmText) &&

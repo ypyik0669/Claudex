@@ -16986,17 +16986,6 @@ export function App() {
       .filter((plugin) => (plugin?.id || plugin?.name) && !plugin?.installed)
       .map((plugin) => {
         const id = plugin.id || plugin.name;
-        const commandLine = `plugin install ${id}`;
-        const detailLines = toolDetailLines(plugin, t);
-        const reviewRows = [
-          [t.commandLine, `claude ${commandLine}`],
-          plugin.marketplace ? [t.marketplace, plugin.marketplace] : null,
-          plugin.version && plugin.version !== "unknown" ? [t.version, plugin.version] : null,
-          plugin.risk ? [t.marketplaceRisk, plugin.risk] : [t.marketplaceRisk, t.marketplaceInstallRisk],
-          detailLines.length ? [t.toolsList, detailLines.join("\n")] : plugin.tools ? [t.tools, plugin.tools] : null,
-          plugin.permissions ? [t.allowedTools, plugin.permissions] : null,
-          [t.commandCwd, activeProject?.path || t.localWorkspace],
-        ].filter(Boolean);
         return {
           id: `marketplace-install:${commandIdSegment(id)}`,
           title: `${t.installFromMarketplace}: ${plugin.name || id}`,
@@ -17032,11 +17021,6 @@ export function App() {
             query: id,
             marketplaceFilter: "available",
             action: "install",
-            confirmCommand: {
-              args: commandLine,
-              label: `${t.installFromMarketplace}: ${plugin.name || id}`,
-              reviewRows,
-            },
           }),
         };
       });
