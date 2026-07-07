@@ -12447,6 +12447,7 @@ export function App() {
         title: entry.title || t.requestError,
         detail: entry.detail || "",
         action: noticeAction,
+        runEventId: entry.type === "file-save" ? optimisticEvent.id : "",
         key: `run:${entry.type || "unknown"}:${entry.title || ""}`,
       }));
     }

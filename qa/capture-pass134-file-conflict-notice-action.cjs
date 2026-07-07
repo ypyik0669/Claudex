@@ -261,10 +261,22 @@ async function runTest() {
       /外部修改/.test(event.detail || "") &&
       notice &&
       notice.level === "error" &&
+      notice.runEventId === event.id &&
       (notice.action || "").startsWith(`workspace:file:${encodeURIComponent(FILE_NAME)}`) &&
       (notice.action || "").includes(`project=${encodeURIComponent(PROJECT_DIR)}`)
     );
   }, 10000));
+  win.webContents.reload();
+  await wait(1200);
+  assertStep("PASS134_RELOAD_READY", await waitFor(win, "Boolean(document.querySelector('.app-grid') && window.claudexDesktop)", 15000));
+  assertStep("PASS134_PERSISTED_NOTICE_AFTER_RELOAD", await waitFor(win, `
+    (async function() {
+      const state = await window.claudexDesktop.getState();
+      const event = state.runEvents?.find((item) => item.type === 'file-save' && /conflict-notice\.txt/.test(item.title || ''));
+      const notice = state.notices?.find((item) => /conflict-notice\.txt/.test(item.title || '') && /\u5916\u90e8\u4fee\u6539/.test(item.detail || ''));
+      return Boolean(event && notice && notice.runEventId === event.id);
+    })();
+  `, 10000));
   assertStep("PASS134_SWITCH_AWAY_FROM_WORKSPACE", await win.webContents.executeJavaScript(`
     (async function() {
       const button = document.querySelector('button[aria-controls="terminal-tool-detail"]') ||
@@ -280,17 +292,35 @@ async function runTest() {
   assertStep("PASS134_NOTICE_CARD_ACTION_VISIBLE", await waitFor(win, `
     (function() {
       const card = Array.from(document.querySelectorAll('.notice-card')).find((item) =>
-        /conflict-notice\\.txt/.test(item.textContent || '') && /\\u5916\\u90e8\\u4fee\\u6539/.test(item.textContent || '')
-      );
-      return Boolean(card && card.querySelector('[data-notice-action="open"]'));
-    })();
-  `, 8000));
-  assertStep("PASS134_NOTICE_ACTION_RELOADS_WORKSPACE_FILE", await win.webContents.executeJavaScript(`
-    (async function() {
-      const card = Array.from(document.querySelectorAll('.notice-card')).find((item) =>
-        /conflict-notice\\.txt/.test(item.textContent || '') && /\\u5916\\u90e8\\u4fee\\u6539/.test(item.textContent || '')
+        /conflict-notice\.txt/.test(item.textContent || '') && /\u5916\u90e8\u4fee\u6539/.test(item.textContent || '')
       );
       const action = card?.querySelector('[data-notice-action="open"]');
+      return Boolean(action && action.getAttribute('data-notice-action-target') === 'timeline');
+    })();
+  `, 8000));
+  assertStep("PASS134_NOTICE_ACTION_OPENS_TIMELINE_EVIDENCE", await win.webContents.executeJavaScript(`
+    (async function() {
+      const card = Array.from(document.querySelectorAll('.notice-card')).find((item) =>
+        /conflict-notice\.txt/.test(item.textContent || '') && /\u5916\u90e8\u4fee\u6539/.test(item.textContent || '')
+      );
+      const action = card?.querySelector('[data-notice-action="open"]');
+      if (!action) return false;
+      action.click();
+      await new Promise((resolve) => setTimeout(resolve, 600));
+      const panel = document.querySelector('.selected-run-evidence-panel.error');
+      const text = panel?.textContent || '';
+      return Boolean(
+        panel &&
+        panel.querySelector('[data-run-event-type="file-save"]') &&
+        /conflict-notice\.txt/.test(text) &&
+        /\u5916\u90e8\u4fee\u6539/.test(text) &&
+        panel.querySelector('[data-run-recovery-action="open-workspace-file"]')
+      );
+    })();
+  `));
+  assertStep("PASS134_TIMELINE_RECOVERY_RELOADS_WORKSPACE_FILE", await win.webContents.executeJavaScript(`
+    (async function() {
+      const action = document.querySelector('.selected-run-evidence-panel.error [data-run-recovery-action="open-workspace-file"]');
       if (!action) return false;
       action.click();
       await new Promise((resolve) => setTimeout(resolve, 600));
