@@ -15742,6 +15742,7 @@ export function App() {
             ? { action: "disable", label: t.disablePlugin, keywords: "disable plugin installed turn off 禁用 插件" }
             : { action: "enable", label: t.enablePlugin, keywords: "enable plugin installed turn on 启用 插件" },
           { action: "update", label: t.updatePlugin, keywords: "update plugin installed upgrade refresh 更新 插件" },
+          { action: "copy", label: t.copyEvidence, keywords: "copy evidence plugin installed clipboard focus 复制 证据 插件" },
         ];
         return specs.map((spec) => ({
           id: `capability-plugin-action:${spec.action}:${commandIdSegment(id)}`,
@@ -16029,42 +16030,50 @@ export function App() {
       }));
     const mcpServerActionCommands = (Array.isArray(capabilityCommandStatus?.mcpServers) ? capabilityCommandStatus.mcpServers : [])
       .filter((server) => server?.name)
-      .map((server) => ({
-        id: `capability-mcp-action:refresh:${commandIdSegment(server.name)}`,
-        title: `${t.recordMcpStatus}: ${server.name}`,
-        subtitle: [
-          mcpStatusLabel(server.status, t),
-          typeof server.tools === "number" ? `${t.tools}: ${server.tools}` : "",
-          server.transport,
-          server.source || server.detail,
-        ].filter(Boolean).join(" · "),
-        group: t.capabilities,
-        target: "mcp-action",
-        dataAttributes: capabilityTraceAttributes("mcp", "refresh", server, { id: server.name, name: server.name }),
-        priority: 17,
-        keywords: [
-          "mcp server refresh record status capability command palette focus action button",
-          t.recordMcpStatus,
-          t.refresh,
-          server.name,
-          server.status,
-          server.detail,
-          server.raw,
-          server.tools,
-          server.toolsSummary,
-          Array.isArray(server.toolNames) ? server.toolNames.join(" ") : server.toolNames,
-          Array.isArray(server.toolDetails) ? server.toolDetails.map((tool) => [tool?.name, tool?.description, tool?.schema].filter(Boolean).join(" ")).join(" ") : "",
-          server.transport,
-          server.source,
-          server.error,
-        ].filter(Boolean).join(" "),
-        action: () => openCapabilitiesSurface("mcp", {
-          kind: "mcp",
-          id: server.name,
-          query: server.name,
-          action: "refresh",
-        }),
-      }));
+      .flatMap((server) => {
+        const specs = [
+          { action: "open-claude", label: t.openClaudePanel, keywords: "open claude panel mcp server focus" },
+          { action: "copy-raw", label: t.copyRawMcpStatus, keywords: "copy raw mcp server output focus" },
+          { action: "copy", label: t.copyEvidence, keywords: "copy evidence mcp server focus clipboard" },
+          { action: "refresh", label: t.recordMcpStatus, keywords: "mcp server refresh record status focus action button" },
+        ];
+        return specs.map((spec) => ({
+          id: `capability-mcp-action:${spec.action}:${commandIdSegment(server.name)}`,
+          title: `${spec.label}: ${server.name}`,
+          subtitle: [
+            mcpStatusLabel(server.status, t),
+            typeof server.tools === "number" ? `${t.tools}: ${server.tools}` : "",
+            server.transport,
+            server.source || server.detail,
+          ].filter(Boolean).join(" · "),
+          group: t.capabilities,
+          target: "mcp-action",
+          dataAttributes: capabilityTraceAttributes("mcp", spec.action, server, { id: server.name, name: server.name }),
+          priority: spec.action === "refresh" ? 17 : 16,
+          keywords: [
+            "mcp server capability command palette focus action button",
+            spec.keywords,
+            spec.label,
+            server.name,
+            server.status,
+            server.detail,
+            server.raw,
+            server.tools,
+            server.toolsSummary,
+            Array.isArray(server.toolNames) ? server.toolNames.join(" ") : server.toolNames,
+            Array.isArray(server.toolDetails) ? server.toolDetails.map((tool) => [tool?.name, tool?.description, tool?.schema].filter(Boolean).join(" ")).join(" ") : "",
+            server.transport,
+            server.source,
+            server.error,
+          ].filter(Boolean).join(" "),
+          action: () => openCapabilitiesSurface("mcp", {
+            kind: "mcp",
+            id: server.name,
+            query: server.name,
+            action: spec.action,
+          }),
+        }));
+      });
     const mcpServerEvidenceCommands = (Array.isArray(capabilityCommandStatus?.mcpServers) ? capabilityCommandStatus.mcpServers : [])
       .filter((server) => server?.name)
       .map((server) => {
@@ -16168,6 +16177,42 @@ export function App() {
           action: () => copyMessage(evidence),
         };
       });
+
+    const marketplaceSourceActionCommands = (Array.isArray(capabilityCommandStatus?.marketplaces) ? capabilityCommandStatus.marketplaces : [])
+      .filter((marketplace) => marketplace?.name)
+      .map((marketplace) => ({
+        id: `capability-marketplace-source-action:copy:${commandIdSegment(marketplace.name)}`,
+        title: `${t.copyEvidence}: ${t.marketplaceSources} / ${marketplace.name}`,
+        subtitle: [
+          marketplace.status,
+          marketplace.version && `${t.version}: ${marketplace.version}`,
+          marketplace.repo || marketplace.source || marketplace.installLocation,
+        ].filter(Boolean).join(" · "),
+        group: t.capabilities,
+        target: "marketplace-source-action",
+        dataAttributes: capabilityTraceAttributes("marketplace-source", "copy", marketplace, { id: marketplace.name, name: marketplace.name }),
+        priority: 16,
+        keywords: [
+          "focus copy evidence marketplace source plugin catalog capability command palette action button",
+          t.copyEvidence,
+          t.marketplaceSources,
+          marketplace.name,
+          marketplace.status,
+          marketplace.version,
+          marketplace.source,
+          marketplace.repo,
+          marketplace.installLocation,
+          marketplace.tools,
+          marketplace.permissions,
+          marketplace.error,
+        ].filter(Boolean).join(" "),
+        action: () => openCapabilitiesSurface("marketplace", {
+          kind: "marketplace-source",
+          id: marketplace.name,
+          query: marketplace.name,
+          action: "copy",
+        }),
+      }));
 
     const customMarketplaceCommands = (Array.isArray(state.settings?.customMarketplaces) ? state.settings.customMarketplaces : [])
       .filter(Boolean)
@@ -16303,6 +16348,54 @@ export function App() {
         };
       });
 
+    const marketplacePluginActionCommands = (Array.isArray(capabilityCommandStatus?.marketplacePlugins) ? capabilityCommandStatus.marketplacePlugins : [])
+      .filter((plugin) => plugin?.id || plugin?.name)
+      .flatMap((plugin) => {
+        const id = plugin.id || plugin.name;
+        const installedPlugin = findPluginByIdentifiers(capabilityCommandStatus?.pluginItems || [], [id, plugin.name]);
+        const specs = [
+          { action: "copy", label: t.copyEvidence, keywords: "copy evidence marketplace plugin catalog focus clipboard" },
+          (plugin.installed || installedPlugin) ? { action: "open-installed", label: t.openInstalledPlugin, keywords: "open installed marketplace plugin focus" } : null,
+        ].filter(Boolean);
+        return specs.map((spec) => ({
+          id: `capability-marketplace-plugin-action:${spec.action}:${commandIdSegment(id)}`,
+          title: `${spec.label}: ${plugin.name || id}`,
+          subtitle: [
+            plugin.marketplace,
+            plugin.installed || installedPlugin ? t.installedLocal : t.installFromMarketplace,
+            plugin.version && plugin.version !== "unknown" ? `${t.version}: ${plugin.version}` : "",
+            plugin.risk ? t.marketplaceRisk : "",
+          ].filter(Boolean).join(" · "),
+          group: t.capabilities,
+          target: "marketplace-plugin-action",
+          dataAttributes: capabilityTraceAttributes("marketplace-plugin", spec.action, plugin, { id }),
+          priority: 16,
+          keywords: [
+            "marketplace plugin catalog capability command palette focus action button",
+            spec.keywords,
+            spec.label,
+            plugin.id,
+            plugin.name,
+            plugin.marketplace,
+            plugin.version,
+            plugin.description,
+            plugin.category,
+            plugin.author,
+            plugin.source,
+            plugin.tools,
+            Array.isArray(plugin.toolDetails) ? plugin.toolDetails.map((tool) => [tool?.name, tool?.description, tool?.schema].filter(Boolean).join(" ")).join(" ") : "",
+            plugin.permissions,
+            plugin.risk,
+          ].filter(Boolean).join(" "),
+          action: () => openCapabilitiesSurface("marketplace", {
+            kind: "marketplace-plugin",
+            id,
+            query: id,
+            action: spec.action,
+          }),
+        }));
+      });
+
     const marketplaceInstallCommands = marketplacePluginItemsForCommands
       .filter((plugin) => (plugin?.id || plugin?.name) && !plugin?.installed)
       .map((plugin) => {
@@ -16403,11 +16496,13 @@ export function App() {
       ...mcpServerEvidenceCommands,
       ...marketplaceSourceCommands,
       ...marketplaceSourceEvidenceCommands,
+      ...marketplaceSourceActionCommands,
       ...customMarketplaceCommands,
       ...marketplaceFilterCommands,
       ...marketplaceInstallCommands,
       ...marketplacePluginCommands,
       ...marketplacePluginEvidenceCommands,
+      ...marketplacePluginActionCommands,
     ];
   }, [state.projects, state.sessions, state.notices, state.sourceRefs, state.browserVisits, state.automations, state.subagentRuns, state.commandRuns, state.runEvents, state.settings?.customMarketplaces, capabilityCommandStatus, runEvents, environment, t, activeProject?.path, activeProject?.name, runTimelineFocus?.id, runTimelineFocus?.nonce]);
 
