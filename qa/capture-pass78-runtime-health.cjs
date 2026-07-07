@@ -202,10 +202,17 @@ async function runTest() {
       const state = await window.claudexDesktop.getState();
       const notices = state.notices || [];
       const notice = notices.find((item) => item.source === 'runtime-health');
+      const event = (state.runEvents || []).find((item) => item.id === notice?.runEventId);
       return Boolean(notice &&
         notice.action === 'runtime-health:plugins' &&
+        /^runtime_health_/.test(notice.runEventId || '') &&
         /pass78 plugin json failed/.test(notice.detail || '') &&
         /pass78 marketplace json failed/.test(notice.detail || '') &&
+        event &&
+        event.type === 'runtime-health' &&
+        event.status === 'error' &&
+        /pass78 plugin json failed/.test(event.stdout || '') &&
+        /pass78 marketplace json failed/.test(event.stdout || '') &&
         !notice.dismissedAt &&
         notices.filter((item) => item.source === 'runtime-health').length === 1);
     })();
@@ -295,10 +302,24 @@ async function runTest() {
       return true;
     })();
   `));
-  assertStep("PASS78_NOTICE_OPENED_PLUGINS", await waitFor(win, `
-    Boolean(document.querySelector('.structured-registry-section[aria-label*="CLI"]') || document.querySelector('.plugin-manager-list'))
+  assertStep("PASS78_NOTICE_OPENED_RUNTIME_HEALTH_TIMELINE", await waitFor(win, `
+    (function() {
+      const active = document.querySelector('.bottom-panel-tabs button[data-bottom-tab="outputs"].active');
+      const row = document.querySelector('.run-timeline-row.selected.error');
+      const panel = document.querySelector('.selected-run-evidence-panel.error');
+      const text = panel?.textContent || '';
+      return Boolean(
+        active &&
+        row &&
+        /runtime-health/.test(row.textContent || '') &&
+        panel &&
+        /pass78 plugin json failed/.test(text) &&
+        /pass78 mcp failed/.test(text) &&
+        /pass78 marketplace json failed/.test(text) &&
+        panel.querySelector('[data-run-event-type="runtime-health"]')
+      );
+    })();
   `, 10000));
-  assertStep("PASS78_CLOSE_NOTICE_DEEPLINK", await closeSurface(win));
   assertStep("PASS78_REOPEN_NOTICE_PANEL", await openNoticePanel(win));
   assertStep("PASS78_DISMISS_NOTICE", await win.webContents.executeJavaScript(`
     (function() {

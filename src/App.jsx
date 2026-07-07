@@ -1423,6 +1423,7 @@ function runtimeHealthNoticePayload(summary, activeProject, t) {
   if (!summary?.issues?.length) return null;
   const signature = runtimeHealthIssueSignature(summary);
   const target = runtimeHealthTargetForIssue(summary.issues[0]);
+  const runEventId = `runtime_health_${commandIdSegment(`${projectKey(activeProject) || "workspace"}:${signature}`)}`;
   return {
     level: "error",
     source: "runtime-health",
@@ -1430,7 +1431,22 @@ function runtimeHealthNoticePayload(summary, activeProject, t) {
     detail: runtimeHealthEvidenceText(summary, t),
     key: `runtime-health:${projectKey(activeProject) || "workspace"}:${signature}`,
     action: `runtime-health:${target}`,
+    runEventId,
     projectPath: activeProject?.path || "",
+  };
+}
+
+function runtimeHealthRunEventPayload(summary, activeProject, t, eventId = "") {
+  return {
+    id: eventId || `runtime_health_${Date.now()}_${Math.random().toString(16).slice(2)}`,
+    type: "runtime-health",
+    status: summary?.status === "ok" ? "ok" : summary?.status === "pending" ? "running" : "error",
+    title: t.runtimeHealthEvidence,
+    detail: summary?.headline || "",
+    cwd: activeProject?.path || "",
+    stdout: runtimeHealthEvidenceText(summary, t),
+    code: Array.isArray(summary?.issues) ? summary.issues.length : null,
+    suppressNotice: true,
   };
 }
 
@@ -4798,6 +4814,11 @@ function Conversation({
   }
 
   function handleNoticeAction(notice) {
+    const noticeRunEventId = String(notice?.runEventId || "").trim();
+    if (noticeRunEventId) {
+      onOpenRunTimeline?.(noticeRunEventId);
+      return;
+    }
     const action = String(notice?.action || "");
     if (action.startsWith("git-run:")) {
       const eventId = decodeActionSuffix(action, "git-run:");
@@ -8291,15 +8312,8 @@ function ToolsPanel({
   function recordRuntimeHealthEvidence(summary, evidenceText) {
     const eventId = `runtime_health_${Date.now()}_${Math.random().toString(16).slice(2)}`;
     onRunEvent?.({
-      id: eventId,
-      type: "runtime-health",
-      status: summary?.status === "ok" ? "ok" : summary?.status === "pending" ? "running" : "error",
-      title: t.runtimeHealthEvidence,
-      detail: summary?.headline || "",
-      cwd: activeProject?.path || "",
+      ...runtimeHealthRunEventPayload(summary, activeProject, t, eventId),
       stdout: evidenceText,
-      code: Array.isArray(summary?.issues) ? summary.issues.length : null,
-      suppressNotice: true,
     });
     onOpenBottomPanel?.("outputs");
   }
@@ -10057,6 +10071,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
     if (!payload) return;
     const alreadyKnown = (state.notices || []).some((notice) => notice.key === payload.key);
     if (alreadyKnown) return;
+    onRunEvent?.(runtimeHealthRunEventPayload(summary, activeProject, t, payload.runEventId));
     onNotice?.(payload);
   }
 
@@ -10508,15 +10523,8 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
   function recordRuntimeHealthEvidence(summary, evidenceText) {
     const eventId = `runtime_health_${Date.now()}_${Math.random().toString(16).slice(2)}`;
     onRunEvent?.({
-      id: eventId,
-      type: "runtime-health",
-      status: summary?.status === "ok" ? "ok" : summary?.status === "pending" ? "running" : "error",
-      title: t.runtimeHealthEvidence,
-      detail: summary?.headline || "",
-      cwd: activeProject?.path || "",
+      ...runtimeHealthRunEventPayload(summary, activeProject, t, eventId),
       stdout: evidenceText,
-      code: Array.isArray(summary?.issues) ? summary.issues.length : null,
-      suppressNotice: true,
     });
     onOpenBottomPanel?.("outputs");
   }
@@ -14328,6 +14336,11 @@ export function App() {
   }
 
   function openNoticeTarget(notice = {}) {
+    const noticeRunEventId = String(notice?.runEventId || "").trim();
+    if (noticeRunEventId) {
+      openRunTimeline(noticeRunEventId);
+      return;
+    }
     const action = String(notice?.action || "");
     if (action.startsWith("git-run:")) {
       const eventId = decodeActionSuffix(action, "git-run:");

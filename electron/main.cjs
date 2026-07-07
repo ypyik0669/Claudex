@@ -837,6 +837,7 @@ function normalizeNotice(item, store) {
     title: String(item?.title || item?.message || "Notice").trim(),
     detail: trimOutput(String(item?.detail || item?.error || ""), 6000),
     action: String(item?.action || ""),
+    runEventId: String(item?.runEventId || ""),
     sessionId: String(item?.sessionId || ""),
     project,
     count: Math.max(1, Number(item?.count || 1)),
