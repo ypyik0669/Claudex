@@ -2077,6 +2077,20 @@ function capabilityStatusMatchesFilter(statusKind, filter) {
   return true;
 }
 
+function normalizeCapabilityStatusFilter(filter) {
+  return ["all", "enabled", "disabled"].includes(filter) ? filter : "";
+}
+
+function capabilityStatusFilterCounts(items = [], statusKindForItem = () => "disabled") {
+  const rows = Array.isArray(items) ? items : [];
+  const enabled = rows.filter((item) => statusKindForItem(item) === "enabled").length;
+  return {
+    all: rows.length,
+    enabled,
+    disabled: Math.max(0, rows.length - enabled),
+  };
+}
+
 function skillStatusKind(skill = {}) {
   const status = String(skill?.status || "").trim().toLowerCase();
   if (skill?.error || /\b(?:error|failed|failure|missing|unavailable)\b/i.test(status)) return "error";
@@ -9583,7 +9597,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
   useEffect(() => {
     if (!focus?.nonce) return;
     if (tabs.some(([id]) => id === focus.tab)) setActiveTab(focus.tab);
-    setFilter("all");
+    setFilter(normalizeCapabilityStatusFilter(focus.filter) || "all");
     setQuery(String(focus.query || focus.id || "").trim());
     setCapabilityActionFocus({ tab: "", kind: "", id: "", query: "", nonce: 0 });
     if (focus.confirmCommand?.args) {
@@ -11042,7 +11056,7 @@ export function App() {
   const [settingsInitialSection, setSettingsInitialSection] = useState("general");
   const [capabilitiesOpen, setCapabilitiesOpen] = useState(false);
   const [capabilityInitialTab, setCapabilityInitialTab] = useState("plugins");
-  const [capabilityFocus, setCapabilityFocus] = useState({ tab: "plugins", kind: "", id: "", query: "", nonce: 0 });
+  const [capabilityFocus, setCapabilityFocus] = useState({ tab: "plugins", kind: "", id: "", query: "", filter: "", nonce: 0 });
   const [capabilityCommandStatus, setCapabilityCommandStatus] = useState(null);
   const [projectsOpen, setProjectsOpen] = useState(false);
   const [commandsOpen, setCommandsOpen] = useState(false);
@@ -12270,6 +12284,59 @@ export function App() {
         };
       });
 
+    const capabilityFilterLabels = {
+      all: t.capabilityAll,
+      enabled: t.capabilityEnabled,
+      disabled: t.capabilityDisabled,
+    };
+    const capabilityFilterTabs = [
+      {
+        tab: "plugins",
+        label: t.plugins,
+        rows: Array.isArray(capabilityCommandStatus?.pluginItems) ? capabilityCommandStatus.pluginItems : [],
+        statusKind: pluginStatusKind,
+        keywords: "plugin plugins installed claude code 插件 已安装",
+      },
+      {
+        tab: "mcp",
+        label: t.mcps,
+        rows: Array.isArray(capabilityCommandStatus?.mcpServers) ? capabilityCommandStatus.mcpServers : [],
+        statusKind: mcpStatusKind,
+        keywords: "mcp server servers tools mcps 工具 服务器",
+      },
+      {
+        tab: "skills",
+        label: t.skills,
+        rows: Array.isArray(capabilityCommandStatus?.skillItems) ? capabilityCommandStatus.skillItems : Array.isArray(capabilityCommandStatus?.skills) ? capabilityCommandStatus.skills : [],
+        statusKind: skillStatusKind,
+        keywords: "skill skills registry SKILL.md local 技能 本地",
+      },
+    ];
+    const capabilityFilterCommands = capabilityFilterTabs.flatMap((tabSpec) => {
+      const counts = capabilityStatusFilterCounts(tabSpec.rows, tabSpec.statusKind);
+      return ["enabled", "disabled", "all"].map((filterId) => ({
+        id: `capability-filter:${tabSpec.tab}:${filterId}`,
+        title: `${t.capabilities}: ${tabSpec.label} / ${capabilityFilterLabels[filterId]}`,
+        subtitle: [
+          t.taskCenterFilteredCount
+            .replace("{shown}", counts[filterId] || 0)
+            .replace("{total}", counts.all || 0),
+          t.backedLocalState,
+        ].filter(Boolean).join(" · "),
+        group: t.capabilities,
+        keywords: [
+          "capability status filter command palette deep link enabled disabled all",
+          tabSpec.keywords,
+          tabSpec.tab,
+          filterId,
+          capabilityFilterLabels[filterId],
+          t.capabilities,
+          tabSpec.label,
+        ].filter(Boolean).join(" "),
+        action: () => openCapabilitiesSurface(tabSpec.tab, { filter: filterId }),
+      }));
+    });
+
     const installedPluginCommands = (Array.isArray(capabilityCommandStatus?.pluginItems) ? capabilityCommandStatus.pluginItems : [])
       .filter((plugin) => plugin?.id || plugin?.name)
       .slice(0, 16)
@@ -12516,6 +12583,7 @@ export function App() {
       ...automationRunCommands,
       ...subagentCommands,
       ...subagentRunCommands,
+      ...capabilityFilterCommands,
       ...installedPluginCommands,
       ...skillRegistryCommands,
       ...skillOpenFileCommands,
@@ -12894,8 +12962,8 @@ export function App() {
     setCommandsOpen(false);
     setCapabilityInitialTab(nextTab);
     setCapabilityFocus(focus
-      ? { ...focus, tab: nextTab, nonce: Date.now() }
-      : { tab: nextTab, kind: "", id: "", query: "", nonce: Date.now() });
+      ? { ...focus, tab: nextTab, filter: normalizeCapabilityStatusFilter(focus.filter), nonce: Date.now() }
+      : { tab: nextTab, kind: "", id: "", query: "", filter: "", nonce: Date.now() });
     setCapabilitiesOpen(true);
   }
 
