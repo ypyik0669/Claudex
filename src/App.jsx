@@ -6771,6 +6771,7 @@ function ToolsPanel({
   const [pluginsLoading, setPluginsLoading] = useState(false);
   const [pluginsError, setPluginsError] = useState("");
   const [pathCopied, setPathCopied] = useState(false);
+  const [copiedClaudePanelEvidence, setCopiedClaudePanelEvidence] = useState("");
   const selectedToolDetailRef = useRef(null);
   const toolAutoScrollReadyRef = useRef(false);
 
@@ -7414,6 +7415,19 @@ function ToolsPanel({
     window.setTimeout(() => setPathCopied(false), 1200);
   }
 
+  async function copyClaudePanelEvidence(key, evidenceText) {
+    const nextKey = String(key || "").trim();
+    const text = String(evidenceText || "").trim();
+    if (!nextKey || !text) return;
+    try {
+      await navigator.clipboard?.writeText(text);
+    } catch (_error) {
+      // Clipboard permissions vary by shell; visible feedback still records the copy intent.
+    }
+    setCopiedClaudePanelEvidence(nextKey);
+    window.setTimeout(() => setCopiedClaudePanelEvidence((current) => (current === nextKey ? "" : current)), 1200);
+  }
+
   async function loadPlugins() {
     if (!desktopApi?.getClaudeStatus && !desktopApi?.runClaudeCommand) return;
     setPluginsLoading(true);
@@ -8036,40 +8050,65 @@ function ToolsPanel({
                 {!pluginsLoading && !pluginsError && installedPluginItems.length === 0 && <p className="empty-list">{t.pluginsEmpty}</p>}
                 {installedPluginItems.length > 0 && (
                   <div className="plugin-status-items">
-                    {installedPluginItems.map((plugin) => (
-                      <div className="plugin-status-item" key={plugin.id}>
-                        <div>
-                          <strong>{plugin.id}</strong>
-                          <span title={plugin.installPath || ""}>
-                            {[plugin.version && plugin.version !== "unknown" ? `v${plugin.version}` : "", plugin.scope, plugin.marketplace].filter(Boolean).join(" · ") || t.installedLocal}
-                          </span>
+                    {installedPluginItems.map((plugin) => {
+                      const pluginMeta = [
+                        plugin.version && plugin.version !== "unknown" ? `v${plugin.version}` : "",
+                        plugin.scope,
+                        plugin.marketplace,
+                        plugin.source ? `${t.source}: ${summarizePanelPluginField(plugin.source)}` : "",
+                        plugin.tools ? `${t.tools}: ${summarizePanelPluginField(plugin.tools)}` : "",
+                        plugin.permissions ? `${t.allowedTools}: ${summarizePanelPluginField(plugin.permissions)}` : "",
+                        plugin.error ? `${t.mcpError}: ${plugin.error}` : "",
+                      ].filter(Boolean).join(" · ");
+                      const pluginEvidenceKey = `plugin:${plugin.id || plugin.name}`;
+                      const pluginCopied = copiedClaudePanelEvidence === pluginEvidenceKey;
+                      return (
+                        <div className="plugin-status-item" key={plugin.id}>
+                          <div>
+                            <strong>{plugin.id}</strong>
+                            <span title={pluginMeta || plugin.installPath || ""}>
+                              {pluginMeta || t.installedLocal}
+                            </span>
+                          </div>
+                          <em className={cx("plugin-status-badge", pluginStatusKind(plugin))}>
+                            {pluginStatusDisplay(plugin, t)}
+                          </em>
+                          <div className="plugin-status-row-actions">
+                            <button
+                              type="button"
+                              className="plain-action subtle-action"
+                              data-claude-panel-plugin-action="copy-evidence"
+                              onClick={() => copyClaudePanelEvidence(pluginEvidenceKey, pluginEvidenceText(plugin, t))}
+                              title={pluginCopied ? t.copied : t.copyEvidence}
+                            >
+                              {pluginCopied ? <Check size={12} /> : <Copy size={12} />}
+                              {pluginCopied ? t.copied : t.copyEvidence}
+                            </button>
+                            {plugin.enabled ? (
+                              <button
+                                type="button"
+                                className="plain-action"
+                                onClick={() => setConfirmingPluginAction(plugin.id)}
+                                disabled={claudeBusy}
+                                title={claudeBusy ? t.workingHint : undefined}
+                              >
+                                {t.disablePlugin}
+                              </button>
+                            ) : (
+                              <button
+                                type="button"
+                                className="plain-action"
+                                onClick={() => runClaudeAndRefreshPlugins(`plugin enable ${plugin.id}`)}
+                                disabled={claudeBusy}
+                                title={claudeBusy ? t.workingHint : undefined}
+                              >
+                                {t.enablePlugin}
+                              </button>
+                            )}
+                          </div>
                         </div>
-                        <em className={cx("plugin-status-badge", pluginStatusKind(plugin))}>
-                          {pluginStatusDisplay(plugin, t)}
-                        </em>
-                        {plugin.enabled ? (
-                          <button
-                            type="button"
-                            className="plain-action"
-                            onClick={() => setConfirmingPluginAction(plugin.id)}
-                            disabled={claudeBusy}
-                            title={claudeBusy ? t.workingHint : undefined}
-                          >
-                            {t.disablePlugin}
-                          </button>
-                        ) : (
-                          <button
-                            type="button"
-                            className="plain-action"
-                            onClick={() => runClaudeAndRefreshPlugins(`plugin enable ${plugin.id}`)}
-                            disabled={claudeBusy}
-                            title={claudeBusy ? t.workingHint : undefined}
-                          >
-                            {t.enablePlugin}
-                          </button>
-                        )}
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>
@@ -8095,6 +8134,8 @@ function ToolsPanel({
                       server.source,
                       server.error,
                     ].filter(Boolean).join(" · ");
+                    const mcpEvidenceKey = `mcp:${rowKey}`;
+                    const mcpCopied = copiedClaudePanelEvidence === mcpEvidenceKey;
                     return (
                       <div className="plugin-status-item claude-panel-mcp-row" key={rowKey}>
                         <div>
@@ -8102,6 +8143,18 @@ function ToolsPanel({
                           <span title={server.raw || server.detail || meta}>{meta || server.detail || server.raw || t.mcpServers}</span>
                         </div>
                         <em className={cx("plugin-status-badge", server.status)}>{mcpStatusLabel(server.status, t)}</em>
+                        <div className="plugin-status-row-actions">
+                          <button
+                            type="button"
+                            className="plain-action subtle-action"
+                            data-claude-panel-mcp-action="copy-evidence"
+                            onClick={() => copyClaudePanelEvidence(mcpEvidenceKey, mcpServerEvidenceText(server, t))}
+                            title={mcpCopied ? t.copied : t.copyEvidence}
+                          >
+                            {mcpCopied ? <Check size={12} /> : <Copy size={12} />}
+                            {mcpCopied ? t.copied : t.copyEvidence}
+                          </button>
+                        </div>
                       </div>
                     );
                   })}
@@ -8118,32 +8171,72 @@ function ToolsPanel({
               {marketplacePanelSources.length === 0 && marketplacePanelPlugins.length === 0 && <p className="empty-list">{t.noCliOutputYet}</p>}
               {marketplacePanelSources.length > 0 && (
                 <div className="plugin-status-items">
-                  {marketplacePanelSources.slice(0, 6).map((marketplace) => (
-                    <div className="plugin-status-item claude-panel-marketplace-row" key={marketplace.name}>
-                      <div>
-                        <strong>{marketplace.name}</strong>
-                        <span title={marketplace.repo || marketplace.installLocation || marketplace.source}>
-                          {[marketplace.version, marketplace.status, marketplace.repo || marketplace.installLocation || marketplace.source].filter(Boolean).join(" · ") || t.marketplaceSources}
-                        </span>
+                  {marketplacePanelSources.slice(0, 6).map((marketplace) => {
+                    const sourceKey = `marketplace-source:${marketplace.name || marketplace.repo || marketplace.source}`;
+                    const sourceCopied = copiedClaudePanelEvidence === sourceKey;
+                    return (
+                      <div className="plugin-status-item claude-panel-marketplace-row" key={marketplace.name}>
+                        <div>
+                          <strong>{marketplace.name}</strong>
+                          <span title={marketplace.repo || marketplace.installLocation || marketplace.source}>
+                            {[marketplace.version, marketplace.status, marketplace.repo || marketplace.installLocation || marketplace.source].filter(Boolean).join(" · ") || t.marketplaceSources}
+                          </span>
+                        </div>
+                        <em className="plugin-status-badge enabled">{marketplace.status || marketplace.source || t.source}</em>
+                        <div className="plugin-status-row-actions">
+                          <button
+                            type="button"
+                            className="plain-action subtle-action"
+                            data-claude-panel-marketplace-source-action="copy-evidence"
+                            onClick={() => copyClaudePanelEvidence(sourceKey, marketplaceSourceEvidenceText(marketplace, t))}
+                            title={sourceCopied ? t.copied : t.copyEvidence}
+                          >
+                            {sourceCopied ? <Check size={12} /> : <Copy size={12} />}
+                            {sourceCopied ? t.copied : t.copyEvidence}
+                          </button>
+                        </div>
                       </div>
-                      <em className="plugin-status-badge enabled">{marketplace.status || marketplace.source || t.source}</em>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
               {marketplacePanelPlugins.length > 0 && (
                 <div className="plugin-status-items">
-                  {marketplacePanelPlugins.slice(0, 8).map((plugin) => (
-                    <div className="plugin-status-item claude-panel-marketplace-plugin" key={plugin.id}>
-                      <div>
-                        <strong>{plugin.name || plugin.id}</strong>
-                        <span title={summarizePanelPluginField(plugin.source || plugin.description || plugin.permissions)}>
-                          {[plugin.version && plugin.version !== "unknown" ? `v${plugin.version}` : "", plugin.marketplace, plugin.author, summarizePanelPluginField(plugin.permissions)].filter(Boolean).join(" · ") || t.marketplaceCatalog}
-                        </span>
+                  {marketplacePanelPlugins.slice(0, 8).map((plugin) => {
+                    const pluginKey = `marketplace-plugin:${plugin.id || plugin.name}`;
+                    const pluginCopied = copiedClaudePanelEvidence === pluginKey;
+                    const pluginMeta = [
+                      plugin.version && plugin.version !== "unknown" ? `v${plugin.version}` : "",
+                      plugin.marketplace,
+                      plugin.author,
+                      plugin.category,
+                      plugin.risk ? `${t.marketplaceRisk}: ${plugin.risk}` : "",
+                      summarizePanelPluginField(plugin.permissions),
+                    ].filter(Boolean).join(" · ");
+                    return (
+                      <div className="plugin-status-item claude-panel-marketplace-plugin" key={plugin.id}>
+                        <div>
+                          <strong>{plugin.name || plugin.id}</strong>
+                          <span title={summarizePanelPluginField(plugin.source || plugin.description || plugin.permissions || plugin.risk)}>
+                            {pluginMeta || t.marketplaceCatalog}
+                          </span>
+                        </div>
+                        <em className={cx("plugin-status-badge", plugin.installed ? "enabled" : "disabled")}>{plugin.installed ? t.installedLocal : t.marketplace}</em>
+                        <div className="plugin-status-row-actions">
+                          <button
+                            type="button"
+                            className="plain-action subtle-action"
+                            data-claude-panel-marketplace-plugin-action="copy-evidence"
+                            onClick={() => copyClaudePanelEvidence(pluginKey, marketplacePluginEvidenceText(plugin, t))}
+                            title={pluginCopied ? t.copied : t.copyEvidence}
+                          >
+                            {pluginCopied ? <Check size={12} /> : <Copy size={12} />}
+                            {pluginCopied ? t.copied : t.copyEvidence}
+                          </button>
+                        </div>
                       </div>
-                      <em className={cx("plugin-status-badge", plugin.installed ? "enabled" : "disabled")}>{plugin.installed ? t.installedLocal : t.marketplace}</em>
-                    </div>
-                  ))}
+                    );
+                  })}
                 </div>
               )}
             </section>
