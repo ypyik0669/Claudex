@@ -5964,7 +5964,7 @@ button.runtime-health-row {
 
 .task-center-summary {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 8px;
 }
 
@@ -5989,6 +5989,26 @@ button.runtime-health-row {
   color: #f1f1ef;
   font-size: 17px;
   font-weight: 650;
+}
+
+.task-center-filters {
+  justify-content: flex-start;
+  overflow-x: auto;
+}
+
+.task-center-filters button {
+  white-space: nowrap;
+}
+
+.task-center-filters em {
+  margin-left: 5px;
+  color: var(--muted);
+  font-style: normal;
+  font-size: 11px;
+}
+
+.task-center-filters button.active em {
+  color: #f1f1ef;
 }
 
 .task-section-head {

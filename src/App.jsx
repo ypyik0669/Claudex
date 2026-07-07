@@ -473,6 +473,14 @@ const copy = {
     taskCenterTotal: "总计",
     taskCenterActive: "活动",
     taskCenterFailed: "失败",
+    taskCenterArchived: "已关闭",
+    taskCenterFilter: "任务过滤",
+    taskCenterFilterAll: "全部",
+    taskCenterFilterActive: "活动",
+    taskCenterFilterFailed: "失败",
+    taskCenterFilterArchived: "已关闭",
+    taskCenterFilteredCount: "{shown}/{total} 可见",
+    taskCenterNoFilteredTasks: "当前过滤没有匹配任务",
     automationTasks: "自动化任务",
     noAutomationTasks: "还没有自动化任务",
     automationLastRun: "最近运行",
@@ -5339,20 +5347,52 @@ function SubagentWorkbench({
   const [running, setRunning] = useState(false);
   const [automationWorkingId, setAutomationWorkingId] = useState("");
   const [showArchivedRuns, setShowArchivedRuns] = useState(false);
+  const [taskStatusFilter, setTaskStatusFilter] = useState("all");
   const [copiedAutomationRunId, setCopiedAutomationRunId] = useState("");
   const [copiedSubagentRunId, setCopiedSubagentRunId] = useState("");
   const taskInputRef = useRef(null);
   const activeRuns = runs.filter((run) => !run.archivedAt);
   const archivedRunCount = runs.length - activeRuns.length;
-  const visibleRuns = showArchivedRuns ? runs : activeRuns;
   const focusedAutomationId = focus?.type === "automation" ? String(focus.id || "") : "";
   const focusedSubagentId = focus?.type === "subagent" ? String(focus.id || "") : "";
-  const runCount = t.subagentCount.replace("{count}", visibleRuns.length);
   const automationItems = Array.isArray(automations) ? automations : [];
   const activeAutomationCount = automationItems.filter((item) => ["running", "scheduled"].includes(item.status)).length;
   const failedAutomationCount = automationItems.filter((item) => item.status === "failed" || item.lastRun?.status === "failed").length;
   const runningSubagentCount = activeRuns.filter((run) => run.status === "running").length;
   const failedSubagentCount = activeRuns.filter((run) => run.status === "error").length;
+  const taskFilterCounts = {
+    all: automationItems.length + (showArchivedRuns ? runs.length : activeRuns.length),
+    active: activeAutomationCount + runningSubagentCount,
+    failed: failedAutomationCount + failedSubagentCount,
+    archived: archivedRunCount,
+  };
+  const taskFilterOptions = [
+    { id: "all", label: t.taskCenterFilterAll, count: taskFilterCounts.all },
+    { id: "active", label: t.taskCenterFilterActive, count: taskFilterCounts.active },
+    { id: "failed", label: t.taskCenterFilterFailed, count: taskFilterCounts.failed },
+    { id: "archived", label: t.taskCenterFilterArchived, count: taskFilterCounts.archived },
+  ];
+  const automationMatchesTaskFilter = (item) => {
+    if (taskStatusFilter === "active") return ["running", "scheduled"].includes(item?.status);
+    if (taskStatusFilter === "failed") return item?.status === "failed" || item?.lastRun?.status === "failed";
+    if (taskStatusFilter === "archived") return false;
+    return true;
+  };
+  const subagentMatchesTaskFilter = (run) => {
+    if (taskStatusFilter === "active") return !run?.archivedAt && run?.status === "running";
+    if (taskStatusFilter === "failed") return !run?.archivedAt && run?.status === "error";
+    if (taskStatusFilter === "archived") return Boolean(run?.archivedAt);
+    return showArchivedRuns ? true : !run?.archivedAt;
+  };
+  const visibleAutomationItems = automationItems.filter(automationMatchesTaskFilter);
+  const visibleRuns = runs.filter(subagentMatchesTaskFilter);
+  const runCount = t.subagentCount.replace("{count}", visibleRuns.length);
+  const automationCountLabel = t.taskCenterFilteredCount
+    .replace("{shown}", visibleAutomationItems.length)
+    .replace("{total}", automationItems.length);
+  const subagentCountLabel = t.taskCenterFilteredCount
+    .replace("{shown}", visibleRuns.length)
+    .replace("{total}", taskStatusFilter === "archived" ? archivedRunCount : showArchivedRuns ? runs.length : activeRuns.length);
   const taskSummary = t.taskCenterSummary
     .replace("{automations}", automationItems.length)
     .replace("{subagents}", activeRuns.length);
@@ -5360,6 +5400,7 @@ function SubagentWorkbench({
     { label: t.taskCenterTotal, value: automationItems.length + activeRuns.length },
     { label: t.taskCenterActive, value: activeAutomationCount + runningSubagentCount },
     { label: t.taskCenterFailed, value: failedAutomationCount + failedSubagentCount },
+    { label: t.taskCenterArchived, value: archivedRunCount },
   ];
 
   async function submit(event) {
@@ -5428,6 +5469,15 @@ function SubagentWorkbench({
   }, [focusedSubagentId, runs]);
 
   useEffect(() => {
+    if (!focusedAutomationId && !focusedSubagentId) return;
+    setTaskStatusFilter("all");
+  }, [focusedAutomationId, focusedSubagentId, focus?.nonce]);
+
+  useEffect(() => {
+    if (taskStatusFilter !== "archived" && !focusedSubagentId) setShowArchivedRuns(false);
+  }, [taskStatusFilter, focusedSubagentId]);
+
+  useEffect(() => {
     const id = focusedAutomationId || focusedSubagentId;
     if (!id) return undefined;
     const timer = window.setTimeout(() => {
@@ -5463,16 +5513,35 @@ function SubagentWorkbench({
           </div>
         ))}
       </section>
+      <div className="task-center-filters segmented-control compact-segmented" role="tablist" aria-label={t.taskCenterFilter}>
+        {taskFilterOptions.map((item) => (
+          <button
+            type="button"
+            key={item.id}
+            className={cx(taskStatusFilter === item.id && "active")}
+            data-task-filter={item.id}
+            onClick={() => {
+              setTaskStatusFilter(item.id);
+              if (item.id === "archived") setShowArchivedRuns(true);
+              else setShowArchivedRuns(false);
+            }}
+            aria-selected={taskStatusFilter === item.id}
+          >
+            {item.label}
+            <em>{item.count}</em>
+          </button>
+        ))}
+      </div>
       <section className="automation-task-section" aria-label={t.automationTasks}>
         <div className="task-section-head">
           <div>
             <span>{t.automationTasks}</span>
-            <strong>{automationItems.length ? t.scheduleCount.replace("{count}", automationItems.length) : t.noAutomationTasks}</strong>
+            <strong>{automationItems.length ? automationCountLabel : t.noAutomationTasks}</strong>
           </div>
         </div>
-        {automationItems.length ? (
+        {visibleAutomationItems.length ? (
           <div className="automation-task-list">
-            {automationItems.slice(0, 4).map((item) => {
+            {visibleAutomationItems.slice(0, 4).map((item) => {
               const isFocusedAutomation = focusedAutomationId === item.id;
               const openFocusedAutomationEvidence = Boolean(isFocusedAutomation && focus?.expandEvidence);
               const openFocusedAutomationHistory = Boolean(isFocusedAutomation && (focus?.expandHistory || focus?.expandEvidence));
@@ -5656,8 +5725,8 @@ function SubagentWorkbench({
         ) : (
           <div className="empty-panel compact-empty-panel">
             <Clock3 size={20} />
-            <strong>{t.noAutomationTasks}</strong>
-            <p>{t.emptyScheduleHint}</p>
+            <strong>{automationItems.length ? t.taskCenterNoFilteredTasks : t.noAutomationTasks}</strong>
+            <p>{automationItems.length ? t.taskCenterFilter : t.emptyScheduleHint}</p>
             <div className="empty-panel-actions">
               <button type="button" className="plain-action subtle-action" onClick={onOpenAutomation}>
                 <Clock3 size={13} />
@@ -5688,9 +5757,9 @@ function SubagentWorkbench({
       <div className="task-section-head">
         <div>
           <span>{t.subagents}</span>
-          <strong>{visibleRuns.length ? runCount : t.noSubagentsYet}</strong>
+          <strong>{visibleRuns.length ? `${runCount} · ${subagentCountLabel}` : t.noSubagentsYet}</strong>
         </div>
-        {archivedRunCount > 0 && (
+        {archivedRunCount > 0 && taskStatusFilter !== "archived" && (
           <button type="button" className="plain-action subtle-action" onClick={() => setShowArchivedRuns((current) => !current)}>
             <Archive size={13} />
             {showArchivedRuns ? t.hideArchivedSubagents : `${t.showArchivedSubagents} ${archivedRunCount}`}
@@ -5851,8 +5920,8 @@ function SubagentWorkbench({
         {!visibleRuns.length && (
           <div className="empty-panel">
             <Bot size={20} />
-            <strong>{t.noSubagentsYet}</strong>
-            <p>{t.subagentWorkbenchHint}</p>
+            <strong>{runs.length ? t.taskCenterNoFilteredTasks : t.noSubagentsYet}</strong>
+            <p>{runs.length ? t.taskCenterFilter : t.subagentWorkbenchHint}</p>
             <div className="empty-panel-actions">
               <button type="button" className="plain-action subtle-action" onClick={() => taskInputRef.current?.focus()}>
                 <Bot size={13} />
