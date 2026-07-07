@@ -257,12 +257,19 @@ function writeInitialStore() {
 
 async function openSubagents(win) {
   return win.webContents.executeJavaScript(`
-    (function() {
-      const label = '\\u5b50\\u4ee3\\u7406';
-      const button = Array.from(document.querySelectorAll('.workspace-context-button, .bottom-panel-tabs button, button'))
-        .find((item) => item.getAttribute('aria-label') === label || (item.textContent || '').includes(label));
+    (async function() {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true, bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 220));
+      const input = document.querySelector('.command-modal .command-search input');
+      if (!input) return false;
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+      setter.call(input, 'task center');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 220));
+      const button = document.querySelector('.command-modal .command-list button[data-command-id="panel-task-center"]');
       if (!button) return false;
       button.click();
+      await new Promise((resolve) => setTimeout(resolve, 220));
       return true;
     })();
   `);

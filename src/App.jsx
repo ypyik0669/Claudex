@@ -2844,6 +2844,98 @@ function taskCenterFilterForSubagent(run = {}) {
   return "";
 }
 
+function taskTraceAttrValue(value) {
+  if (value === 0) return "0";
+  if (value === false) return "false";
+  if (value === true) return "true";
+  return String(value || "");
+}
+
+function taskTraceProject(item = {}, entry = {}) {
+  const project = entry.project || item.project || {};
+  return project && typeof project === "object" ? project : {};
+}
+
+function taskTraceProjectPath(item = {}, entry = {}) {
+  const project = taskTraceProject(item, entry);
+  return project.path || entry.projectPath || item.projectPath || entry.cwd || item.cwd || "";
+}
+
+function taskTraceProjectName(item = {}, entry = {}) {
+  const project = taskTraceProject(item, entry);
+  if (project.name) return project.name;
+  if (typeof item.project === "string") return item.project;
+  if (typeof entry.project === "string") return entry.project;
+  return "";
+}
+
+function automationRunHasTraceEvidence(entry = {}) {
+  return Boolean(
+    entry?.id
+    || entry?.error
+    || entry?.detail
+    || entry?.summary
+    || entry?.stdout
+    || entry?.stderr
+    || typeof entry?.code === "number",
+  );
+}
+
+function subagentRunHasTraceEvidence(run = {}) {
+  return Boolean(
+    run?.summary
+    || run?.stdout
+    || run?.stderr
+    || run?.error
+    || typeof run?.code === "number"
+    || (Array.isArray(run?.artifacts) && run.artifacts.length > 0),
+  );
+}
+
+function automationTraceEntry(automation = {}) {
+  return automationRecoveryEntry(automation)
+    || automation?.lastRun
+    || automationRunEntries(automation)[0]
+    || {};
+}
+
+function taskSurfaceTraceAttributes({ kind, item = {}, entry = null, filter = "" }) {
+  const isAutomation = kind === "automation";
+  const runEntry = isAutomation ? (entry || automationTraceEntry(item)) : item;
+  const taskId = item.id || item.requestId || "";
+  const resolvedRunId = isAutomation ? runEntry.id || "" : item.requestId || item.id || "";
+  const resolvedRequestId = isAutomation ? "" : item.requestId || "";
+  const status = runEntry.status || item.status || "";
+  const historyCount = isAutomation ? automationRunEntries(item).length : "";
+  const artifactCount = !isAutomation && Array.isArray(item.artifacts) ? item.artifacts.length : "";
+  const hasEvidence = isAutomation ? automationRunHasTraceEvidence(runEntry) : subagentRunHasTraceEvidence(item);
+  const resolvedFilter = filter || (isAutomation ? taskCenterFilterForAutomation(item) : taskCenterFilterForSubagent(item));
+  return {
+    "data-task-surface": "task-center",
+    "data-task-kind": taskTraceAttrValue(kind),
+    "data-task-action": "open",
+    "data-task-id": taskTraceAttrValue(taskId),
+    "data-task-run-id": taskTraceAttrValue(resolvedRunId),
+    "data-task-request-id": taskTraceAttrValue(resolvedRequestId),
+    "data-task-status": taskTraceAttrValue(status),
+    "data-task-filter": taskTraceAttrValue(resolvedFilter),
+    "data-task-project-name": taskTraceAttrValue(taskTraceProjectName(item, runEntry)),
+    "data-task-project-path": taskTraceAttrValue(taskTraceProjectPath(item, runEntry)),
+    "data-task-thread-id": taskTraceAttrValue(isAutomation ? item.threadId : ""),
+    "data-task-session-id": taskTraceAttrValue(runEntry.sessionId || item.sessionId || item.threadId || ""),
+    "data-task-archived": isAutomation ? "false" : String(Boolean(item.archivedAt)),
+    "data-task-history-count": taskTraceAttrValue(historyCount),
+    "data-task-artifact-count": taskTraceAttrValue(artifactCount),
+    "data-task-has-evidence": String(Boolean(hasEvidence)),
+    "data-task-trigger": taskTraceAttrValue(runEntry.trigger),
+    "data-task-code": typeof runEntry.code === "number" ? String(runEntry.code) : taskTraceAttrValue(runEntry.code),
+    "data-task-duration-ms": typeof runEntry.durationMs === "number" ? String(runEntry.durationMs) : taskTraceAttrValue(runEntry.durationMs),
+    "data-task-started-at": taskTraceAttrValue(runEntry.startedAt),
+    "data-task-ended-at": taskTraceAttrValue(runEntry.endedAt),
+    "data-task-updated-at": taskTraceAttrValue(item.updatedAt),
+  };
+}
+
 function findCommandRunForEvent(event, commandRuns = []) {
   const eventId = String(event?.id || "");
   const commandLine = String(event?.commandLine || "").trim();
@@ -6753,6 +6845,7 @@ function SubagentWorkbench({
               const lastRunDetail = item.lastRun?.error || item.lastRun?.detail || "";
               const recoveryEntry = automationRecoveryEntry(item);
               const history = Array.isArray(item.history) ? item.history.slice(0, 3) : [];
+              const traceEntry = recoveryEntry || item.lastRun || history[0] || {};
               const timing = item.lastRun?.endedAt
                 ? `${t.automationLastRun}: ${formatDate(item.lastRun.endedAt)}`
                 : item.nextRun
@@ -6763,6 +6856,7 @@ function SubagentWorkbench({
                   className={cx("automation-task-card", item.status || "idle", isFocusedAutomation && "focused-task-card")}
                   key={item.id}
                   data-automation-id={item.id}
+                  {...taskSurfaceTraceAttributes({ kind: "automation", item, entry: traceEntry })}
                   aria-current={isFocusedAutomation ? "true" : undefined}
                 >
                   <div className="automation-task-main">
@@ -6994,6 +7088,7 @@ function SubagentWorkbench({
             key={run.id}
             data-subagent-run-id={run.id}
             data-subagent-request-id={run.requestId || ""}
+            {...taskSurfaceTraceAttributes({ kind: "subagent", item: run })}
             aria-current={isFocusedRun ? "true" : undefined}
           >
             <div className="subagent-run-head">
