@@ -363,6 +363,7 @@ async function runTest() {
         document.querySelector('.task-center-filters [data-task-filter="failed"].active') &&
         document.querySelector('.automation-task-card.focused-task-card[data-automation-id="pass179-automation-failed"]') &&
         document.querySelector('[data-automation-recovery-surface="task-center"][data-automation-id="pass179-automation-failed"]') &&
+        document.querySelector('.automation-task-card.focused-task-card[data-automation-id="pass179-automation-failed"] [data-automation-recovery-action="run-now"][data-task-action-focused="true"]') &&
         document.querySelector('[data-subagent-recovery-surface="task-center"][data-subagent-run-id="pass179-subagent-error"]') &&
         /pass179 automation failed evidence/.test(text) &&
         /pass179 subagent summary/.test(text) &&
@@ -389,7 +390,8 @@ async function runTest() {
     Boolean(
       document.querySelector('.task-center-filters [data-task-filter="failed"].active') &&
       document.querySelector('.automation-task-card.focused-task-card[data-automation-id="pass179-automation-failed"]') &&
-      document.querySelector('[data-automation-recovery-surface="task-center"][data-automation-id="pass179-automation-failed"]')
+      document.querySelector('[data-automation-recovery-surface="task-center"][data-automation-id="pass179-automation-failed"]') &&
+      document.querySelector('.automation-task-card.focused-task-card[data-automation-id="pass179-automation-failed"] [data-automation-recovery-action="run-now"][data-task-action-focused="true"]')
     )
   `, 8000));
 
@@ -401,7 +403,8 @@ async function runTest() {
     Boolean(
       document.querySelector('.task-center-filters [data-task-filter="failed"].active') &&
       document.querySelector('.subagent-run-card.focused-task-card[data-subagent-request-id="pass179-subagent-error-request"]') &&
-      document.querySelector('[data-subagent-recovery-surface="task-center"][data-subagent-run-id="pass179-subagent-error"]')
+      document.querySelector('[data-subagent-recovery-surface="task-center"][data-subagent-run-id="pass179-subagent-error"]') &&
+      document.querySelector('.subagent-run-card.focused-task-card[data-subagent-request-id="pass179-subagent-error-request"] [data-subagent-recovery-action="retry"][data-task-action-focused="true"]')
     )
   `, 8000));
 

@@ -2471,6 +2471,12 @@ function subagentNeedsRecovery(run = {}) {
     && ["error", "failed", "cancelled"].includes(run?.status);
 }
 
+function subagentRecoveryFocusAction(run = {}) {
+  if (!subagentNeedsRecovery(run)) return "";
+  if (run?.task) return "retry";
+  return run?.continuedAt ? "" : "continue";
+}
+
 function upsertSubagentRunForUi(runs = [], run) {
   if (!run?.id) return runs;
   return [run, ...runs.filter((item) => item.id !== run.id)].slice(0, 40);
@@ -2881,6 +2887,10 @@ function automationNeedsRecovery(automation = {}) {
   return automation.status === "failed"
     || automationRunNeedsRecovery(automation.lastRun)
     || automationRunEntries(automation).some(automationRunNeedsRecovery);
+}
+
+function automationRecoveryFocusAction(automation = {}) {
+  return automationNeedsRecovery(automation) && automation?.status !== "running" ? "run-now" : "";
 }
 
 function automationRecoveryEntry(automation = {}) {
@@ -5705,6 +5715,7 @@ function Conversation({
         filter: "failed",
         expandEvidence: true,
         expandHistory: true,
+        action: automationRecoveryFocusAction(automation),
       });
       return;
     }
@@ -5715,6 +5726,7 @@ function Conversation({
         filter: "failed",
         expandEvidence: true,
         expandArtifacts: true,
+        action: subagentRecoveryFocusAction(run),
       });
       return;
     }
@@ -5780,6 +5792,7 @@ function Conversation({
           filter: taskCenterFilterForAutomation(automation),
           expandEvidence: true,
           expandHistory: true,
+          action: automationRecoveryFocusAction(automation),
         });
         return;
       }
@@ -5794,6 +5807,7 @@ function Conversation({
           filter: taskCenterFilterForSubagent(run),
           expandEvidence: true,
           expandArtifacts: true,
+          action: subagentRecoveryFocusAction(run),
         });
         return;
       }
@@ -7204,6 +7218,7 @@ function SubagentWorkbench({
         id: failedAutomation.id,
         expandEvidence: true,
         expandHistory: true,
+        action: automationRecoveryFocusAction(failedAutomation),
         nonce: Date.now(),
       });
       return;
@@ -7215,6 +7230,7 @@ function SubagentWorkbench({
         id: subagentId,
         expandEvidence: true,
         expandArtifacts: true,
+        action: subagentRecoveryFocusAction(failedSubagent),
         nonce: Date.now(),
       });
     }
@@ -17823,6 +17839,7 @@ export function App() {
           filter: taskCenterFilterForAutomation(automation),
           expandEvidence: true,
           expandHistory: true,
+          action: automationRecoveryFocusAction(automation),
         });
         return;
       }
@@ -17837,6 +17854,7 @@ export function App() {
           filter: taskCenterFilterForSubagent(run),
           expandEvidence: true,
           expandArtifacts: true,
+          action: subagentRecoveryFocusAction(run),
         });
         return;
       }
@@ -17851,6 +17869,7 @@ export function App() {
         filter: "failed",
         expandEvidence: true,
         expandHistory: true,
+        action: automationRecoveryFocusAction(automation),
       });
       return;
     }
@@ -17861,6 +17880,7 @@ export function App() {
         filter: "failed",
         expandEvidence: true,
         expandArtifacts: true,
+        action: subagentRecoveryFocusAction(run),
       });
       return;
     }
