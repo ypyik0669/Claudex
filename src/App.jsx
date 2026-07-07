@@ -5355,6 +5355,7 @@ function SubagentWorkbench({
   const archivedRunCount = runs.length - activeRuns.length;
   const focusedAutomationId = focus?.type === "automation" ? String(focus.id || "") : "";
   const focusedSubagentId = focus?.type === "subagent" ? String(focus.id || "") : "";
+  const focusedTaskFilter = ["all", "active", "failed", "archived"].includes(focus?.filter) ? focus.filter : "";
   const automationItems = Array.isArray(automations) ? automations : [];
   const activeAutomationCount = automationItems.filter((item) => ["running", "scheduled"].includes(item.status)).length;
   const failedAutomationCount = automationItems.filter((item) => item.status === "failed" || item.lastRun?.status === "failed").length;
@@ -5469,9 +5470,14 @@ function SubagentWorkbench({
   }, [focusedSubagentId, runs]);
 
   useEffect(() => {
+    if (focusedTaskFilter) {
+      setTaskStatusFilter(focusedTaskFilter);
+      if (focusedTaskFilter === "archived") setShowArchivedRuns(true);
+      return;
+    }
     if (!focusedAutomationId && !focusedSubagentId) return;
     setTaskStatusFilter("all");
-  }, [focusedAutomationId, focusedSubagentId, focus?.nonce]);
+  }, [focusedAutomationId, focusedSubagentId, focusedTaskFilter, focus?.nonce]);
 
   useEffect(() => {
     if (taskStatusFilter !== "archived" && !focusedSubagentId) setShowArchivedRuns(false);
@@ -12061,7 +12067,46 @@ export function App() {
         };
       });
 
-    const automationCommands = (state.automations || [])
+    const automationItemsForCommands = Array.isArray(state.automations) ? state.automations : [];
+    const subagentRunsForCommands = Array.isArray(state.subagentRuns) ? state.subagentRuns : [];
+    const activeSubagentRunsForCommands = subagentRunsForCommands.filter((run) => !run?.archivedAt);
+    const activeTaskFilterCommandTotal = automationItemsForCommands.length + activeSubagentRunsForCommands.length;
+    const taskFilterCommandCounts = {
+      all: activeTaskFilterCommandTotal,
+      active: automationItemsForCommands.filter((item) => ["running", "scheduled"].includes(item?.status)).length
+        + activeSubagentRunsForCommands.filter((run) => run?.status === "running").length,
+      failed: automationItemsForCommands.filter((item) => item?.status === "failed" || item?.lastRun?.status === "failed").length
+        + activeSubagentRunsForCommands.filter((run) => run?.status === "error").length,
+      archived: subagentRunsForCommands.filter((run) => run?.archivedAt).length,
+    };
+    const taskFilterCommands = [
+      { id: "active", label: t.taskCenterFilterActive, keywords: "active running scheduled 活动 运行中 已计划" },
+      { id: "failed", label: t.taskCenterFilterFailed, keywords: "failed error failure stderr 失败 错误" },
+      { id: "archived", label: t.taskCenterFilterArchived, keywords: "archived closed hidden restore 已关闭 归档 恢复" },
+      { id: "all", label: t.taskCenterFilterAll, keywords: "all task center automations subagents 全部 任务中心" },
+    ].map((item) => ({
+      id: `task-filter:${item.id}`,
+      title: `${t.taskCenter}: ${item.label}`,
+      subtitle: [
+        t.taskCenterFilter,
+        t.taskCenterFilteredCount
+          .replace("{shown}", taskFilterCommandCounts[item.id] || 0)
+          .replace("{total}", item.id === "archived" ? taskFilterCommandCounts.archived : activeTaskFilterCommandTotal),
+      ].filter(Boolean).join(" · "),
+      group: t.taskCenter,
+      keywords: [
+        "task center filter automation subagent command palette deep link",
+        item.keywords,
+        item.id,
+        item.label,
+        t.taskCenter,
+        t.automationTasks,
+        t.subagents,
+      ].filter(Boolean).join(" "),
+      action: () => openTaskCenterFocus("", "", { filter: item.id }),
+    }));
+
+    const automationCommands = automationItemsForCommands
       .filter((automation) => automation?.id)
       .slice(0, 16)
       .map((automation) => {
@@ -12100,7 +12145,7 @@ export function App() {
         };
       });
 
-    const automationRunCommands = (state.automations || [])
+    const automationRunCommands = automationItemsForCommands
       .filter((automation) => automation?.id)
       .slice(0, 16)
       .flatMap((automation) => automationRunEntries(automation).slice(0, 6).map((entry) => ({
@@ -12132,7 +12177,7 @@ export function App() {
         action: () => openRunTimeline(entry.id),
       })));
 
-    const subagentCommands = (state.subagentRuns || [])
+    const subagentCommands = subagentRunsForCommands
       .filter((run) => run?.id || run?.requestId)
       .slice(0, 16)
       .map((run) => ({
@@ -12166,7 +12211,7 @@ export function App() {
         }),
       }));
 
-    const subagentRunCommands = (state.subagentRuns || [])
+    const subagentRunCommands = subagentRunsForCommands
       .filter((run) => run?.id || run?.requestId)
       .slice(0, 16)
       .map((run) => {
@@ -12449,6 +12494,7 @@ export function App() {
       ...sourceFileCommands,
       ...browserEvidenceCommands,
       ...browserTimelineCommands,
+      ...taskFilterCommands,
       ...automationCommands,
       ...automationRunCommands,
       ...subagentCommands,
@@ -13003,6 +13049,7 @@ export function App() {
     setTaskCenterFocus({
       type,
       id: focusedId,
+      filter: ["all", "active", "failed", "archived"].includes(options.filter) ? options.filter : "",
       expandEvidence: Boolean(options.expandEvidence),
       expandArtifacts: Boolean(options.expandArtifacts),
       expandHistory: Boolean(options.expandHistory),
