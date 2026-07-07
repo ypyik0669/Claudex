@@ -12523,6 +12523,9 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                     projectPath: skill.root || activeProject?.path || "",
                   };
                   const skillFocused = capabilityFocusMatches("skill", skill.id, skill.name, skill.path);
+                  const skillOpenFileFocused = capabilityActionFocusMatches("skill", "open-file", skill.id, skill.name, skill.path);
+                  const skillPinFocused = capabilityActionFocusMatches("skill", "pin", skill.id, skill.name, skill.path);
+                  const skillCopyFocused = capabilityActionFocusMatches("skill", "copy", skill.id, skill.name, skill.path);
                   return (
                     <article
                       className={cx("structured-plugin-row skill-registry-row", skillFocused && "focused-capability-row")}
@@ -12555,6 +12558,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                           data-skill-action="open-workspace"
                           onClick={() => openSkillWorkspaceFile(skill)}
                           disabled={!skill.relativePath || !skill.root}
+                          {...capabilityActionFocusAttributes(skillOpenFileFocused)}
                           {...surfaceTraceAttributes("skill", "open-file", skill, skillTraceContext)}
                         >
                           <FileText size={13} />
@@ -12565,6 +12569,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                           className="plain-action subtle-action"
                           data-skill-action="pin-evidence"
                           onClick={() => pinSkillEvidence(skill)}
+                          {...capabilityActionFocusAttributes(skillPinFocused)}
                           {...surfaceTraceAttributes("skill", "pin", skill, skillTraceContext)}
                         >
                           <Pin size={13} />
@@ -12576,6 +12581,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                           data-skill-action="copy-evidence"
                           onClick={() => copySkillEvidence(skill)}
                           title={copied ? t.copied : t.copyEvidence}
+                          {...capabilityActionFocusAttributes(skillCopyFocused)}
                           {...surfaceTraceAttributes("skill", "copy", skill, skillTraceContext)}
                         >
                           {copied ? <Check size={13} /> : <Copy size={13} />}
@@ -15992,6 +15998,57 @@ export function App() {
         };
       })
       .filter(Boolean);
+    const skillActionFocusCommands = skillCommandItems
+      .flatMap((skill) => {
+        const id = skill.id || skill.name || skill.path;
+        const label = skill.name || id;
+        const evidence = skillEvidenceText(skill, t);
+        if (!id) return [];
+        const specs = [
+          skill.root && skill.relativePath
+            ? { action: "open-file", label: t.openSkillFileCommand, keywords: "focus open skill file workspace SKILL.md local registry" }
+            : null,
+          evidence ? { action: "copy", label: t.copyEvidence, keywords: "focus copy evidence skill local registry SKILL.md clipboard capability" } : null,
+          evidence ? { action: "pin", label: t.pinSkillEvidence, keywords: "focus pin evidence skill local registry SKILL.md timeline outputs capability" } : null,
+        ].filter(Boolean);
+        return specs.map((spec) => ({
+          id: `capability-skill-action:${spec.action}:${commandIdSegment(id)}`,
+          title: `${spec.label}: ${label}`,
+          subtitle: [
+            skill.source || t.localSkillRegistry,
+            skill.relativePath || compactPath(skill.path || "", 70),
+            skill.description,
+          ].filter(Boolean).join(" · "),
+          group: t.capabilities,
+          target: "skill-action",
+          dataAttributes: capabilityTraceAttributes("skill", spec.action, skill, {
+            id,
+            name: label,
+            projectPath: skill.root || activeProject?.path || "",
+          }),
+          priority: 16,
+          keywords: [
+            "skill capability command palette focus action button",
+            spec.keywords,
+            spec.label,
+            skill.id,
+            skill.name,
+            skill.description,
+            skill.path,
+            skill.root,
+            skill.relativePath,
+            skill.source,
+            skill.status,
+            evidence,
+          ].filter(Boolean).join(" "),
+          action: () => openCapabilitiesSurface("skills", {
+            kind: "skill",
+            id,
+            query: label,
+            action: spec.action,
+          }),
+        }));
+      });
 
     const mcpServerCommands = (Array.isArray(capabilityCommandStatus?.mcpServers) ? capabilityCommandStatus.mcpServers : [])
       .filter((server) => server?.name)
@@ -16491,6 +16548,7 @@ export function App() {
       ...skillOpenFileCommands,
       ...skillCopyEvidenceCommands,
       ...skillPinEvidenceCommands,
+      ...skillActionFocusCommands,
       ...mcpServerCommands,
       ...mcpServerActionCommands,
       ...mcpServerEvidenceCommands,
