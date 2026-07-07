@@ -12827,6 +12827,7 @@ function ScheduledModal({
   onToggleEnabled,
   onCopy,
   onOpenRunTimeline,
+  focus = null,
 }) {
   const items = Array.isArray(automations) ? automations : [];
   const [prompt, setPrompt] = useState("");
@@ -12835,6 +12836,37 @@ function ScheduledModal({
   const [workingId, setWorkingId] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const [copiedAutomationRunId, setCopiedAutomationRunId] = useState("");
+  const [highlightedAutomationId, setHighlightedAutomationId] = useState("");
+  const scheduleItemRefs = useRef(new Map());
+
+  useEffect(() => {
+    const automationId = String(focus?.automationId || "").trim();
+    if (!automationId || !focus?.nonce) return undefined;
+    const itemNode = scheduleItemRefs.current.get(automationId);
+    if (!itemNode) return undefined;
+    const action = String(focus?.action || "").trim();
+    const scheduleActionTarget = action
+      ? itemNode.querySelector(`[data-automation-schedule-action="${action}"]`)
+      : null;
+    const historyActionTarget = action
+      ? itemNode.querySelector(`[data-automation-history-action="${action}"]`)
+      : null;
+    const focusTarget = scheduleActionTarget || historyActionTarget || itemNode;
+    setHighlightedAutomationId(automationId);
+    const focusTimer = window.setTimeout(() => {
+      focusTarget.scrollIntoView({ block: "center", behavior: "smooth" });
+      if (typeof focusTarget.focus === "function") {
+        focusTarget.focus({ preventScroll: true });
+      }
+    }, 40);
+    const clearTimer = window.setTimeout(() => {
+      setHighlightedAutomationId((current) => (current === automationId ? "" : current));
+    }, 1800);
+    return () => {
+      window.clearTimeout(focusTimer);
+      window.clearTimeout(clearTimer);
+    };
+  }, [focus?.automationId, focus?.action, focus?.nonce, items.length]);
 
   async function handleAction(id, action) {
     setWorkingId(id);
@@ -12924,7 +12956,18 @@ function ScheduledModal({
               const recoveryEntry = automationRecoveryEntry(item);
               const traceEntry = recoveryEntry || item.lastRun || (Array.isArray(item.history) ? item.history[0] : null) || {};
               return (
-                <article key={item.id} className="schedule-item" data-automation-id={item.id}>
+                <article
+                  key={item.id}
+                  ref={(node) => {
+                    if (node) scheduleItemRefs.current.set(item.id, node);
+                    else scheduleItemRefs.current.delete(item.id);
+                  }}
+                  className={cx("schedule-item", highlightedAutomationId === item.id && "deep-linked")}
+                  data-automation-id={item.id}
+                  data-automation-focused={highlightedAutomationId === item.id ? "true" : "false"}
+                  data-automation-focus-action={highlightedAutomationId === item.id ? String(focus?.action || "") : ""}
+                  tabIndex={-1}
+                >
                 <div className="schedule-item-main">
                   <div className="schedule-item-title">
                     <strong>{item.prompt}</strong>
@@ -13122,6 +13165,7 @@ export function App() {
   const [projectsOpen, setProjectsOpen] = useState(false);
   const [commandsOpen, setCommandsOpen] = useState(false);
   const [scheduledOpen, setScheduledOpen] = useState(false);
+  const [scheduledFocus, setScheduledFocus] = useState({ automationId: "", action: "", nonce: 0 });
   const [selectedTool, setSelectedTool] = useState("");
   const rightPanelRestoreFocusRef = useRef(null);
   const [draft, setDraft] = useState("");
@@ -14747,6 +14791,63 @@ export function App() {
         ].filter(Boolean);
       });
 
+    const scheduledActionCommands = automationItemsForCommands
+      .filter((automation) => automation?.id)
+      .flatMap((automation) => {
+        const entries = automationRunEntries(automation);
+        const traceEntry = automationRecoveryEntry(automation)
+          || automation.lastRun
+          || entries[0]
+          || {};
+        const statusFilter = taskCenterFilterForAutomation(automation);
+        const automationId = commandIdSegment(automation.id);
+        const scheduleActionKeywords = [
+          "scheduled modal automation action focus command palette deep link run pause resume delete copy evidence timeline",
+          "计划任务 自动化 操作 聚焦 运行 暂停 恢复 删除 复制 证据 时间线",
+          automation.id,
+          automation.prompt,
+          automation.status,
+          automation.threadId,
+          automation.project?.name,
+          automation.project?.path,
+          traceEntry.id,
+          traceEntry.status,
+          traceEntry.error,
+          traceEntry.detail,
+          traceEntry.summary,
+          traceEntry.stdout,
+          traceEntry.stderr,
+          traceEntry.sessionId,
+        ].filter(Boolean).join(" ");
+        const subtitle = [
+          t.scheduledTitle,
+          automationProjectLabel(automation, t),
+          automationStatusLabel(automation.status || traceEntry.status, t),
+        ].filter(Boolean).join(" Â· ");
+        const makeScheduledActionCommand = ({ action, title, entry = traceEntry, priority = 10 }) => ({
+          id: `automation-schedule:${action}:${automationId}`,
+          title: `${t.scheduled}: ${title}: ${messageExcerpt(automation.prompt, 60)}`,
+          subtitle,
+          group: t.scheduled,
+          target: "scheduled-action",
+          priority,
+          dataAttributes: taskTraceAttributes({ kind: "automation", action, item: automation, entry, filter: statusFilter }),
+          keywords: [
+            scheduleActionKeywords,
+            action,
+            title,
+          ].filter(Boolean).join(" "),
+          action: () => openScheduledSurface({ automationId: automation.id, action }),
+        });
+        return [
+          automation.status !== "running" && makeScheduledActionCommand({ action: "run-now", title: t.runNow, priority: 12 }),
+          makeScheduledActionCommand({ action: automation.enabled ? "pause" : "resume", title: automation.enabled ? t.pauseAutomation : t.resumeAutomation, priority: 11 }),
+          automation.lastRun && makeScheduledActionCommand({ action: "copy-evidence", title: t.copyAutomationEvidence, entry: automation.lastRun, priority: 10 }),
+          automation.lastRun?.id && makeScheduledActionCommand({ action: "timeline", title: t.openRunTimeline, entry: automation.lastRun, priority: 10 }),
+          makeScheduledActionCommand({ action: "delete", title: t.delete, priority: 9 }),
+        ].filter(Boolean);
+      });
+
     const subagentCommands = subagentRunsForCommands
       .filter((run) => run?.id || run?.requestId)
       .map((run) => {
@@ -15610,6 +15711,7 @@ export function App() {
       ...automationCommands,
       ...automationRunCommands,
       ...automationRecoveryCommands,
+      ...scheduledActionCommands,
       ...subagentCommands,
       ...subagentRunCommands,
       ...subagentRecoveryCommands,
@@ -16018,11 +16120,16 @@ export function App() {
     setProjectsOpen(true);
   }
 
-  function openScheduledSurface() {
+  function openScheduledSurface(options = {}) {
     setSettingsOpen(false);
     setCapabilitiesOpen(false);
     setProjectsOpen(false);
     setCommandsOpen(false);
+    setScheduledFocus({
+      automationId: String(options.automationId || options.id || "").trim(),
+      action: String(options.action || "").trim(),
+      nonce: Date.now(),
+    });
     setScheduledOpen(true);
   }
 
@@ -16680,6 +16787,7 @@ export function App() {
           onToggleEnabled={toggleAutomationEnabled}
           onCopy={copyMessage}
           onOpenRunTimeline={openRunTimeline}
+          focus={scheduledFocus}
         />
       )}
       {shortcutsOpen && <KeyboardShortcutsModal t={t} onClose={() => setShortcutsOpen(false)} />}

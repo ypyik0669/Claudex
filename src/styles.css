@@ -5950,6 +5950,11 @@ button.runtime-health-row {
   padding: 11px;
 }
 
+.schedule-item.deep-linked {
+  border-color: rgba(145, 197, 255, 0.72);
+  box-shadow: 0 0 0 1px rgba(145, 197, 255, 0.22), 0 14px 32px rgba(0, 0, 0, 0.24);
+}
+
 .schedule-item + .schedule-item {
   margin-top: 8px;
 }
