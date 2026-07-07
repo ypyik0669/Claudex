@@ -2570,6 +2570,17 @@ function automationRecoveryEntry(automation = {}) {
     || null;
 }
 
+function taskCenterFailureBuckets(automations = [], subagentRuns = []) {
+  const automationFailures = (Array.isArray(automations) ? automations : []).filter(automationNeedsRecovery);
+  const subagentFailures = (Array.isArray(subagentRuns) ? subagentRuns : [])
+    .filter((run) => !run?.archivedAt && subagentNeedsRecovery(run));
+  return {
+    automationFailures,
+    subagentFailures,
+    total: automationFailures.length + subagentFailures.length,
+  };
+}
+
 function findCommandRunForEvent(event, commandRuns = []) {
   const eventId = String(event?.id || "");
   const commandLine = String(event?.commandLine || "").trim();
@@ -4398,6 +4409,29 @@ function Conversation({
     onConfirmCapabilityCommand(mutatingArgs);
   }
 
+  function openFirstConversationTaskFailure(automationFailures = [], subagentFailures = []) {
+    const automation = automationFailures[0];
+    if (automation?.id) {
+      onOpenTaskCenterFocus?.("automation", automation.id, {
+        filter: "failed",
+        expandEvidence: true,
+        expandHistory: true,
+      });
+      return;
+    }
+    const run = subagentFailures[0];
+    const subagentId = run?.id || run?.requestId || "";
+    if (subagentId) {
+      onOpenTaskCenterFocus?.("subagent", subagentId, {
+        filter: "failed",
+        expandEvidence: true,
+        expandArtifacts: true,
+      });
+      return;
+    }
+    onOpenTaskCenterFocus?.("", "", { filter: "failed" });
+  }
+
   function handleNoticeAction(notice) {
     const action = String(notice?.action || "");
     if (action.startsWith("git-run:")) {
@@ -4427,10 +4461,24 @@ function Conversation({
       }
       return;
     }
+    if (action.startsWith("task-center:")) {
+      const target = decodeActionSuffix(action, "task-center:");
+      if (["failed", "failures", "recover-failed", "recovery"].includes(target)) {
+        const failures = taskCenterFailureBuckets(automations, subagentRuns);
+        openFirstConversationTaskFailure(failures.automationFailures, failures.subagentFailures);
+        return;
+      }
+      if (["all", "active", "archived"].includes(target)) {
+        onOpenTaskCenterFocus?.("", "", { filter: target });
+        return;
+      }
+    }
     if (action.startsWith("automation:")) {
       const automationId = decodeActionSuffix(action, "automation:");
       if (automationId && onOpenTaskCenterFocus) {
+        const automation = (automations || []).find((item) => item?.id === automationId);
         onOpenTaskCenterFocus("automation", automationId, {
+          filter: automationNeedsRecovery(automation) ? "failed" : "",
           expandEvidence: true,
           expandHistory: true,
         });
@@ -4442,7 +4490,9 @@ function Conversation({
     if (action.startsWith("subagent:")) {
       const subagentId = decodeActionSuffix(action, "subagent:");
       if (subagentId && onOpenTaskCenterFocus) {
+        const run = (subagentRuns || []).find((item) => item?.id === subagentId || item?.requestId === subagentId);
         onOpenTaskCenterFocus("subagent", subagentId, {
+          filter: run?.archivedAt ? "archived" : subagentNeedsRecovery(run) ? "failed" : "",
           expandEvidence: true,
           expandArtifacts: true,
         });
@@ -5589,13 +5639,14 @@ function SubagentWorkbench({
   const focusedTaskOptions = (externalFocusedAutomationId || externalFocusedSubagentId) ? focus : localTaskFocus || {};
   const focusedTaskFilter = ["all", "active", "failed", "archived"].includes(focus?.filter) ? focus.filter : "";
   const automationItems = Array.isArray(automations) ? automations : [];
-  const failedAutomationItems = automationItems.filter(automationNeedsRecovery);
-  const failedSubagentRuns = activeRuns.filter(subagentNeedsRecovery);
+  const taskFailures = taskCenterFailureBuckets(automationItems, activeRuns);
+  const failedAutomationItems = taskFailures.automationFailures;
+  const failedSubagentRuns = taskFailures.subagentFailures;
   const activeAutomationCount = automationItems.filter((item) => ["running", "scheduled"].includes(item.status)).length;
   const failedAutomationCount = failedAutomationItems.length;
   const runningSubagentCount = activeRuns.filter((run) => run.status === "running").length;
   const failedSubagentCount = failedSubagentRuns.length;
-  const failedTaskCount = failedAutomationCount + failedSubagentCount;
+  const failedTaskCount = taskFailures.total;
   const taskFilterCounts = {
     all: automationItems.length + (showArchivedRuns ? runs.length : activeRuns.length),
     active: activeAutomationCount + runningSubagentCount,
@@ -12529,14 +12580,61 @@ export function App() {
     const subagentRunsForCommands = Array.isArray(state.subagentRuns) ? state.subagentRuns : [];
     const activeSubagentRunsForCommands = subagentRunsForCommands.filter((run) => !run?.archivedAt);
     const activeTaskFilterCommandTotal = automationItemsForCommands.length + activeSubagentRunsForCommands.length;
+    const taskFailureBucketsForCommands = taskCenterFailureBuckets(automationItemsForCommands, subagentRunsForCommands);
     const taskFilterCommandCounts = {
       all: activeTaskFilterCommandTotal,
       active: automationItemsForCommands.filter((item) => ["running", "scheduled"].includes(item?.status)).length
         + activeSubagentRunsForCommands.filter((run) => run?.status === "running").length,
-      failed: automationItemsForCommands.filter(automationNeedsRecovery).length
-        + activeSubagentRunsForCommands.filter(subagentNeedsRecovery).length,
+      failed: taskFailureBucketsForCommands.total,
       archived: subagentRunsForCommands.filter((run) => run?.archivedAt).length,
     };
+    const taskFailureSummaryCommands = taskFailureBucketsForCommands.total > 0 ? [{
+      id: "task-recovery:failed-summary",
+      title: `${t.taskCenter}: ${t.taskCenterReviewFailures}`,
+      subtitle: [
+        t.taskCenterFailureSummary
+          .replace("{total}", taskFailureBucketsForCommands.total)
+          .replace("{automations}", taskFailureBucketsForCommands.automationFailures.length)
+          .replace("{subagents}", taskFailureBucketsForCommands.subagentFailures.length),
+        t.taskCenterFailureSummaryHint,
+      ].filter(Boolean).join(" · "),
+      group: t.taskCenter,
+      priority: 92,
+      keywords: [
+        "task center failure summary recovery recover failed restore automation subagent notice deep link",
+        "任务中心 失败 恢复 自动化 子代理 通知",
+        ...taskFailureBucketsForCommands.automationFailures.map((automation) => {
+          const recoveryEntry = automationRecoveryEntry(automation);
+          return [
+            automation.id,
+            automation.prompt,
+            automation.status,
+            automation.project?.name,
+            automation.project?.path,
+            recoveryEntry?.id,
+            recoveryEntry?.error,
+            recoveryEntry?.detail,
+            recoveryEntry?.summary,
+          ].filter(Boolean).join(" ");
+        }),
+        ...taskFailureBucketsForCommands.subagentFailures.map((run) => [
+          run.id,
+          run.requestId,
+          run.nickname,
+          run.task,
+          run.status,
+          run.summary,
+          run.stderr,
+          run.project?.name,
+          run.project?.path,
+          run.cwd,
+        ].filter(Boolean).join(" ")),
+      ].filter(Boolean).join(" "),
+      action: () => openFirstTaskFailure(
+        taskFailureBucketsForCommands.automationFailures,
+        taskFailureBucketsForCommands.subagentFailures,
+      ),
+    }] : [];
     const taskFilterCommands = [
       { id: "active", label: t.taskCenterFilterActive, keywords: "active running scheduled 活动 运行中 已计划" },
       { id: "failed", label: t.taskCenterFilterFailed, keywords: "failed error failure stderr 失败 错误" },
@@ -13241,6 +13339,7 @@ export function App() {
       ...sourceFileCommands,
       ...browserEvidenceCommands,
       ...browserTimelineCommands,
+      ...taskFailureSummaryCommands,
       ...taskFilterCommands,
       ...automationCommands,
       ...automationRunCommands,
@@ -13766,10 +13865,24 @@ export function App() {
         return;
       }
     }
+    if (action.startsWith("task-center:")) {
+      const target = decodeActionSuffix(action, "task-center:");
+      if (["failed", "failures", "recover-failed", "recovery"].includes(target)) {
+        const failures = taskCenterFailureBuckets(state.automations, state.subagentRuns);
+        openFirstTaskFailure(failures.automationFailures, failures.subagentFailures);
+        return;
+      }
+      if (["all", "active", "archived"].includes(target)) {
+        openTaskCenterFocus("", "", { filter: target });
+        return;
+      }
+    }
     if (action.startsWith("automation:")) {
       const automationId = decodeActionSuffix(action, "automation:");
       if (automationId) {
+        const automation = (state.automations || []).find((item) => item?.id === automationId);
         openTaskCenterFocus("automation", automationId, {
+          filter: automationNeedsRecovery(automation) ? "failed" : "",
           expandEvidence: true,
           expandHistory: true,
         });
@@ -13781,7 +13894,9 @@ export function App() {
     if (action.startsWith("subagent:")) {
       const subagentId = decodeActionSuffix(action, "subagent:");
       if (subagentId) {
+        const run = (state.subagentRuns || []).find((item) => item?.id === subagentId || item?.requestId === subagentId);
         openTaskCenterFocus("subagent", subagentId, {
+          filter: run?.archivedAt ? "archived" : subagentNeedsRecovery(run) ? "failed" : "",
           expandEvidence: true,
           expandArtifacts: true,
         });
@@ -13789,6 +13904,29 @@ export function App() {
       }
     }
     openBottomPanel("notices");
+  }
+
+  function openFirstTaskFailure(automationFailures = [], subagentFailures = []) {
+    const automation = automationFailures[0];
+    if (automation?.id) {
+      openTaskCenterFocus("automation", automation.id, {
+        filter: "failed",
+        expandEvidence: true,
+        expandHistory: true,
+      });
+      return;
+    }
+    const run = subagentFailures[0];
+    const subagentId = run?.id || run?.requestId || "";
+    if (subagentId) {
+      openTaskCenterFocus("subagent", subagentId, {
+        filter: "failed",
+        expandEvidence: true,
+        expandArtifacts: true,
+      });
+      return;
+    }
+    openTaskCenterFocus("", "", { filter: "failed" });
   }
 
   function openTaskCenterFocus(type, id = "", options = {}) {
