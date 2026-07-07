@@ -741,6 +741,10 @@ const copy = {
     timelineSubagentAction: "子代理操作",
     timelineThreadAction: "聊天操作",
     timelineSkillRegistry: "技能 registry",
+    timelineCapabilityCli: "Plugin/MCP CLI",
+    timelineWorkspaceCommand: "Workspace 命令",
+    timelineClaudeCommand: "Claude CLI",
+    timelineGitCommand: "Git 命令",
     selectedRunEvidence: "选中证据",
     selectedRunEvidenceHint: "点击 timeline 行后，这里固定显示关联到本地 store/CLI 的完整证据。",
     automationRunHistoryShort: "最近 3 次",
@@ -2671,8 +2675,23 @@ function runTimelineTypeLabel(event, evidence, t) {
   if (raw === "subagent-action") return t.timelineSubagentAction;
   if (raw === "thread-action") return t.timelineThreadAction;
   if (raw === "skill-registry") return t.timelineSkillRegistry;
+  if (raw === "capability-cli" || raw === "capability-command") return t.timelineCapabilityCli || "Plugin/MCP CLI";
+  if (raw === "workspace-command") return t.timelineWorkspaceCommand || "Workspace command";
+  if (raw === "claude-command") return t.timelineClaudeCommand || "Claude CLI";
+  if (raw === "git-command") return t.timelineGitCommand || "Git command";
   if (raw === "browser") return t.browser;
   return raw;
+}
+
+function runTimelineOutputEvidenceText(evidence = {}, t) {
+  const stdout = String(evidence.stdout || "");
+  const stderr = String(evidence.stderr || "");
+  const stdoutLabel = evidence.source === "automation" ? t.automationStdout : t.commandStdout;
+  const stderrLabel = evidence.source === "automation" ? t.automationStderr : t.commandStderr;
+  return [
+    stdout ? `${stdoutLabel}\n${stdout}` : "",
+    stderr ? `${stderrLabel}\n${stderr}` : "",
+  ].filter(Boolean).join("\n\n");
 }
 
 function runTimelineEvidenceForEvent(event, { commandRuns = [], automations = [], subagentRuns = [], browserVisits = [], sessions = [], t } = {}) {
@@ -2841,7 +2860,7 @@ function runTimelineEvidenceText(event, evidence, t) {
     `${t.subagentArtifacts}: ${artifactLabels.length ? artifactLabels.join(", ") : "-"}`,
     "",
     evidence?.summary || evidence?.detail || "",
-    automationRunOutput(evidence || {}),
+    runTimelineOutputEvidenceText(evidence || {}, t),
     subagentArtifactsEvidenceText(evidence?.artifacts || [], t),
   ];
   return lines.filter((line, index) => index < 10 + sourceLines.length || String(line || "").trim()).join("\n");

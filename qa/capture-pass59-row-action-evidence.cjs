@@ -3,13 +3,37 @@ const os = require("os");
 const path = require("path");
 const { app, BrowserWindow } = require("electron");
 
-const PROJECT_PATH = path.join(__dirname, "..");
 const USER_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "claudex-pass59-data-"));
 const FAKE_BIN_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "claudex-pass59-bin-"));
 const MARKETPLACE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "claudex-pass59-market-"));
 const MARKETPLACE_MANIFEST_DIR = path.join(MARKETPLACE_DIR, ".claude-plugin");
 const PROJECT_FIXTURE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "claudex-pass59-project-"));
 const COMMAND_LOG = path.join(USER_DATA_DIR, "claude-command-log.txt");
+
+function findRepoDir() {
+  const candidates = [
+    process.env.CLAUDEX_REPO_DIR,
+    process.cwd(),
+    __dirname,
+    path.join(__dirname, ".."),
+  ].filter(Boolean);
+  for (const candidate of candidates) {
+    let current = path.resolve(candidate);
+    while (current && current !== path.dirname(current)) {
+      if (
+        fs.existsSync(path.join(current, "package.json")) &&
+        fs.existsSync(path.join(current, "electron", "main.cjs"))
+      ) {
+        return current;
+      }
+      current = path.dirname(current);
+    }
+  }
+  throw new Error("Unable to locate Claudex repo root");
+}
+
+const REPO_DIR = findRepoDir();
+process.chdir(REPO_DIR);
 
 function cleanup() {
   for (const dir of [USER_DATA_DIR, FAKE_BIN_DIR, MARKETPLACE_DIR, PROJECT_FIXTURE_DIR]) {
@@ -143,7 +167,7 @@ writeJson(path.join(USER_DATA_DIR, "desktop-data.json"), {
   ],
 });
 
-require(path.join(PROJECT_PATH, "electron", "main.cjs"));
+require(path.join(REPO_DIR, "electron", "main.cjs"));
 
 function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -326,6 +350,56 @@ async function runTest() {
       /plugin install qa-structured-plugin/.test(document.querySelector('.capability-command-evidence-stack')?.textContent || '') &&
       /退出码/.test(document.querySelector('.capability-command-evidence-stack')?.textContent || ''))
   `, 8000));
+  assertStep("PASS59_SELECT_CLI_TIMELINE_EVENT", await win.webContents.executeJavaScript(`
+    (async function() {
+      const row = [...document.querySelectorAll('.run-timeline-row')]
+        .find((candidate) => /plugin install qa-structured-plugin/.test(candidate.textContent || ''));
+      if (!row) return false;
+      row.querySelector('summary')?.click();
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      return Boolean(document.querySelector('.selected-run-evidence-panel'));
+    })();
+  `));
+  assertStep("PASS59_SELECTED_CLI_EVIDENCE_PANEL_STRUCTURED", await waitFor(win, `
+    (function() {
+      const panel = document.querySelector('.selected-run-evidence-panel');
+      const text = panel?.textContent || '';
+      const type = panel?.querySelector('[data-run-event-type]')?.getAttribute('data-run-event-type') || '';
+      return Boolean(
+        panel &&
+        /Plugin\\/MCP CLI/.test(text) &&
+        /plugin install qa-structured-plugin/.test(text) &&
+        /ok plugin install qa-structured-plugin/.test(text) &&
+        /退出码/.test(text) &&
+        /capability-(?:cli|command)/.test(type)
+      );
+    })();
+  `, 8000));
+  assertStep("PASS59_COPY_SELECTED_CLI_TIMELINE_EVIDENCE", await win.webContents.executeJavaScript(`
+    (function() {
+      Object.defineProperty(navigator, 'clipboard', {
+        configurable: true,
+        value: { writeText: async (text) => { window.__pass59TimelineClipboard = String(text || ''); } },
+      });
+      const button = document.querySelector('.selected-run-evidence-panel [data-run-timeline-action="copy-evidence"]');
+      if (!button) return false;
+      button.click();
+      return true;
+    })();
+  `));
+  assertStep("PASS59_SELECTED_CLI_TIMELINE_EVIDENCE_COPIED", await waitFor(win, `
+    (function() {
+      const text = window.__pass59TimelineClipboard || '';
+      const panelText = document.querySelector('.selected-run-evidence-panel')?.textContent || '';
+      return /Plugin\\/MCP CLI/.test(text) &&
+        /Raw 类型: capability-(?:cli|command)/.test(text) &&
+        /命令: claude plugin install qa-structured-plugin/.test(text) &&
+        /工作目录: /.test(text) &&
+        /退出码: 0/.test(text) &&
+        /标准输出\\n(ok )?plugin install qa-structured-plugin/.test(text) &&
+        /已复制/.test(panelText);
+    })();
+  `, 5000));
   assertStep("PASS59_CAPABILITY_COMMAND_PERSISTED", (() => {
     const parsed = JSON.parse(fs.readFileSync(path.join(USER_DATA_DIR, "desktop-data.json"), "utf8"));
     return parsed.commandRuns?.some((run) => run.kind === "capability" &&
