@@ -4507,6 +4507,18 @@ button.runtime-health-row {
   white-space: nowrap;
 }
 
+.runtime-health-actions [data-runtime-health-action-focused="true"],
+.runtime-health-issue [data-runtime-health-action-focused="true"] {
+  border-color: rgba(96, 165, 250, 0.72);
+  background: rgba(96, 165, 250, 0.1);
+  box-shadow: 0 0 0 1px rgba(96, 165, 250, 0.2);
+}
+
+.runtime-health-issue[data-runtime-health-issue-focused="true"] {
+  outline: 1px solid rgba(96, 165, 250, 0.36);
+  outline-offset: 1px;
+}
+
 .runtime-health-issue code {
   grid-column: 1 / -1;
   color: #efb0a9;

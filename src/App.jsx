@@ -1493,10 +1493,39 @@ function RuntimeHealthCard({
   onRecordEvidence,
   busy = false,
   compact = false,
+  focus = null,
 }) {
   const [copied, setCopied] = useState(false);
+  const cardRef = useRef(null);
   const summary = runtimeHealthSummary(claudeStatus, settings, activeProject, t);
   const HeadIcon = summary.status === "error" ? AlertTriangle : summary.status === "pending" ? Clock3 : Shield;
+  const focusedRuntimeAction = String(focus?.action || "").trim();
+  const focusedRuntimeTarget = String(focus?.target || "").trim();
+  const focusedRuntimeCommand = String(focus?.command || "").trim();
+
+  function runtimeHealthActionFocused(action, options = {}) {
+    if (!focus?.nonce || focusedRuntimeAction !== action) return false;
+    if (options.target && focusedRuntimeTarget && focusedRuntimeTarget !== options.target) return false;
+    if (options.command && focusedRuntimeCommand && focusedRuntimeCommand !== options.command) return false;
+    return true;
+  }
+
+  function runtimeHealthActionFocusAttributes(focused) {
+    return {
+      "data-runtime-health-action-focused": focused ? "true" : "false",
+      "aria-current": focused ? "true" : undefined,
+    };
+  }
+
+  useEffect(() => {
+    if (!focus?.nonce) return undefined;
+    const timer = window.setTimeout(() => {
+      cardRef.current
+        ?.querySelector('[data-runtime-health-action-focused="true"]')
+        ?.scrollIntoView?.({ block: "center", behavior: "smooth" });
+    }, 120);
+    return () => window.clearTimeout(timer);
+  }, [focus?.nonce, focusedRuntimeAction, focusedRuntimeTarget, focusedRuntimeCommand]);
 
   async function copyEvidence() {
     const text = runtimeHealthEvidenceText(summary, t);
@@ -1510,7 +1539,7 @@ function RuntimeHealthCard({
   }
 
   return (
-    <section className={cx("runtime-health-card", summary.status, compact && "compact")} aria-label={t.runtimeHealth}>
+    <section className={cx("runtime-health-card", summary.status, compact && "compact")} aria-label={t.runtimeHealth} ref={cardRef}>
       <div className="runtime-health-head">
         <HeadIcon size={15} />
         <div>
@@ -1521,23 +1550,49 @@ function RuntimeHealthCard({
         {(onRetry || onOpenClaudePanel) && (
           <div className="runtime-health-actions">
             {onRetry && (
-              <button type="button" className="plain-action subtle-action" onClick={onRetry} disabled={busy} title={busy ? t.workingHint : t.refreshCliStatus}>
+              <button
+                type="button"
+                className="plain-action subtle-action"
+                data-runtime-health-action="retry"
+                {...runtimeHealthActionFocusAttributes(runtimeHealthActionFocused("retry"))}
+                onClick={onRetry}
+                disabled={busy}
+                title={busy ? t.workingHint : t.refreshCliStatus}
+              >
                 <RefreshCw size={13} className={busy ? "spin" : undefined} />
                 {t.retryCliStatus}
               </button>
             )}
             {onOpenClaudePanel && (
-              <button type="button" className="plain-action subtle-action" onClick={onOpenClaudePanel}>
+              <button
+                type="button"
+                className="plain-action subtle-action"
+                data-runtime-health-action="open-claude"
+                {...runtimeHealthActionFocusAttributes(runtimeHealthActionFocused("open-claude"))}
+                onClick={onOpenClaudePanel}
+              >
                 <Bot size={13} />
                 {t.openClaudePanel}
               </button>
             )}
-            <button type="button" className="plain-action subtle-action" data-runtime-health-action="copy" onClick={copyEvidence}>
+            <button
+              type="button"
+              className="plain-action subtle-action"
+              data-runtime-health-action="copy"
+              {...runtimeHealthActionFocusAttributes(runtimeHealthActionFocused("copy"))}
+              onClick={copyEvidence}
+            >
               <Copy size={13} />
               {copied ? t.copied : t.copyRuntimeHealthEvidence}
             </button>
             {onRecordEvidence && (
-              <button type="button" className="plain-action subtle-action" data-runtime-health-action="pin" onClick={() => onRecordEvidence(summary, runtimeHealthEvidenceText(summary, t))}>
+              <button
+                type="button"
+                className="plain-action subtle-action"
+                data-runtime-health-action="pin"
+                {...runtimeHealthActionFocusAttributes(runtimeHealthActionFocused("pin"))}
+                onClick={() => onRecordEvidence(summary, runtimeHealthEvidenceText(summary, t))}
+              >
                 <Pin size={13} />
                 {t.pinRuntimeHealthEvidence}
               </button>
@@ -1576,6 +1631,7 @@ function RuntimeHealthCard({
             {summary.issues.map((issue) => {
               const target = runtimeHealthTargetForIssue(issue);
               const actionable = Boolean(target && onOpenIssue);
+              const issueFocused = runtimeHealthActionFocused("open-issue", { target, command: issue.commandLine });
               return (
                 <article
                   className={cx("runtime-health-issue", actionable && "actionable")}
@@ -1583,6 +1639,8 @@ function RuntimeHealthCard({
                   data-runtime-health-issue-id={issue.id}
                   data-runtime-health-issue-target={target}
                   data-runtime-health-issue-command={issue.commandLine}
+                  data-runtime-health-issue-focused={issueFocused ? "true" : "false"}
+                  aria-current={issueFocused ? "true" : undefined}
                 >
                   <div>
                     <strong>{issue.label}</strong>
@@ -1595,6 +1653,7 @@ function RuntimeHealthCard({
                       className="plain-action subtle-action runtime-health-issue-action"
                       data-runtime-health-issue-action="open"
                       data-runtime-health-issue-target={target}
+                      {...runtimeHealthActionFocusAttributes(issueFocused)}
                       title={[issue.error, t.runtimeHealthOpenTarget].filter(Boolean).join("\n")}
                       onClick={() => onOpenIssue(issue, summary, target)}
                     >
@@ -10985,7 +11044,7 @@ function ShellModal({ title, subtitle, onClose, children, className = "", closeL
   );
 }
 
-function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenClaudePanel, onNotice, onRunEvent, onOpenBottomPanel, onOpenWorkspaceFile, onCommandRuns, onStatus, surface = false, initialTab = "plugins", focus = null }) {
+function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenClaudePanel, onNotice, onRunEvent, onOpenBottomPanel, onOpenWorkspaceFile, onCommandRuns, onStatus, surface = false, initialTab = "plugins", focus = null, runtimeHealthFocus = null }) {
   const tabs = [
     ["plugins", t.plugins],
     ["mcp", t.mcps],
@@ -11761,6 +11820,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
         onOpenIssue={openRuntimeHealthIssue}
         onRecordEvidence={recordRuntimeHealthEvidence}
         busy={cliWorking}
+        focus={runtimeHealthFocus}
       />
       {cliStatusIssues.length > 0 && (
         <section className="plugin-status-issues" aria-label={t.capabilityStatusIssues}>
@@ -13566,6 +13626,7 @@ export function App() {
   const [capabilitiesOpen, setCapabilitiesOpen] = useState(false);
   const [capabilityInitialTab, setCapabilityInitialTab] = useState("plugins");
   const [capabilityFocus, setCapabilityFocus] = useState({ tab: "plugins", kind: "", id: "", query: "", filter: "", marketplaceFilter: "", nonce: 0 });
+  const [runtimeHealthFocus, setRuntimeHealthFocus] = useState({ action: "", target: "", command: "", nonce: 0 });
   const [capabilityCommandStatus, setCapabilityCommandStatus] = useState(null);
   const [projectsOpen, setProjectsOpen] = useState(false);
   const [commandsOpen, setCommandsOpen] = useState(false);
@@ -16942,6 +17003,16 @@ export function App() {
     setCapabilitiesOpen(true);
   }
 
+  function openRuntimeHealthActionFocus(focus = {}) {
+    setRuntimeHealthFocus({
+      action: String(focus.action || "").trim(),
+      target: String(focus.target || "").trim(),
+      command: String(focus.command || "").trim(),
+      nonce: Date.now(),
+    });
+    openCapabilitiesSurface("plugins");
+  }
+
   function openProjectsSurface() {
     setSettingsOpen(false);
     setCapabilitiesOpen(false);
@@ -17329,6 +17400,65 @@ export function App() {
     ].filter(Boolean).join(" "),
     action: () => openSettingsSurface(section.id),
   }));
+  const runtimeHealthSummaryForCommands = runtimeHealthSummary(capabilityCommandStatus, state.settings, activeProject, t);
+  const runtimeHealthIssueCommands = Array.from(
+    new Map((runtimeHealthSummaryForCommands.issues || [])
+      .map((issue) => [runtimeHealthTargetForIssue(issue), issue])
+      .filter(([target]) => Boolean(target))).entries(),
+  ).map(([target, issue]) => ({
+    id: `runtime-health-issue:${commandIdSegment(target)}`,
+    title: `${t.runtimeHealthOpenTarget}: ${issue.label}`,
+    subtitle: [`claude ${issue.commandLine}`, issue.error || issue.stderr || issue.stdout, target].filter(Boolean).join(" · "),
+    group: t.runtimeHealth,
+    target: "runtime-health-issue",
+    priority: 30,
+    dataAttributes: {
+      "data-command-runtime-health-action": "open-issue",
+      "data-command-runtime-health-target": target,
+      "data-command-runtime-health-command": issue.commandLine,
+    },
+    keywords: [
+      "runtime health issue open focus action status cli",
+      t.runtimeHealth,
+      t.runtimeHealthOpenTarget,
+      issue.label,
+      issue.commandLine,
+      issue.error,
+      issue.stderr,
+      issue.stdout,
+      target,
+    ].filter(Boolean).join(" "),
+    action: () => openRuntimeHealthActionFocus({
+      action: "open-issue",
+      target,
+      command: issue.commandLine,
+    }),
+  }));
+  const runtimeHealthActionCommands = [
+    { action: "retry", label: t.retryCliStatus, keywords: "retry refresh status cli runtime health focus" },
+    { action: "open-claude", label: t.openClaudePanel, keywords: "open claude panel runtime health focus" },
+    { action: "copy", label: t.copyRuntimeHealthEvidence, keywords: "copy runtime health evidence clipboard focus" },
+    { action: "pin", label: t.pinRuntimeHealthEvidence, keywords: "pin runtime health evidence timeline focus" },
+  ].map((spec) => ({
+    id: `runtime-health-action:${spec.action}`,
+    title: `${t.runtimeHealth}: ${spec.label}`,
+    subtitle: runtimeHealthSummaryForCommands.headline,
+    group: t.runtimeHealth,
+    target: "runtime-health-action",
+    priority: spec.action === "copy" || spec.action === "pin" ? 22 : 18,
+    dataAttributes: {
+      "data-command-runtime-health-action": spec.action,
+    },
+    keywords: [
+      "runtime health command palette focus action button",
+      spec.keywords,
+      t.runtimeHealth,
+      spec.label,
+      runtimeHealthSummaryForCommands.headline,
+      runtimeHealthEvidenceText(runtimeHealthSummaryForCommands, t),
+    ].filter(Boolean).join(" "),
+    action: () => openRuntimeHealthActionFocus({ action: spec.action }),
+  }));
 
   const commands = [
     { id: "new", title: t.newChat, subtitle: t.chats, group: t.chats, kbd: "Ctrl+N", keywords: "聊天 对话 会话", action: createSession },
@@ -17344,6 +17474,8 @@ export function App() {
     { id: "capability-mcp", title: t.mcps, subtitle: t.mcpServers, group: t.capabilities, priority: 100, keywords: "mcp servers tools mcps server 工具 服务器", action: () => openCapabilitiesSurface("mcp") },
     { id: "capability-marketplace", title: t.marketplace, subtitle: t.marketplaceCatalog, group: t.capabilities, priority: 80, keywords: "marketplace catalog install plugin 市场 插件目录 安装", action: () => openCapabilitiesSurface("marketplace") },
     ...settingsSectionCommands,
+    ...runtimeHealthActionCommands,
+    ...runtimeHealthIssueCommands,
     { id: "automation", title: t.scheduled, subtitle: t.scheduledTitle, group: t.scheduled, keywords: "automation schedule 自动化 计划 任务", action: openScheduledSurface },
     { id: "tool-workspace", title: t.workspaceTool, subtitle: t.openSidePanel, group: t.tools, keywords: "workspace files editor diff 工作区 文件 编辑", action: () => activateTool("workspace") },
     { id: "tool-claude", title: t.claudeCodeTool, subtitle: t.openSidePanel, group: t.tools, keywords: "claude code cli plugin mcp terminal", action: () => activateTool("claude") },
@@ -17457,6 +17589,7 @@ export function App() {
             surface
             initialTab={capabilityInitialTab}
             focus={capabilityFocus}
+            runtimeHealthFocus={runtimeHealthFocus}
           />
         ) : (
         <Conversation
