@@ -244,6 +244,16 @@ async function runTest() {
     )
   `, 8000));
 
+  assertStep("PASS51_OPEN_WORKSPACE_TOOL_FROM_PALETTE", await runPaletteCommand(win, "workspace files editor", "tool-workspace"));
+  assertStep("PASS51_WORKSPACE_TOOL_VISIBLE", await waitFor(win, `
+    Boolean(
+      document.querySelector('#workspace-tool-detail') &&
+      document.querySelector('.tool-row.active[aria-controls="workspace-tool-detail"]') &&
+      /pass51-project/.test(document.querySelector('#workspace-tool-detail')?.textContent || '') &&
+      document.querySelector('#workspace-tool-detail .file-tree')
+    )
+  `, 8000));
+
   assertStep("PASS51_OPEN_MCP_FROM_PALETTE", await runPaletteCommand(win, "mcp servers"));
   assertStep("PASS51_MCP_TAB_VISIBLE", await waitFor(win, `
     Boolean(
