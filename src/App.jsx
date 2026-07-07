@@ -17418,6 +17418,21 @@ export function App() {
     action: () => openSettingsSurface(section.id),
   }));
   const runtimeHealthSummaryForCommands = runtimeHealthSummary(capabilityCommandStatus, state.settings, activeProject, t);
+  const runtimeHealthCommandTraceAttributes = (action, options = {}) => ({
+    "data-command-runtime-health-surface": String(options.surface || "capability"),
+    "data-command-runtime-health-action": String(action || ""),
+    "data-command-runtime-health-status": String(runtimeHealthSummaryForCommands.status || ""),
+    "data-command-runtime-health-known": String(Boolean(runtimeHealthSummaryForCommands.known)),
+    "data-command-runtime-health-issue-count": String(runtimeHealthSummaryForCommands.issues?.length || 0),
+    "data-command-runtime-health-headline": runtimeHealthSummaryForCommands.headline || "",
+    "data-command-runtime-health-project-name": activeProject?.name || "",
+    "data-command-runtime-health-project-path": activeProject?.path || "",
+    "data-command-runtime-health-target": String(options.target || ""),
+    "data-command-runtime-health-command": String(options.command || ""),
+    "data-command-runtime-health-issue-label": String(options.issue?.label || ""),
+    "data-command-runtime-health-issue-code": options.issue?.code === 0 ? "0" : String(options.issue?.code || ""),
+    "data-command-runtime-health-issue-error": messageExcerpt(options.issue?.error || options.issue?.stderr || options.issue?.stdout || "", 240),
+  });
   const runtimeHealthIssueCommands = Array.from(
     new Map((runtimeHealthSummaryForCommands.issues || [])
       .map((issue) => [runtimeHealthTargetForIssue(issue), issue])
@@ -17429,11 +17444,7 @@ export function App() {
     group: t.runtimeHealth,
     target: "runtime-health-issue",
     priority: 30,
-    dataAttributes: {
-      "data-command-runtime-health-action": "open-issue",
-      "data-command-runtime-health-target": target,
-      "data-command-runtime-health-command": issue.commandLine,
-    },
+    dataAttributes: runtimeHealthCommandTraceAttributes("open-issue", { target, command: issue.commandLine, issue }),
     keywords: [
       "runtime health issue open focus action status cli",
       t.runtimeHealth,
@@ -17463,9 +17474,7 @@ export function App() {
     group: t.runtimeHealth,
     target: "runtime-health-action",
     priority: spec.action === "copy" || spec.action === "pin" ? 22 : 18,
-    dataAttributes: {
-      "data-command-runtime-health-action": spec.action,
-    },
+    dataAttributes: runtimeHealthCommandTraceAttributes(spec.action),
     keywords: [
       "runtime health command palette focus action button",
       spec.keywords,
@@ -17487,12 +17496,7 @@ export function App() {
     group: t.settings,
     target: "settings-runtime-health-issue",
     priority: 24,
-    dataAttributes: {
-      "data-command-runtime-health-surface": "settings",
-      "data-command-runtime-health-action": "open-issue",
-      "data-command-runtime-health-target": target,
-      "data-command-runtime-health-command": issue.commandLine,
-    },
+    dataAttributes: runtimeHealthCommandTraceAttributes("open-issue", { surface: "settings", target, command: issue.commandLine, issue }),
     keywords: [
       "settings runtime health issue open focus action status cli",
       t.settings,
@@ -17522,10 +17526,7 @@ export function App() {
     group: t.settings,
     target: "settings-runtime-health-action",
     priority: spec.action === "copy" ? 21 : 17,
-    dataAttributes: {
-      "data-command-runtime-health-surface": "settings",
-      "data-command-runtime-health-action": spec.action,
-    },
+    dataAttributes: runtimeHealthCommandTraceAttributes(spec.action, { surface: "settings" }),
     keywords: [
       "settings runtime health command palette focus action button",
       spec.keywords,
