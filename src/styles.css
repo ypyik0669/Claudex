@@ -5790,6 +5790,16 @@ button.runtime-health-row {
   align-items: center;
 }
 
+.command-list button:hover,
+.command-list button.active {
+  border-color: rgba(209, 131, 87, 0.45);
+  background: rgba(209, 131, 87, 0.11);
+}
+
+.command-list button.active {
+  box-shadow: inset 3px 0 0 rgba(209, 131, 87, 0.72);
+}
+
 .command-copy {
   min-width: 0;
   display: grid;

@@ -12237,7 +12237,9 @@ const COMMAND_PALETTE_VISIBLE_LIMIT = 80;
 
 function CommandPalette({ commands, t, onClose }) {
   const [commandQuery, setCommandQuery] = useState("");
+  const [activeCommandIndex, setActiveCommandIndex] = useState(0);
   const inputRef = useRef(null);
+  const listRef = useRef(null);
   useEffect(() => {
     inputRef.current?.focus();
   }, []);
@@ -12247,11 +12249,22 @@ function CommandPalette({ commands, t, onClose }) {
     .sort((a, b) => b.score - a.score || a.index - b.index)
     .map((item) => item.command);
   const visibleCommands = filtered.slice(0, COMMAND_PALETTE_VISIBLE_LIMIT);
+  useEffect(() => {
+    setActiveCommandIndex(0);
+  }, [commandQuery]);
+  useEffect(() => {
+    setActiveCommandIndex((current) => Math.min(current, Math.max(visibleCommands.length - 1, 0)));
+  }, [visibleCommands.length]);
+  useEffect(() => {
+    listRef.current?.querySelector('[data-command-active="true"]')?.scrollIntoView({ block: "nearest" });
+  }, [activeCommandIndex, commandQuery]);
   function runCommand(command) {
     if (!command) return;
     onClose();
     command.action();
   }
+  const activeCommand = visibleCommands[activeCommandIndex] || null;
+  const activeCommandOptionId = activeCommand ? `command-option-${commandIdSegment(activeCommand.id)}` : undefined;
   return (
     <ShellModal title={t.commandPalette} onClose={onClose} closeLabel={t.close} className="command-modal">
       <label className="command-search">
@@ -12260,10 +12273,32 @@ function CommandPalette({ commands, t, onClose }) {
           ref={inputRef}
           value={commandQuery}
           onChange={(event) => setCommandQuery(event.target.value)}
+          aria-activedescendant={activeCommandOptionId}
+          aria-controls="command-palette-list"
           onKeyDown={(event) => {
+            if (event.key === "ArrowDown") {
+              event.preventDefault();
+              setActiveCommandIndex((current) => Math.min(current + 1, Math.max(visibleCommands.length - 1, 0)));
+              return;
+            }
+            if (event.key === "ArrowUp") {
+              event.preventDefault();
+              setActiveCommandIndex((current) => Math.max(current - 1, 0));
+              return;
+            }
+            if (event.key === "Home") {
+              event.preventDefault();
+              setActiveCommandIndex(0);
+              return;
+            }
+            if (event.key === "End") {
+              event.preventDefault();
+              setActiveCommandIndex(Math.max(visibleCommands.length - 1, 0));
+              return;
+            }
             if (event.key === "Enter" && !event.nativeEvent?.isComposing) {
               event.preventDefault();
-              runCommand(visibleCommands[0]);
+              runCommand(visibleCommands[activeCommandIndex] || visibleCommands[0]);
             }
             if (event.key === "Escape") {
               event.preventDefault();
@@ -12273,26 +12308,35 @@ function CommandPalette({ commands, t, onClose }) {
           placeholder={t.commandHint}
         />
       </label>
-      <div className="command-list">
-        {visibleCommands.map((command) => (
-          <button
-            type="button"
-            key={command.id}
-            data-command-id={command.id}
-            data-command-group={command.group || ""}
-            data-command-target={command.target || ""}
-            onClick={() => runCommand(command)}
-          >
-            <div className="command-copy">
-              <strong>{command.title}</strong>
-              <small>{command.subtitle}</small>
-            </div>
-            <div className="command-meta">
-              {command.group && <em>{command.group}</em>}
-              {command.kbd && <kbd>{command.kbd}</kbd>}
-            </div>
-          </button>
-        ))}
+      <div className="command-list" id="command-palette-list" ref={listRef} role="listbox" aria-label={t.commandPalette}>
+        {visibleCommands.map((command, index) => {
+          const active = index === activeCommandIndex;
+          return (
+            <button
+              type="button"
+              key={command.id}
+              id={`command-option-${commandIdSegment(command.id)}`}
+              className={cx(active && "active")}
+              data-command-id={command.id}
+              data-command-group={command.group || ""}
+              data-command-target={command.target || ""}
+              data-command-active={active ? "true" : "false"}
+              role="option"
+              aria-selected={active}
+              onMouseEnter={() => setActiveCommandIndex(index)}
+              onClick={() => runCommand(command)}
+            >
+              <div className="command-copy">
+                <strong>{command.title}</strong>
+                <small>{command.subtitle}</small>
+              </div>
+              <div className="command-meta">
+                {command.group && <em>{command.group}</em>}
+                {command.kbd && <kbd>{command.kbd}</kbd>}
+              </div>
+            </button>
+          );
+        })}
         {filtered.length === 0 && <p className="empty-list">{t.noCommands}</p>}
       </div>
     </ShellModal>
