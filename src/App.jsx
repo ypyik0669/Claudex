@@ -13890,7 +13890,6 @@ export function App() {
 
     const installedPluginCommands = (Array.isArray(capabilityCommandStatus?.pluginItems) ? capabilityCommandStatus.pluginItems : [])
       .filter((plugin) => plugin?.id || plugin?.name)
-      .slice(0, 16)
       .map((plugin) => {
         const id = plugin.id || plugin.name;
         return {
@@ -13925,7 +13924,6 @@ export function App() {
       });
     const installedPluginEvidenceCommands = (Array.isArray(capabilityCommandStatus?.pluginItems) ? capabilityCommandStatus.pluginItems : [])
       .filter((plugin) => plugin?.id || plugin?.name)
-      .slice(0, 16)
       .map((plugin) => {
         const id = plugin.id || plugin.name;
         const evidence = pluginEvidenceText(plugin, t);
@@ -14118,7 +14116,6 @@ export function App() {
 
     const mcpServerCommands = (Array.isArray(capabilityCommandStatus?.mcpServers) ? capabilityCommandStatus.mcpServers : [])
       .filter((server) => server?.name)
-      .slice(0, 16)
       .map((server) => ({
         id: `capability-mcp:${commandIdSegment(server.name)}`,
         title: `${t.mcpServers}: ${server.name}`,
@@ -14151,7 +14148,6 @@ export function App() {
       }));
     const mcpServerEvidenceCommands = (Array.isArray(capabilityCommandStatus?.mcpServers) ? capabilityCommandStatus.mcpServers : [])
       .filter((server) => server?.name)
-      .slice(0, 16)
       .map((server) => {
         const evidence = mcpServerEvidenceText(server, t);
         return {
@@ -14188,7 +14184,6 @@ export function App() {
 
     const marketplaceSourceCommands = (Array.isArray(capabilityCommandStatus?.marketplaces) ? capabilityCommandStatus.marketplaces : [])
       .filter((marketplace) => marketplace?.name)
-      .slice(0, 16)
       .map((marketplace) => ({
         id: `capability-marketplace-source:${commandIdSegment(marketplace.name)}`,
         title: `${t.marketplaceSources}: ${marketplace.name}`,
@@ -14218,7 +14213,6 @@ export function App() {
       }));
     const marketplaceSourceEvidenceCommands = (Array.isArray(capabilityCommandStatus?.marketplaces) ? capabilityCommandStatus.marketplaces : [])
       .filter((marketplace) => marketplace?.name)
-      .slice(0, 16)
       .map((marketplace) => {
         const evidence = marketplaceSourceEvidenceText(marketplace, t);
         return {
@@ -14253,7 +14247,6 @@ export function App() {
 
     const customMarketplaceCommands = (Array.isArray(state.settings?.customMarketplaces) ? state.settings.customMarketplaces : [])
       .filter(Boolean)
-      .slice(0, 16)
       .map((marketplace) => ({
         id: `capability-custom-marketplace:${commandIdSegment(marketplace)}`,
         title: `${t.customMarketplaces}: ${compactPath(marketplace, 72)}`,
@@ -14310,7 +14303,6 @@ export function App() {
 
     const marketplacePluginCommands = (Array.isArray(capabilityCommandStatus?.marketplacePlugins) ? capabilityCommandStatus.marketplacePlugins : [])
       .filter((plugin) => plugin?.id || plugin?.name)
-      .slice(0, 24)
       .map((plugin) => {
         const id = plugin.id || plugin.name;
         return {
@@ -14345,7 +14337,6 @@ export function App() {
       });
     const marketplacePluginEvidenceCommands = (Array.isArray(capabilityCommandStatus?.marketplacePlugins) ? capabilityCommandStatus.marketplacePlugins : [])
       .filter((plugin) => plugin?.id || plugin?.name)
-      .slice(0, 24)
       .map((plugin) => {
         const id = plugin.id || plugin.name;
         const evidence = marketplacePluginEvidenceText(plugin, t);
@@ -14383,7 +14374,6 @@ export function App() {
 
     const marketplaceInstallCommands = marketplacePluginItemsForCommands
       .filter((plugin) => (plugin?.id || plugin?.name) && !plugin?.installed)
-      .slice(0, 16)
       .map((plugin) => {
         const id = plugin.id || plugin.name;
         const commandLine = `plugin install ${id}`;
