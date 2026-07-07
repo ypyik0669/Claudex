@@ -763,8 +763,16 @@ const copy = {
     automationSession: "会话",
     timelineEvidence: "Timeline 证据",
     timelineEvidenceEmpty: "这个事件只有状态摘要，还没有关联到原始输出。",
+    timelineEventId: "事件 ID",
     timelineEventType: "事件类型",
     timelineEventRawType: "Raw 类型",
+    timelineEvidenceSource: "证据来源",
+    timelineEvidenceSourceCommand: "本地 commandRuns",
+    timelineEvidenceSourceAutomation: "本地 automation history",
+    timelineEvidenceSourceSubagent: "本地 subagentRuns",
+    timelineEvidenceSourceBrowser: "本地 browserVisits",
+    timelineEvidenceSourceEvent: "本地 runEvents",
+    timelineProjectPath: "项目路径",
     timelineAutomationAction: "自动化操作",
     timelineSubagentAction: "子代理操作",
     timelineThreadAction: "聊天操作",
@@ -2880,7 +2888,7 @@ function commandRunTimelineEvent(run = {}, t) {
     detail: run.cancelled ? t.commandCancelled : `${t.commandExit}: ${typeof run.code === "number" ? run.code : "-"}`,
     createdAt: run.endedAt || run.startedAt || new Date().toISOString(),
     project: run.project,
-    sessionId: run.requestId || run.id || "",
+    sessionId: run.sessionId || run.threadId || run.requestId || run.id || "",
     commandLine,
     cwd: run.cwd || run.project?.path || "",
     code: typeof run.code === "number" ? run.code : null,
@@ -3087,6 +3095,44 @@ function runTimelineTypeLabel(event, evidence, t) {
   return raw;
 }
 
+function runTimelineEvidenceSourceLabel(evidence = {}, t = {}) {
+  if (evidence?.source === "command") return t.timelineEvidenceSourceCommand || "local commandRuns";
+  if (evidence?.source === "automation") return t.timelineEvidenceSourceAutomation || "local automation history";
+  if (evidence?.source === "subagent") return t.timelineEvidenceSourceSubagent || "local subagentRuns";
+  if (evidence?.source === "browser") return t.timelineEvidenceSourceBrowser || "local browserVisits";
+  return t.timelineEvidenceSourceEvent || "local runEvents";
+}
+
+function runTimelineEventId(event = {}, evidence = {}) {
+  return String(
+    event?.id
+      || event?.requestId
+      || evidence?.commandRunId
+      || evidence?.automationRunId
+      || evidence?.subagentRequestId
+      || evidence?.subagentRunId
+      || evidence?.browserVisitId
+      || "",
+  ).trim();
+}
+
+function runTimelineSessionId(event = {}, evidence = {}) {
+  return String(evidence?.sessionId || event?.sessionId || "").trim();
+}
+
+function runTimelineProjectPath(event = {}, evidence = {}) {
+  return String(event?.project?.path || evidence?.projectPath || evidence?.cwd || event?.cwd || "").trim();
+}
+
+function runTimelineTraceAttributes(event = {}, evidence = {}) {
+  return {
+    "data-run-event-id": runTimelineEventId(event, evidence),
+    "data-run-evidence-source": evidence?.source || "event",
+    "data-run-event-session-id": runTimelineSessionId(event, evidence),
+    "data-run-event-project-path": runTimelineProjectPath(event, evidence),
+  };
+}
+
 function runTimelineOutputEvidenceText(evidence = {}, t) {
   const stdout = String(evidence.stdout || "");
   const stderr = String(evidence.stderr || "");
@@ -3110,7 +3156,7 @@ function runTimelineEvidenceForEvent(event, { commandRuns = [], automations = []
       type: event?.type || commandRun.kind || "command",
       status: event?.status || (commandRun.cancelled ? "cancelled" : commandRun.code === 0 ? "ok" : "error"),
       project: projectLabel(commandRun.project, t),
-      sessionId: event?.sessionId || "",
+      sessionId: event?.sessionId || commandRun.sessionId || commandRun.threadId || "",
       commandLine: commandRun.command || commandRun.commandLine || event?.commandLine || "",
       cwd: commandRun.cwd || commandRun.project?.path || event?.cwd || "",
       code: typeof commandRun.code === "number" ? commandRun.code : event?.code,
@@ -3228,6 +3274,9 @@ function runTimelineEvidenceText(event, evidence, t) {
     : [];
   const typeRaw = runTimelineTypeRaw(event, evidence);
   const typeLabel = runTimelineTypeLabel(event, evidence, t);
+  const eventId = runTimelineEventId(event, evidence);
+  const projectPath = runTimelineProjectPath(event, evidence);
+  const evidenceSourceLabel = runTimelineEvidenceSourceLabel(evidence, t);
   const sourceLines = [];
   if (evidence?.source === "automation") {
     sourceLines.push(
@@ -3250,11 +3299,14 @@ function runTimelineEvidenceText(event, evidence, t) {
   }
   const lines = [
     `${t.outputs}: ${event?.title || evidence?.title || ""}`,
+    `${t.timelineEventId}: ${eventId || "-"}`,
     `${t.timelineEventType}: ${typeLabel}`,
     typeRaw !== typeLabel ? `${t.timelineEventRawType}: ${typeRaw}` : "",
+    `${t.timelineEvidenceSource}: ${evidenceSourceLabel}`,
     `${t.scheduleStatus}: ${runTimelineStatusLabel(event?.status || evidence?.status, t)}`,
     ...sourceLines,
     `${t.activeProject}: ${evidence?.project || ""}`,
+    `${t.timelineProjectPath}: ${projectPath || "-"}`,
     `${t.automationSession}: ${evidence?.sessionId || "-"}`,
     `${t.commandLine}: ${evidence?.commandLine || "-"}`,
     `${t.commandCwd}: ${evidence?.cwd || "-"}`,
@@ -3267,7 +3319,7 @@ function runTimelineEvidenceText(event, evidence, t) {
     runTimelineOutputEvidenceText(evidence || {}, t),
     subagentArtifactsEvidenceText(evidence?.artifacts || [], t),
   ];
-  return lines.filter((line, index) => index < 10 + sourceLines.length || String(line || "").trim()).join("\n");
+  return lines.filter((line, index) => index < 13 + sourceLines.length || String(line || "").trim()).join("\n");
 }
 
 function runTimelineHasEvidence(evidence) {
@@ -7223,6 +7275,11 @@ function RunEvidenceDetails({ event, evidence, onCopy, onOpenWorkspaceFile, t, p
   const hasRawEvidence = runTimelineHasEvidence(evidence);
   const typeRaw = runTimelineTypeRaw(event, evidence);
   const typeLabel = runTimelineTypeLabel(event, evidence, t);
+  const eventId = runTimelineEventId(event, evidence);
+  const sessionId = runTimelineSessionId(event, evidence);
+  const projectPath = runTimelineProjectPath(event, evidence);
+  const evidenceSourceLabel = runTimelineEvidenceSourceLabel(evidence, t);
+  const traceAttributes = runTimelineTraceAttributes(event, evidence);
   const primaryOutputLabel = evidence?.source === "browser" ? t.browserEvidence : t.commandStdout;
   const secondaryOutputLabel = evidence?.source === "browser" ? t.requestError : t.commandStderr;
   const [copiedRunEvidence, setCopiedRunEvidence] = useState(false);
@@ -7253,16 +7310,24 @@ function RunEvidenceDetails({ event, evidence, onCopy, onOpenWorkspaceFile, t, p
   }
 
   return (
-    <div className={cx("run-timeline-evidence", pinned && "pinned-run-evidence-body")} aria-label={t.timelineEvidence}>
+    <div className={cx("run-timeline-evidence", pinned && "pinned-run-evidence-body")} aria-label={t.timelineEvidence} {...traceAttributes}>
       {hasRawEvidence ? (
         <>
           <dl className="run-timeline-evidence-meta">
+            <div>
+              <dt>{t.timelineEventId}</dt>
+              <dd title={eventId || ""}>{eventId ? messageExcerpt(eventId, 48) : "-"}</dd>
+            </div>
             <div>
               <dt>{t.timelineEventType}</dt>
               <dd data-run-event-type={typeRaw} title={typeRaw}>
                 <span>{typeLabel}</span>
                 {typeRaw !== typeLabel && <code className="run-timeline-type-raw">{typeRaw}</code>}
               </dd>
+            </div>
+            <div>
+              <dt>{t.timelineEvidenceSource}</dt>
+              <dd data-run-evidence-source={evidence?.source || "event"}>{evidenceSourceLabel}</dd>
             </div>
             <div><dt>{t.scheduleStatus}</dt><dd>{runTimelineStatusLabel(event?.status || evidence.status, t)}</dd></div>
             {evidence.source === "automation" && (
@@ -7279,7 +7344,8 @@ function RunEvidenceDetails({ event, evidence, onCopy, onOpenWorkspaceFile, t, p
               </>
             )}
             <div><dt>{t.activeProject}</dt><dd title={evidence.cwd || ""}>{evidence.project || "-"}</dd></div>
-            <div><dt>{t.automationSession}</dt><dd>{evidence.sessionId || "-"}</dd></div>
+            <div><dt>{t.timelineProjectPath}</dt><dd title={projectPath || ""}>{projectPath ? compactPath(projectPath, 72) : "-"}</dd></div>
+            <div><dt>{t.automationSession}</dt><dd>{sessionId || "-"}</dd></div>
             <div><dt>{t.commandExit}</dt><dd>{typeof evidence.code === "number" ? evidence.code : "-"}</dd></div>
             <div><dt>{t.commandDuration}</dt><dd>{formatDurationMs(evidence.durationMs)}</dd></div>
             {evidence.commandLine && (
@@ -7377,8 +7443,9 @@ function RunEvidenceDetails({ event, evidence, onCopy, onOpenWorkspaceFile, t, p
 
 function SelectedRunEvidencePanel({ event, evidence, recoveryActions = [], onCopy, onOpenWorkspaceFile, t }) {
   if (!event || !evidence) return null;
+  const traceAttributes = runTimelineTraceAttributes(event, evidence);
   return (
-    <section className={cx("selected-run-evidence-panel", event.status)} aria-label={t.selectedRunEvidence}>
+    <section className={cx("selected-run-evidence-panel", event.status)} aria-label={t.selectedRunEvidence} {...traceAttributes}>
       <div className="selected-run-evidence-head">
         <div>
           <span>{t.selectedRunEvidence}</span>
@@ -7440,8 +7507,9 @@ function RunTimeline({
           const evidence = runTimelineEvidenceForEvent(event, { commandRuns, automations, subagentRuns, browserVisits, sessions, t });
           const typeRaw = runTimelineTypeRaw(event, evidence);
           const typeLabel = runTimelineTypeLabel(event, evidence, t);
+          const traceAttributes = runTimelineTraceAttributes(event, evidence);
           return (
-            <details className={cx("run-timeline-row", event.status, selectedEventId === event.id && "selected")} key={event.id}>
+            <details className={cx("run-timeline-row", event.status, selectedEventId === event.id && "selected")} key={event.id} {...traceAttributes}>
               <summary onClick={() => onSelectEvent?.(event.id)}>
                 <span className="run-timeline-dot" />
                 <div className="run-timeline-main">

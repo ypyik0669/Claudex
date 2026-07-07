@@ -661,6 +661,7 @@ function normalizeCommandRun(item, store) {
   return {
     id: item?.id || id("command"),
     requestId: item?.requestId || "",
+    sessionId: String(item?.sessionId || item?.threadId || ""),
     kind,
     command,
     commandLine: command,
