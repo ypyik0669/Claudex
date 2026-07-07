@@ -6804,6 +6804,7 @@ function SubagentWorkbench({
   const focusedSubagentId = externalFocusedSubagentId || localFocusedSubagentId;
   const focusedTaskOptions = (externalFocusedAutomationId || externalFocusedSubagentId) ? focus : localTaskFocus || {};
   const focusedTaskFilter = ["all", "active", "failed", "archived"].includes(focus?.filter) ? focus.filter : "";
+  const focusedAutomationHistoryRunId = String(focusedTaskOptions?.historyRunId || focusedTaskOptions?.runId || "").trim();
   const automationItems = Array.isArray(automations) ? automations : [];
   const taskFailures = taskCenterFailureBuckets(automationItems, activeRuns);
   const failedAutomationItems = taskFailures.automationFailures;
@@ -6977,10 +6978,11 @@ function SubagentWorkbench({
     const id = focusedAutomationId || focusedSubagentId;
     if (!id) return undefined;
     const timer = window.setTimeout(() => {
-      document.querySelector(".focused-task-card")?.scrollIntoView?.({ block: "center", behavior: "smooth" });
+      const historyRun = document.querySelector(".focused-task-card .focused-automation-history-run");
+      (historyRun || document.querySelector(".focused-task-card"))?.scrollIntoView?.({ block: "center", behavior: "smooth" });
     }, 80);
     return () => window.clearTimeout(timer);
-  }, [focusedAutomationId, focusedSubagentId, focus?.nonce, localTaskFocus?.nonce, showArchivedRuns]);
+  }, [focusedAutomationId, focusedSubagentId, focusedAutomationHistoryRunId, focus?.nonce, localTaskFocus?.nonce, showArchivedRuns]);
 
   return (
     <div className="subagent-workbench">
@@ -7063,7 +7065,7 @@ function SubagentWorkbench({
             {visibleAutomationCards.map((item) => {
               const isFocusedAutomation = focusedAutomationId === item.id;
               const openFocusedAutomationEvidence = Boolean(isFocusedAutomation && focusedTaskOptions?.expandEvidence);
-              const openFocusedAutomationHistory = Boolean(isFocusedAutomation && (focusedTaskOptions?.expandHistory || focusedTaskOptions?.expandEvidence));
+              const openFocusedAutomationHistory = Boolean(isFocusedAutomation && (focusedTaskOptions?.expandHistory || focusedTaskOptions?.expandEvidence || focusedAutomationHistoryRunId));
               const lastRunDetail = item.lastRun?.error || item.lastRun?.detail || "";
               const recoveryEntry = automationRecoveryEntry(item);
               const history = Array.isArray(item.history) ? item.history.slice(0, 3) : [];
@@ -7137,8 +7139,20 @@ function SubagentWorkbench({
                       <details className="automation-task-history" open={openFocusedAutomationHistory || undefined}>
                         <summary>{t.automationRunHistoryShort}</summary>
                         <ul>
-                          {history.map((entry) => (
-                            <li key={entry.id} className={entry.status}>
+                          {history.map((entry) => {
+                            const isFocusedHistoryRun = Boolean(
+                              isFocusedAutomation &&
+                              focusedAutomationHistoryRunId &&
+                              entry.id === focusedAutomationHistoryRunId,
+                            );
+                            return (
+                            <li
+                              key={entry.id}
+                              className={cx(entry.status, isFocusedHistoryRun && "focused-automation-history-run")}
+                              data-automation-history-run-id={entry.id || ""}
+                              aria-current={isFocusedHistoryRun ? "true" : undefined}
+                              {...taskSurfaceTraceAttributes({ kind: "automation", action: "open-history", item, entry })}
+                            >
                               <span>{automationStatusLabel(entry.status, t)}</span>
                               <time>{formatDate(entry.endedAt || entry.startedAt)}</time>
                               <em>{automationTriggerLabel(entry.trigger, t)}</em>
@@ -7171,7 +7185,7 @@ function SubagentWorkbench({
                               </div>
                               {(entry.detail || entry.error || entry.summary) && <p>{messageExcerpt(entry.detail || entry.error || entry.summary, 110)}</p>}
                               {(entry.stdout || entry.stderr || entry.sessionId || typeof entry.code === "number") && (
-                                <details className="automation-run-evidence-details" open={openFocusedAutomationEvidence || undefined}>
+                                <details className="automation-run-evidence-details" open={(openFocusedAutomationEvidence || isFocusedHistoryRun) || undefined}>
                                   <summary>{t.automationRawEvidence}</summary>
                                   <dl className="automation-run-evidence-meta">
                                     <div><dt>{t.automationSession}</dt><dd>{entry.sessionId || "-"}</dd></div>
@@ -7193,7 +7207,8 @@ function SubagentWorkbench({
                                 </details>
                               )}
                             </li>
-                          ))}
+                            );
+                          })}
                         </ul>
                       </details>
                     )}
@@ -14968,6 +14983,51 @@ export function App() {
         action: () => openRunTimeline(entry.id),
       })));
 
+    const automationHistoryFocusCommands = automationItemsForCommands
+      .filter((automation) => automation?.id)
+      .flatMap((automation) => {
+        const statusFilter = taskCenterFilterForAutomation(automation);
+        return automationRunEntries(automation).map((entry) => ({
+          id: `automation-history:${commandIdSegment(entry.id)}`,
+          title: `${t.taskCenter}: ${messageExcerpt(automation.prompt, 56)}`,
+          subtitle: [
+            automationStatusLabel(entry.status || automation.status, t),
+            entry.summary || entry.error || entry.detail,
+            entry.endedAt ? formatDate(entry.endedAt) : "",
+          ].filter(Boolean).join(" · "),
+          group: t.taskCenter,
+          target: "automation",
+          priority: 14,
+          dataAttributes: taskTraceAttributes({ kind: "automation", action: "open-history", item: automation, entry, filter: statusFilter }),
+          keywords: [
+            "automation run history focus task center command palette evidence stdout stderr",
+            "自动化 历史 定位 聚焦 任务中心 命令面板 证据",
+            t.taskCenter,
+            t.automationRunHistoryShort,
+            automation.id,
+            automation.prompt,
+            automation.project?.name,
+            automation.project?.path,
+            automation.threadId,
+            entry.id,
+            entry.status,
+            entry.trigger,
+            entry.summary,
+            entry.error,
+            entry.detail,
+            entry.stdout,
+            entry.stderr,
+            entry.sessionId,
+          ].filter(Boolean).join(" "),
+          action: () => openTaskCenterFocus("automation", automation.id, {
+            filter: statusFilter,
+            expandHistory: true,
+            expandEvidence: true,
+            historyRunId: entry.id,
+          }),
+        }));
+      });
+
     const automationHistoryCopyCommands = automationItemsForCommands
       .filter((automation) => automation?.id)
       .flatMap((automation) => {
@@ -16050,6 +16110,7 @@ export function App() {
       ...taskFilterCommands,
       ...automationCommands,
       ...automationRunCommands,
+      ...automationHistoryFocusCommands,
       ...automationHistoryCopyCommands,
       ...automationRecoveryCommands,
       ...scheduledActionCommands,
@@ -16678,6 +16739,7 @@ export function App() {
       expandEvidence: Boolean(options.expandEvidence),
       expandArtifacts: Boolean(options.expandArtifacts),
       expandHistory: Boolean(options.expandHistory),
+      historyRunId: String(options.historyRunId || options.runId || "").trim(),
       nonce: Date.now(),
     });
     setBottomPanel("subagents");
