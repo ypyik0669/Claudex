@@ -12645,6 +12645,59 @@ export function App() {
         };
       });
 
+    const marketplaceInstallCommands = marketplacePluginItemsForCommands
+      .filter((plugin) => (plugin?.id || plugin?.name) && !plugin?.installed)
+      .slice(0, 16)
+      .map((plugin) => {
+        const id = plugin.id || plugin.name;
+        const commandLine = `plugin install ${id}`;
+        const reviewRows = [
+          [t.commandLine, `claude ${commandLine}`],
+          plugin.marketplace ? [t.marketplace, plugin.marketplace] : null,
+          plugin.version && plugin.version !== "unknown" ? [t.version, plugin.version] : null,
+          plugin.risk ? [t.marketplaceRisk, plugin.risk] : [t.marketplaceRisk, t.marketplaceInstallRisk],
+          plugin.permissions ? [t.allowedTools, plugin.permissions] : null,
+          [t.commandCwd, activeProject?.path || t.localWorkspace],
+        ].filter(Boolean);
+        return {
+          id: `marketplace-install:${commandIdSegment(id)}`,
+          title: `${t.installFromMarketplace}: ${plugin.name || id}`,
+          subtitle: [
+            plugin.marketplace,
+            plugin.risk ? t.marketplaceRisk : t.marketplaceCatalog,
+            plugin.version && plugin.version !== "unknown" ? `${t.version}: ${plugin.version}` : "",
+          ].filter(Boolean).join(" · "),
+          group: t.capabilities,
+          keywords: [
+            "marketplace install plugin confirmation risk claude code command palette",
+            plugin.id,
+            plugin.name,
+            plugin.marketplace,
+            plugin.version,
+            plugin.description,
+            plugin.category,
+            plugin.author,
+            plugin.source,
+            plugin.permissions,
+            plugin.risk,
+            t.installFromMarketplace,
+            t.marketplaceInstallReview,
+            t.marketplaceRisk,
+          ].filter(Boolean).join(" "),
+          action: () => openCapabilitiesSurface("marketplace", {
+            kind: "marketplace-plugin",
+            id,
+            query: id,
+            marketplaceFilter: "available",
+            confirmCommand: {
+              args: commandLine,
+              label: `${t.installFromMarketplace}: ${plugin.name || id}`,
+              reviewRows,
+            },
+          }),
+        };
+      });
+
     return [
       ...projectCommands,
       ...threadCommands,
@@ -12672,6 +12725,7 @@ export function App() {
       ...marketplaceSourceCommands,
       ...customMarketplaceCommands,
       ...marketplaceFilterCommands,
+      ...marketplaceInstallCommands,
       ...marketplacePluginCommands,
     ];
   }, [state.projects, state.sessions, state.notices, state.sourceRefs, state.browserVisits, state.automations, state.subagentRuns, state.commandRuns, state.runEvents, state.settings?.customMarketplaces, capabilityCommandStatus, runEvents, environment, t, activeProject?.path, activeProject?.name]);
