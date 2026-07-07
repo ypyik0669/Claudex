@@ -2813,6 +2813,19 @@ function taskCenterFailureBuckets(automations = [], subagentRuns = []) {
   };
 }
 
+function taskCenterFilterForAutomation(automation = {}) {
+  if (automationNeedsRecovery(automation)) return "failed";
+  if (["running", "scheduled"].includes(automation?.status)) return "active";
+  return "";
+}
+
+function taskCenterFilterForSubagent(run = {}) {
+  if (run?.archivedAt) return "archived";
+  if (subagentNeedsRecovery(run)) return "failed";
+  if (run?.status === "running") return "active";
+  return "";
+}
+
 function findCommandRunForEvent(event, commandRuns = []) {
   const eventId = String(event?.id || "");
   const commandLine = String(event?.commandLine || "").trim();
@@ -5078,7 +5091,7 @@ function Conversation({
       if (automationId && onOpenTaskCenterFocus) {
         const automation = (automations || []).find((item) => item?.id === automationId);
         onOpenTaskCenterFocus("automation", automationId, {
-          filter: automationNeedsRecovery(automation) ? "failed" : "",
+          filter: taskCenterFilterForAutomation(automation),
           expandEvidence: true,
           expandHistory: true,
         });
@@ -5092,7 +5105,7 @@ function Conversation({
       if (subagentId && onOpenTaskCenterFocus) {
         const run = (subagentRuns || []).find((item) => item?.id === subagentId || item?.requestId === subagentId);
         onOpenTaskCenterFocus("subagent", subagentId, {
-          filter: run?.archivedAt ? "archived" : subagentNeedsRecovery(run) ? "failed" : "",
+          filter: taskCenterFilterForSubagent(run),
           expandEvidence: true,
           expandArtifacts: true,
         });
@@ -13891,11 +13904,7 @@ export function App() {
         const lastRun = automation.lastRun || {};
         const hasEvidence = Boolean(lastRun.id || lastRun.error || lastRun.detail || lastRun.summary || lastRun.stdout || lastRun.stderr);
         const hasHistory = automationRunEntries(automation).length > 0;
-        const statusFilter = automationNeedsRecovery(automation)
-          ? "failed"
-          : ["running", "scheduled"].includes(automation.status)
-            ? "active"
-            : "";
+        const statusFilter = taskCenterFilterForAutomation(automation);
         return {
           id: `automation:${commandIdSegment(automation.id)}`,
           title: `${t.automationTasks}: ${messageExcerpt(automation.prompt, 72)}`,
@@ -14029,13 +14038,7 @@ export function App() {
     const subagentCommands = subagentRunsForCommands
       .filter((run) => run?.id || run?.requestId)
       .map((run) => {
-        const statusFilter = run.archivedAt
-          ? "archived"
-          : subagentNeedsRecovery(run)
-            ? "failed"
-            : run.status === "running"
-              ? "active"
-              : "";
+        const statusFilter = taskCenterFilterForSubagent(run);
         return {
           id: `subagent:${commandIdSegment(run.id || run.requestId)}`,
           title: `${t.subagents}: ${run.nickname || "Subagent"}`,
@@ -15367,7 +15370,7 @@ export function App() {
       if (automationId) {
         const automation = (state.automations || []).find((item) => item?.id === automationId);
         openTaskCenterFocus("automation", automationId, {
-          filter: automationNeedsRecovery(automation) ? "failed" : "",
+          filter: taskCenterFilterForAutomation(automation),
           expandEvidence: true,
           expandHistory: true,
         });
@@ -15381,7 +15384,7 @@ export function App() {
       if (subagentId) {
         const run = (state.subagentRuns || []).find((item) => item?.id === subagentId || item?.requestId === subagentId);
         openTaskCenterFocus("subagent", subagentId, {
-          filter: run?.archivedAt ? "archived" : subagentNeedsRecovery(run) ? "failed" : "",
+          filter: taskCenterFilterForSubagent(run),
           expandEvidence: true,
           expandArtifacts: true,
         });
