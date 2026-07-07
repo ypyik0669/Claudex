@@ -13102,8 +13102,21 @@ export function App() {
   async function forkThread(session) {
     if (!desktopApi?.forkSession || !session) return;
     try {
+      const targetProject = {
+        name: session.project || activeProject?.name || t.localWorkspace,
+        path: session.projectPath || "",
+      };
+      const currentKey = String(activeProject?.path || activeProject?.name || "").trim().toLowerCase();
+      const targetKey = String(targetProject.path || targetProject.name || "").trim().toLowerCase();
+      enterThreadWorkspace("current");
       const next = await desktopApi.forkSession(session.id);
-      applySessionState(next, next.selectedSessionId || "");
+      const forkSessionId = next.selectedSessionId || "";
+      if (desktopApi?.setActiveProject && targetKey && targetKey !== currentKey) {
+        const projectState = await desktopApi.setActiveProject(targetProject);
+        applySessionState(projectState, forkSessionId, "current");
+      } else {
+        applySessionState(next, forkSessionId, "current");
+      }
       showToast(t.threadForked);
     } catch (error) {
       showToast(error.message || String(error));
