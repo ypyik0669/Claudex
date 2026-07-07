@@ -7679,13 +7679,19 @@ function ToolRail({
   const automationItems = Array.isArray(automations) ? automations : [];
   const runningAutomationItems = automationItems.filter((item) => item?.status === "running");
   const failedAutomationItems = automationItems.filter((item) => automationNeedsRecovery(item));
-  const scheduledAutomationItems = automationItems.filter((item) => ["scheduled", "paused"].includes(item?.status) || item?.nextRun);
-  const automationRailItem = failedAutomationItems[0] || runningAutomationItems[0] || scheduledAutomationItems[0] || automationItems[0] || null;
+  const scheduledAutomationItems = automationItems.filter((item) => item?.status === "scheduled" || item?.nextRun);
+  const pausedAutomationItems = automationItems.filter((item) => item?.status === "paused");
+  const readyAutomationCount = scheduledAutomationItems.length + pausedAutomationItems.length;
+  const automationRailItem = failedAutomationItems[0] || runningAutomationItems[0] || scheduledAutomationItems[0] || pausedAutomationItems[0] || automationItems[0] || null;
   const openAutomationRailTarget = () => {
     const automationId = automationRailItem?.id || "";
-    if (automationId && (failedAutomationItems.length || runningAutomationItems.length || scheduledAutomationItems.length)) {
+    if (automationId && (failedAutomationItems.length || runningAutomationItems.length || readyAutomationCount)) {
       onOpenTaskCenterFocus?.("automation", automationId, {
-        filter: failedAutomationItems.length ? "failed" : runningAutomationItems.length || scheduledAutomationItems.length ? "active" : "",
+        filter: failedAutomationItems.length
+          ? "failed"
+          : runningAutomationItems.length || scheduledAutomationItems.length
+            ? "active"
+            : "",
         expandEvidence: failedAutomationItems.length > 0 || runningAutomationItems.length > 0,
         expandHistory: failedAutomationItems.length > 0 || runningAutomationItems.length > 0,
       });
@@ -7697,7 +7703,7 @@ function ToolRail({
     ? "error"
     : runningAutomationItems.length
       ? "running"
-      : scheduledAutomationItems.length
+      : readyAutomationCount
         ? "ready"
         : automationItems.length
           ? "ready"
@@ -7706,7 +7712,11 @@ function ToolRail({
     ? "!"
     : runningAutomationItems.length
       ? "●"
-      : countBadge(scheduledAutomationItems.length || automationItems.length);
+      : countBadge(readyAutomationCount || automationItems.length);
+  const readyAutomationDetail = [
+    scheduledAutomationItems.length ? `${t.automationStatusScheduled}: ${scheduledAutomationItems.length}` : "",
+    pausedAutomationItems.length ? `${t.automationStatusPaused}: ${pausedAutomationItems.length}` : "",
+  ].filter(Boolean).join(" · ");
   const automationRailDetail = failedAutomationItems.length
     ? t.taskCenterFailureSummary
       .replace("{total}", failedAutomationItems.length)
@@ -7714,8 +7724,8 @@ function ToolRail({
       .replace("{subagents}", 0)
     : runningAutomationItems.length
       ? `${t.automationStatusRunning}: ${messageExcerpt(runningAutomationItems[0]?.prompt || t.automationTasks, 42)}`
-      : scheduledAutomationItems.length
-        ? `${t.automationStatusScheduled}: ${scheduledAutomationItems.length}`
+      : readyAutomationDetail
+        ? readyAutomationDetail
         : automationItems.length
           ? t.taskCenterFilteredCount.replace("{shown}", automationItems.length).replace("{total}", automationItems.length)
           : t.noAutomationTasks;
