@@ -12948,6 +12948,76 @@ export function App() {
         };
       });
 
+    const latestGitActionCommandEvent = (commandRunEvents || [])
+      .find((event) => event?.id && event.type === "git-command" && event.status !== "running");
+    const latestGitActionCommandRun = latestGitActionCommandEvent
+      ? findCommandRunForEvent(latestGitActionCommandEvent, state.commandRuns)
+      : null;
+    const latestGitActionCommandLine = String(
+      latestGitActionCommandEvent?.commandLine
+      || latestGitActionCommandRun?.commandLine
+      || latestGitActionCommandRun?.command
+      || "",
+    ).trim();
+    const latestGitActionCommandCwd = String(
+      latestGitActionCommandEvent?.cwd
+      || latestGitActionCommandRun?.cwd
+      || latestGitActionCommandRun?.project?.path
+      || latestGitActionCommandEvent?.project?.path
+      || "",
+    ).trim();
+    const latestGitActionCommandCode = typeof latestGitActionCommandEvent?.code === "number"
+      ? latestGitActionCommandEvent.code
+      : typeof latestGitActionCommandRun?.code === "number"
+        ? latestGitActionCommandRun.code
+        : null;
+    const latestGitActionCommandOutput = [
+      latestGitActionCommandEvent?.stdout,
+      latestGitActionCommandEvent?.stderr,
+      latestGitActionCommandRun?.stdout,
+      latestGitActionCommandRun?.stderr,
+    ].filter(Boolean).join("\n");
+    const latestGitActionCommands = latestGitActionCommandEvent
+      ? [{
+          id: `git-latest-action:${commandIdSegment(latestGitActionCommandEvent.id)}`,
+          title: `${t.recentGitAction}: ${latestGitActionCommandEvent.title || "Git"}`,
+          subtitle: [
+            t.noticeOpenChangesEvidence || t.gitEvidence,
+            runTimelineStatusLabel(latestGitActionCommandEvent.status, t),
+            latestGitActionCommandLine,
+            latestGitActionCommandCwd,
+            typeof latestGitActionCommandCode === "number" ? `${t.commandExit}: ${latestGitActionCommandCode}` : "",
+          ].filter(Boolean).join(" · "),
+          group: t.changes,
+          target: "changes",
+          priority: 64,
+          keywords: [
+            "git latest recent action failure failed error changes evidence command palette status stdout stderr",
+            t.recentGitAction,
+            t.noticeOpenChangesEvidence,
+            t.gitEvidence,
+            latestGitActionCommandEvent.id,
+            latestGitActionCommandEvent.type,
+            latestGitActionCommandEvent.status,
+            latestGitActionCommandEvent.title,
+            latestGitActionCommandEvent.detail,
+            latestGitActionCommandLine,
+            latestGitActionCommandCwd,
+            latestGitActionCommandCode,
+            latestGitActionCommandEvent.project?.name,
+            latestGitActionCommandEvent.project?.path,
+            latestGitActionCommandRun?.id,
+            latestGitActionCommandRun?.requestId,
+            latestGitActionCommandRun?.kind,
+            latestGitActionCommandOutput,
+          ].filter(Boolean).join(" "),
+          action: () => {
+            setRunTimelineFocus({ id: latestGitActionCommandEvent.id, nonce: Date.now() });
+            openBottomPanel("changes");
+          },
+        }]
+      : [];
+
     const gitFileCommands = (Array.isArray(environment?.git?.files) ? environment.git.files : [])
       .filter((file) => file?.path || file?.previousPath)
       .slice(0, 24)
@@ -13932,6 +14002,7 @@ export function App() {
       ...runEvidenceCommands,
       ...commandRunCommands,
       ...noticeCommands,
+      ...latestGitActionCommands,
       ...gitFileCommands,
       ...gitOpenFileCommands,
       ...gitHunkCommands,
