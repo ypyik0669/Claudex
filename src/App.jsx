@@ -34,6 +34,7 @@ import {
   Plug,
   Plus,
   RefreshCw,
+  RotateCcw,
   Search,
   Send,
   Settings,
@@ -937,6 +938,7 @@ const copy = {
     gitActionRunning: "Git 操作中",
     recentGitAction: "最近 Git 操作",
     focusedGitAction: "聚焦 Git 操作",
+    returnToRecentGitAction: "回到最近",
     recentFailedGitAction: "最近失败 Git 操作",
     recentSuccessfulGitAction: "最近成功 Git 操作",
     gitActionEvidenceHint: "来自 run timeline / workspace command 的本地证据",
@@ -4125,6 +4127,7 @@ function Conversation({
   onRetryCapabilityCommand,
   onConfirmCapabilityCommand,
   onOpenRunTimeline,
+  onClearRunTimelineFocus,
   onOpenWorkspaceFile,
   runTimelineFocus,
   gitPanelFocus,
@@ -5409,6 +5412,18 @@ function Conversation({
                         >
                           {copiedLatestGitAction ? <Check size={13} /> : <Copy size={13} />}
                           {copiedLatestGitAction ? t.copied : t.copyGitEvidence}
+                        </button>
+                      )}
+                      {focusedGitActionEvent && (
+                        <button
+                          type="button"
+                          className="plain-action subtle-action"
+                          data-git-action="clear-focus"
+                          onClick={() => onClearRunTimelineFocus?.()}
+                          title={t.returnToRecentGitAction}
+                        >
+                          <RotateCcw size={13} />
+                          {t.returnToRecentGitAction}
                         </button>
                       )}
                       <button
@@ -14961,6 +14976,7 @@ export function App() {
           onRetryCapabilityCommand={runPersistedCapabilityCommand}
           onConfirmCapabilityCommand={openCapabilityRetryConfirmation}
           onOpenRunTimeline={openRunTimeline}
+          onClearRunTimelineFocus={() => setRunTimelineFocus({ id: "", nonce: Date.now() })}
           onOpenWorkspaceFile={openWorkspaceFile}
           runTimelineFocus={runTimelineFocus}
           gitPanelFocus={gitPanelFocus}
