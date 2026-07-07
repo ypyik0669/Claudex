@@ -558,6 +558,7 @@ const copy = {
     installPlugin: "安装插件",
     updatePlugin: "更新",
     disablePlugin: "禁用",
+    openInstalledPlugin: "打开已安装",
     pluginName: "插件名",
     pluginNamePlaceholder: "github@openai 或 plugin@marketplace",
     pluginActions: "插件操作",
@@ -1978,6 +1979,33 @@ function panelPluginNameFromId(idValue) {
 function panelPluginMarketplaceFromId(idValue) {
   const idText = String(idValue || "").trim();
   return idText.includes("@") ? idText.split("@").slice(1).join("@") : "";
+}
+
+function pluginIdentityValues(plugin = {}) {
+  const id = String(plugin?.id || "").trim();
+  const name = String(plugin?.name || "").trim();
+  return [...new Set([
+    id,
+    name,
+    panelPluginNameFromId(id),
+    panelPluginNameFromId(name),
+  ].map((item) => String(item || "").trim()).filter(Boolean))];
+}
+
+function pluginMatchesIdentifier(plugin = {}, identifier = "") {
+  const target = String(identifier || "").trim().toLowerCase();
+  if (!target) return false;
+  const targetBase = panelPluginNameFromId(target).toLowerCase();
+  const allowBaseMatch = !target.includes("@");
+  return pluginIdentityValues(plugin)
+    .map((item) => item.toLowerCase())
+    .some((item) => item === target || (allowBaseMatch && item === targetBase));
+}
+
+function findPluginByIdentifiers(plugins = [], identifiers = []) {
+  const targets = [...new Set((identifiers || []).map((item) => String(item || "").trim()).filter(Boolean))];
+  if (!targets.length) return null;
+  return (plugins || []).find((plugin) => targets.some((target) => pluginMatchesIdentifier(plugin, target))) || null;
 }
 
 function panelPluginItemsFromJsonText(output) {
@@ -8760,7 +8788,8 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
     skills: visibleRows.filter((item) => item.type === "skill"),
     mcp: visibleRows.filter((item) => item.type === "tool" && /mcp/i.test(item.id + item.name + item.description)),
   };
-  const installedPluginRows = (Array.isArray(cliStatus?.pluginItems) ? cliStatus.pluginItems : []).filter((item) => structuredQueryMatch(item, normalizedQuery));
+  const allInstalledPluginRows = Array.isArray(cliStatus?.pluginItems) ? cliStatus.pluginItems : [];
+  const installedPluginRows = allInstalledPluginRows.filter((item) => structuredQueryMatch(item, normalizedQuery));
   const marketplaceRows = (Array.isArray(cliStatus?.marketplaces) ? cliStatus.marketplaces : []).filter((item) => structuredQueryMatch(item, normalizedQuery));
   const marketplacePluginRows = (Array.isArray(cliStatus?.marketplacePlugins) ? cliStatus.marketplacePlugins : []).filter((item) => structuredQueryMatch(item, normalizedQuery));
   const mcpServerRows = (Array.isArray(cliStatus?.mcpServers) ? cliStatus.mcpServers : []).filter((item) => structuredQueryMatch(item, normalizedQuery));
@@ -9260,6 +9289,21 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
     openRuntimeHealthTargetName(runtimeHealthTargetForIssue(issue));
   }
 
+  function openInstalledPluginRow(plugin, fallbackIdentifier = "") {
+    const id = String(plugin?.id || fallbackIdentifier || "").trim();
+    if (!id) return;
+    setActiveTab("plugins");
+    setFilter("all");
+    setQuery(id);
+    setCapabilityActionFocus({
+      tab: "plugins",
+      kind: "plugin",
+      id,
+      query: id,
+      nonce: Date.now(),
+    });
+  }
+
   function openCapabilityOutputs() {
     onOpenBottomPanel?.("outputs");
     onClose?.();
@@ -9584,6 +9628,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                 {marketplacePluginRows.slice(0, 80).map((item) => {
                   const recentRun = findRecentPluginActionRun(recentCapabilityRuns, [item.id, item.name], ["install", "update"]);
                   const pluginFocused = capabilityFocusMatches("marketplace-plugin", item.id, item.name);
+                  const installedPlugin = findPluginByIdentifiers(allInstalledPluginRows, [item.id, item.name]);
                   const pluginRetry = pluginFocused && recentRun && recentRun.code !== 0
                     ? () => requestCapabilityClaude(`plugin install ${item.id}`, `${t.installFromMarketplace}: ${item.name || item.id}`, marketplaceInstallReviewRows(item))
                     : null;
@@ -9618,6 +9663,12 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                         <button type="button" className="plain-action subtle-action" onClick={() => desktopApi?.openBrowserUrl?.(item.homepage)}>
                           <ExternalLink size={13} />
                           {t.openHomepage}
+                        </button>
+                      )}
+                      {installedPlugin && (
+                        <button type="button" className="plain-action subtle-action" data-marketplace-plugin-action="open-installed" onClick={() => openInstalledPluginRow(installedPlugin, item.id)}>
+                          <ArrowRight size={13} />
+                          {t.openInstalledPlugin}
                         </button>
                       )}
                       <button type="button" className="plain-action subtle-action" data-marketplace-plugin-action="copy-evidence" onClick={() => copyMarketplacePluginEvidence(item)} disabled={cliWorking} title={cliWorking ? t.workingHint : copiedMarketplacePluginId === item.id ? t.copied : t.copyEvidence}>
