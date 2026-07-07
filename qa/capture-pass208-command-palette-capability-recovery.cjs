@@ -285,6 +285,32 @@ async function runTest() {
   assertStep("PASS208_MUTATING_RETRY_COMMAND_VISIBLE", await commandVisible(win, `capability-recovery:retry:${MUTATING_RUN_ID}`, /重试|retry/i, "capabilities"));
   const beforeMutatingRetry = readCommandLog();
   assertStep("PASS208_CLICK_MUTATING_RETRY", await clickCommandById(win, `capability-recovery:retry:${MUTATING_RUN_ID}`));
+  assertStep("PASS208_MUTATING_RETRY_ACTION_FOCUSED", await waitFor(win, `
+    (function() {
+      const row = document.querySelector('.plugin-manager-modal [data-plugin-id="${PLUGIN_ID}"]');
+      const retry = row?.querySelector('[data-plugin-action="retry"]');
+      return Boolean(
+        row &&
+        retry &&
+        row.classList.contains('focused-capability-row') &&
+        retry.getAttribute('data-capability-action-focused') === 'true' &&
+        retry.getAttribute('data-capability-kind') === 'plugin' &&
+        retry.getAttribute('data-capability-action') === 'retry' &&
+        retry.getAttribute('data-capability-id') === '${PLUGIN_ID}' &&
+        /plugin disable ${PLUGIN_ID}/.test(row.textContent || '') &&
+        !document.querySelector('.plugin-cli-confirm')
+      );
+    })();
+  `, 10000));
+  assertStep("PASS208_MUTATING_NOT_RUN_BEFORE_ROW_RETRY", !/plugin disable pass208-plugin@qa-market/.test(readCommandLog().slice(beforeMutatingRetry.length)));
+  assertStep("PASS208_CLICK_MUTATING_ROW_RETRY", await win.webContents.executeJavaScript(`
+    (function() {
+      const button = document.querySelector('.plugin-manager-modal [data-plugin-id="${PLUGIN_ID}"] [data-plugin-action="retry"]');
+      if (!button || button.disabled) return false;
+      button.click();
+      return true;
+    })();
+  `));
   assertStep("PASS208_MUTATING_CONFIRM_VISIBLE", await waitFor(win, `
     Boolean(document.querySelector('.plugin-manager-modal') &&
       document.querySelector('.plugin-cli-confirm') &&

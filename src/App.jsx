@@ -1847,7 +1847,7 @@ function skillEvidenceText(skill = {}, t) {
   return rows.map(([label, value]) => `${label}: ${value}`).join("\n");
 }
 
-function RowCliActionEvidence({ run, t, onOpenOutputs, onRetry }) {
+function RowCliActionEvidence({ run, t, onOpenOutputs, onRetry, retryActionAttributes = {}, retryFocusAttributes = {}, retryTraceAttributes = {} }) {
   const [copied, setCopied] = useState(false);
   if (!run) return null;
   const commandLine = capabilityCommandLine(run);
@@ -1886,7 +1886,15 @@ function RowCliActionEvidence({ run, t, onOpenOutputs, onRetry }) {
             </button>
           )}
           {onRetry && status === "error" && (
-            <button type="button" className="plain-action subtle-action" onClick={onRetry} title={t.retry}>
+            <button
+              type="button"
+              className="plain-action subtle-action"
+              onClick={onRetry}
+              title={t.retry}
+              {...retryActionAttributes}
+              {...retryFocusAttributes}
+              {...retryTraceAttributes}
+            >
               <RefreshCw size={12} />
               {t.retry}
             </button>
@@ -12145,6 +12153,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                 {marketplaceRows.map((item) => {
                   const sourceFocused = capabilityFocusMatches("marketplace-source", item.name);
                   const sourceCopyFocused = capabilityActionFocusMatches("marketplace-source", "copy", item.name);
+                  const sourceRetryFocused = capabilityActionFocusMatches("marketplace-source", "retry", item.name);
                   const sourceRetry = sourceFocused && recentMarketplaceActionRun && recentMarketplaceActionRun.code !== 0
                     ? () => requestCapabilityClaude("plugin marketplace update", `${t.updatePlugin}: ${t.marketplace}`, marketplaceUpdateReviewRows())
                     : null;
@@ -12194,7 +12203,15 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                           {copiedMarketplaceSourceId === item.name ? t.copied : t.copyEvidence}
                         </button>
                       </div>
-                      <RowCliActionEvidence run={sourceFocused ? recentMarketplaceActionRun : null} t={t} onOpenOutputs={openCapabilityOutputs} onRetry={sourceRetry} />
+                      <RowCliActionEvidence
+                        run={sourceFocused ? recentMarketplaceActionRun : null}
+                        t={t}
+                        onOpenOutputs={openCapabilityOutputs}
+                        onRetry={sourceRetry}
+                        retryActionAttributes={{ "data-marketplace-source-action": "retry" }}
+                        retryFocusAttributes={capabilityActionFocusAttributes(sourceRetryFocused)}
+                        retryTraceAttributes={surfaceTraceAttributes("marketplace-source", "retry", item, { id: item.name, name: item.name })}
+                      />
                     </article>
                   );
                 })}
@@ -12243,6 +12260,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                   const pluginInstallFocused = capabilityActionFocusMatches("marketplace-plugin", "install", item.id, item.name);
                   const pluginOpenInstalledFocused = capabilityActionFocusMatches("marketplace-plugin", "open-installed", item.id, item.name);
                   const pluginCopyFocused = capabilityActionFocusMatches("marketplace-plugin", "copy", item.id, item.name);
+                  const pluginRetryFocused = capabilityActionFocusMatches("marketplace-plugin", "retry", item.id, item.name);
                   const installedPlugin = findPluginByIdentifiers(allInstalledPluginRows, [item.id, item.name]);
                   const toolDetails = Array.isArray(item.toolDetails) ? item.toolDetails : [];
                   const pluginRetry = pluginFocused && recentRun && recentRun.code !== 0
@@ -12334,7 +12352,15 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                         {copiedMarketplacePluginId === item.id ? t.copied : t.copyEvidence}
                       </button>
                     </div>
-                    <RowCliActionEvidence run={recentRun} t={t} onOpenOutputs={openCapabilityOutputs} onRetry={pluginRetry} />
+                    <RowCliActionEvidence
+                      run={recentRun}
+                      t={t}
+                      onOpenOutputs={openCapabilityOutputs}
+                      onRetry={pluginRetry}
+                      retryActionAttributes={{ "data-marketplace-plugin-action": "retry" }}
+                      retryFocusAttributes={capabilityActionFocusAttributes(pluginRetryFocused)}
+                      retryTraceAttributes={surfaceTraceAttributes("marketplace-plugin", "retry", item, { id: item.id || item.name })}
+                    />
                   </article>
                   );
                 })}
@@ -12441,6 +12467,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                   const pluginEnableFocused = capabilityActionFocusMatches("plugin", "enable", plugin.id, plugin.name);
                   const pluginUpdateFocused = capabilityActionFocusMatches("plugin", "update", plugin.id, plugin.name);
                   const pluginCopyFocused = capabilityActionFocusMatches("plugin", "copy", plugin.id, plugin.name);
+                  const pluginRetryFocused = capabilityActionFocusMatches("plugin", "retry", plugin.id, plugin.name);
                   const toolDetails = Array.isArray(plugin.toolDetails) ? plugin.toolDetails : [];
                   const pluginRetryArgs = pluginFocused && recentRun && recentRun.code !== 0
                     ? pluginActionArgsFromRun(recentRun, plugin.id)
@@ -12548,7 +12575,15 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                         {copiedPluginId === plugin.id ? t.copied : t.copyEvidence}
                       </button>
                     </div>
-                    <RowCliActionEvidence run={recentRun} t={t} onOpenOutputs={openCapabilityOutputs} onRetry={pluginRetry} />
+                    <RowCliActionEvidence
+                      run={recentRun}
+                      t={t}
+                      onOpenOutputs={openCapabilityOutputs}
+                      onRetry={pluginRetry}
+                      retryActionAttributes={{ "data-plugin-action": "retry" }}
+                      retryFocusAttributes={capabilityActionFocusAttributes(pluginRetryFocused)}
+                      retryTraceAttributes={surfaceTraceAttributes("plugin", "retry", plugin, { id: plugin.id || plugin.name })}
+                    />
                   </article>
                   );
                 })}
@@ -14230,11 +14265,19 @@ export function App() {
     }
   }
 
+  function capabilityRetrySurfaceFocus(args) {
+    const nextArgs = String(args || "").trim();
+    if (!mutatingCapabilityRetryArgsFromRun({ commandLine: `claude ${nextArgs}` })) return null;
+    return capabilityRetryFocusForArgs(nextArgs, {
+      marketplaces: Array.isArray(capabilityCommandStatus?.marketplaces) ? capabilityCommandStatus.marketplaces : [],
+    });
+  }
+
   function openCapabilityRetryConfirmation(args) {
     const nextArgs = String(args || "").trim();
-    if (!mutatingCapabilityRetryArgsFromRun({ commandLine: `claude ${nextArgs}` })) return;
-    const focus = capabilityRetryFocusForArgs(nextArgs);
-    const nextTab = focus?.tab || "plugins";
+    const focus = capabilityRetrySurfaceFocus(nextArgs);
+    if (!focus) return;
+    const nextTab = focus.tab || "plugins";
     openCapabilitiesSurface(nextTab, {
       ...focus,
       confirmCommand: {
@@ -14245,6 +14288,16 @@ export function App() {
           [t.commandCwd, activeProject?.path || t.localWorkspace],
         ],
       },
+    });
+  }
+
+  function openCapabilityRetryActionFocus(args) {
+    const focus = capabilityRetrySurfaceFocus(args);
+    if (!focus) return;
+    const nextTab = focus?.tab || "plugins";
+    openCapabilitiesSurface(nextTab, {
+      ...focus,
+      action: "retry",
     });
   }
 
@@ -14772,7 +14825,7 @@ export function App() {
             keywords,
             action: () => {
               if (mutatingRetryArgs) {
-                openCapabilityRetryConfirmation(mutatingRetryArgs);
+                openCapabilityRetryActionFocus(mutatingRetryArgs);
                 return;
               }
               void runPersistedCapabilityCommand(safeRetryArgs || retryArgs);
