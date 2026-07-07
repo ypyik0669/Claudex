@@ -798,6 +798,7 @@ select:focus-visible,
 }
 
 .workspace-context-button {
+  position: relative;
   width: 32px;
   min-width: 32px;
   max-width: 32px;
@@ -806,6 +807,33 @@ select:focus-visible,
   background: transparent;
   color: #bfc4c0;
   padding: 5px 0;
+}
+
+.workspace-context-button.status-error {
+  color: #efb0a9;
+}
+
+.context-tab-badge {
+  min-width: 16px;
+  height: 16px;
+  display: inline-grid;
+  place-items: center;
+  border: 1px solid rgba(211, 106, 92, 0.36);
+  border-radius: 999px;
+  background: rgba(211, 106, 92, 0.2);
+  color: #ffc2bb;
+  padding: 0 4px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  line-height: 1;
+}
+
+.workspace-context-button .context-tab-badge {
+  position: absolute;
+  top: -5px;
+  right: -5px;
+  box-shadow: 0 0 0 2px rgba(14, 14, 14, 0.92);
 }
 
 .workspace-context-button span,
@@ -832,6 +860,12 @@ select:focus-visible,
   border-color: rgba(209, 131, 87, 0.38);
   background: rgba(209, 131, 87, 0.12);
   color: #f2d0bc;
+}
+
+.workspace-context-button.status-error.active {
+  border-color: rgba(211, 106, 92, 0.42);
+  background: rgba(211, 106, 92, 0.13);
+  color: #ffd5d0;
 }
 
 .workspace-context-button span {
@@ -8044,6 +8078,22 @@ button.runtime-health-row {
 .bottom-panel-tabs button.active {
   background: #262626;
   color: #f0f0ed;
+}
+
+.bottom-panel-tabs button.status-error {
+  color: #efb0a9;
+}
+
+.bottom-panel-tabs button.status-error.active {
+  border-color: rgba(211, 106, 92, 0.32);
+  background: rgba(211, 106, 92, 0.12);
+  color: #ffd5d0;
+}
+
+.bottom-panel-tabs .context-tab-badge {
+  height: 17px;
+  min-width: 17px;
+  margin-left: -2px;
 }
 
 .bottom-panel-tabs .icon-only {

@@ -484,6 +484,7 @@ const copy = {
     taskCenterFailureSummaryTitle: "需要恢复",
     taskCenterFailureSummary: "{total} 个失败任务 · 自动化 {automations} · 子代理 {subagents}",
     taskCenterFailureSummaryHint: "来自真实 automation history 与 subagent run 状态；点击只切到失败过滤并聚焦第一条。",
+    taskCenterFailureBadge: "失败可恢复 {count}",
     taskCenterReviewFailures: "查看失败 / 恢复",
     automationTasks: "自动化任务",
     noAutomationTasks: "还没有自动化任务",
@@ -4111,6 +4112,11 @@ function Conversation({
   }
   const activeNotices = useMemo(() => (notices || []).filter((notice) => !notice.dismissedAt), [notices]);
   const automationItemsForUi = useMemo(() => (Array.isArray(automations) ? automations : []), [automations]);
+  const taskFailureBucketsForUi = useMemo(() => taskCenterFailureBuckets(automationItemsForUi, subagentRuns), [automationItemsForUi, subagentRuns]);
+  const failedTaskCount = taskFailureBucketsForUi.total;
+  const failedTaskBadgeLabel = failedTaskCount
+    ? t.taskCenterFailureBadge.replace("{count}", failedTaskCount)
+    : "";
   const workspaceCommandRuns = useMemo(() => commandRunsToHistory(commandRuns, "workspace"), [commandRuns]);
   const claudeCommandRuns = useMemo(() => commandRunsToHistory(commandRuns, "claude"), [commandRuns]);
   const capabilityCommandRuns = useMemo(() => commandRunsToHistory(commandRuns, "capability"), [commandRuns]);
@@ -4359,7 +4365,17 @@ function Conversation({
     { id: "notices", label: t.notices, icon: AlertTriangle, meta: activeNotices.length ? String(activeNotices.length) : "" },
     { id: "changes", label: t.changes, icon: GitBranch, meta: gitChangesLabel },
     { id: "sources", label: t.sources, icon: Folder, meta: activeProject?.path ? t.files : "" },
-    { id: "subagents", label: t.subagents, icon: Bot, meta: activeTaskCount ? String(activeTaskCount) : "" },
+    {
+      id: "subagents",
+      label: t.subagents,
+      icon: Bot,
+      meta: failedTaskBadgeLabel || (activeTaskCount ? String(activeTaskCount) : ""),
+      badge: failedTaskCount ? String(failedTaskCount) : "",
+      status: failedTaskCount ? "error" : "",
+      onBadgeClick: failedTaskCount
+        ? () => openFirstConversationTaskFailure(taskFailureBucketsForUi.automationFailures, taskFailureBucketsForUi.subagentFailures)
+        : null,
+    },
   ];
   const utilityTabs = [
     { id: "terminal", label: t.terminal, icon: SquareTerminal },
@@ -4373,6 +4389,23 @@ function Conversation({
     setBottomPanel(id);
   }
   const toggleBottomPanel = (id) => (bottomPanel === id ? setBottomPanel("") : openConversationBottomPanel(id));
+  function tabBadgeWasClicked(event) {
+    return Boolean(event?.target?.closest?.(".context-tab-badge"));
+  }
+  function activateContextTab(item, event) {
+    if (tabBadgeWasClicked(event) && item?.onBadgeClick) {
+      item.onBadgeClick();
+      return;
+    }
+    toggleBottomPanel(item.id);
+  }
+  function openBottomContextTab(item, event) {
+    if (tabBadgeWasClicked(event) && item?.onBadgeClick) {
+      item.onBadgeClick();
+      return;
+    }
+    openConversationBottomPanel(item.id);
+  }
   async function retryBottomWorkspaceEntry(entry) {
     const command = workspaceCommandFromRun(entry);
     if (!command || !onRetryWorkspaceCommand || bottomWorkspaceRetryingId) return;
@@ -4525,19 +4558,23 @@ function Conversation({
         <div className="workspace-context-tabs" role="tablist" aria-label={t.bottomPanel}>
           {contextTabs.map((item) => {
             const Icon = item.icon;
+            const tabTitle = item.meta ? `${item.label} · ${item.meta}` : item.label;
             return (
               <button
                 type="button"
                 key={item.id}
-                className={cx("workspace-context-button", bottomPanel === item.id && "active")}
-                onClick={() => toggleBottomPanel(item.id)}
-                title={item.meta ? `${item.label} · ${item.meta}` : item.label}
+                className={cx("workspace-context-button", bottomPanel === item.id && "active", item.status && `status-${item.status}`)}
+                data-context-tab={item.id}
+                data-status={item.status || ""}
+                onClick={(event) => activateContextTab(item, event)}
+                title={tabTitle}
                 aria-label={item.meta ? `${item.label}: ${item.meta}` : item.label}
                 aria-selected={bottomPanel === item.id}
               >
                 <Icon size={14} />
                 <span>{item.label}</span>
                 {item.meta && <em>{item.meta}</em>}
+                {item.badge && <b className="context-tab-badge">{item.badge}</b>}
               </button>
             );
           })}
@@ -4703,19 +4740,26 @@ function Conversation({
       {bottomPanel && (
         <section className="bottom-work-panel" aria-label={t.bottomPanel}>
           <div className="bottom-panel-tabs" role="tablist" aria-label={t.bottomPanel}>
-            {[...contextTabs, ...utilityTabs].map(({ id, label, icon: Icon }) => (
-              <button
-                type="button"
-                key={id}
-                className={cx(bottomPanel === id && "active")}
-                onClick={() => openConversationBottomPanel(id)}
-                role="tab"
-                aria-selected={bottomPanel === id}
-              >
-                <Icon size={14} />
-                {label}
-              </button>
-            ))}
+            {[...contextTabs, ...utilityTabs].map((item) => {
+              const { id, label, icon: Icon } = item;
+              return (
+                <button
+                  type="button"
+                  key={id}
+                  className={cx(bottomPanel === id && "active", item.status && `status-${item.status}`)}
+                  data-bottom-tab={id}
+                  data-status={item.status || ""}
+                  onClick={(event) => openBottomContextTab(item, event)}
+                  role="tab"
+                  aria-selected={bottomPanel === id}
+                  title={item.meta ? `${label} · ${item.meta}` : label}
+                >
+                  <Icon size={14} />
+                  {label}
+                  {item.badge && <b className="context-tab-badge">{item.badge}</b>}
+                </button>
+              );
+            })}
             <button type="button" className="icon-only mini-icon" onClick={() => setBottomPanel("")} title={t.close} aria-label={t.close}>
               <X size={14} />
             </button>
