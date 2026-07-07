@@ -3958,6 +3958,17 @@ function gitChangeKindLabel(kind, t) {
   return t.changes;
 }
 
+function gitFileMatchesSummaryKind(file, kind) {
+  if (!file || !kind) return false;
+  if (kind === "staged") return Boolean(file.staged || file.kind === "staged" || file.kind === "mixed");
+  if (kind === "unstaged") return Boolean(file.unstaged || file.kind === "unstaged" || file.kind === "mixed");
+  if (kind === "untracked") return Boolean(file.untracked || file.kind === "untracked");
+  if (kind === "conflicted") return Boolean(file.conflict || file.kind === "conflict");
+  if (kind === "renamed") return Boolean(/R/.test(file.status || "") || file.previousPath || file.kind === "renamed");
+  if (kind === "deleted") return Boolean(/D/.test(file.status || "") || file.kind === "deleted");
+  return file.kind === kind;
+}
+
 function quoteWorkspaceCommandPath(pathValue) {
   const raw = String(pathValue || "").replace(/[\r\n]/g, "");
   if (typeof navigator !== "undefined" && /win/i.test(navigator.platform || "")) {
@@ -4816,6 +4827,7 @@ function Conversation({
   const emptyHint = session ? t.selectedEmptyHint : t.noSessionHint;
   const [selectedGitDiffPath, setSelectedGitDiffPath] = useState("");
   const [selectedGitHunkId, setSelectedGitHunkId] = useState("");
+  const [selectedGitKindFilter, setSelectedGitKindFilter] = useState("");
   const [gitActionWorkingPath, setGitActionWorkingPath] = useState("");
   const [gitCommitMessage, setGitCommitMessage] = useState("");
   const git = environment?.git;
@@ -4859,11 +4871,15 @@ function Conversation({
   const gitStat = String(git?.stat || "").trim();
   const gitDiffText = String(git?.diff?.text || "").trim();
   const gitFileDiffs = Array.isArray(git?.diff?.fileDiffs) ? git.diff.fileDiffs : [];
+  const filteredGitFiles = selectedGitKindFilter
+    ? gitFiles.filter((item) => gitFileMatchesSummaryKind(item, selectedGitKindFilter))
+    : gitFiles;
   const selectedGitFile = selectedGitDiffPath
     ? gitFiles.find((item) => item.path === selectedGitDiffPath || item.previousPath === selectedGitDiffPath)
     : null;
-  const topGitFiles = gitFiles.slice(0, 12);
-  const gitFilesForView = selectedGitFile && !topGitFiles.some((item) => item.path === selectedGitFile.path && item.status === selectedGitFile.status)
+  const topGitFiles = filteredGitFiles.slice(0, 12);
+  const selectedGitFileMatchesFilter = !selectedGitKindFilter || gitFileMatchesSummaryKind(selectedGitFile, selectedGitKindFilter);
+  const gitFilesForView = selectedGitFile && selectedGitFileMatchesFilter && !topGitFiles.some((item) => item.path === selectedGitFile.path && item.status === selectedGitFile.status)
     ? [...topGitFiles, selectedGitFile]
     : topGitFiles;
   const selectedGitCanStage = gitAvailable && gitFileCanStage(selectedGitFile);
@@ -4916,6 +4932,7 @@ function Conversation({
     selectedHunk: selectedGitHunk,
   }), [gitRootPath, gitRelativePath, selectedGitDiffPath, selectedGitFile, selectedGitHunk]);
   const gitDiffRows = useMemo(() => buildGitDiffRows(focusedGitDiffText), [focusedGitDiffText]);
+  const gitChangeSummaryRef = useRef(null);
   const gitSelectedEvidencePanelRef = useRef(null);
   const focusedGitPanelAction = bottomPanel === "changes" ? String(gitPanelFocus?.action || "").trim() : "";
   function gitActionFocused(action) {
@@ -4970,10 +4987,45 @@ function Conversation({
   useEffect(() => {
     const focusedPath = String(gitPanelFocus?.path || "").trim();
     const focusedHunkId = String(gitPanelFocus?.hunkId || "").trim();
-    if (!focusedPath && !focusedHunkId && !gitPanelFocus?.all) return;
+    const focusedKind = String(gitPanelFocus?.kind || "").trim();
+    if (!focusedPath && !focusedHunkId && !focusedKind && !gitPanelFocus?.all) return;
+    setSelectedGitKindFilter(focusedKind);
     setSelectedGitDiffPath(focusedPath);
     setSelectedGitHunkId(focusedHunkId);
-  }, [gitPanelFocus?.path, gitPanelFocus?.hunkId, gitPanelFocus?.all, gitPanelFocus?.nonce]);
+  }, [gitPanelFocus?.path, gitPanelFocus?.hunkId, gitPanelFocus?.kind, gitPanelFocus?.all, gitPanelFocus?.nonce]);
+  useEffect(() => {
+    if (!selectedGitKindFilter) return;
+    const selectedStillVisible = selectedGitFile && gitFileMatchesSummaryKind(selectedGitFile, selectedGitKindFilter);
+    if (selectedStillVisible) return;
+    const firstMatch = gitFiles.find((item) => gitFileMatchesSummaryKind(item, selectedGitKindFilter));
+    if (!firstMatch) {
+      setSelectedGitKindFilter("");
+      return;
+    }
+    setSelectedGitDiffPath(firstMatch.path || firstMatch.previousPath || "");
+    setSelectedGitHunkId("");
+  }, [selectedGitKindFilter, selectedGitFile, selectedGitDiffPath, gitFiles]);
+  useEffect(() => {
+    const focusedKind = bottomPanel === "changes" ? String(gitPanelFocus?.kind || "").trim() : "";
+    if (!focusedKind || !gitPanelFocus?.nonce) return undefined;
+    const timer = window.setTimeout(() => {
+      const target = gitChangeSummaryRef.current?.querySelector(`[data-git-summary-kind="${focusedKind}"]`);
+      target?.focus?.({ preventScroll: true });
+      target?.scrollIntoView?.({ block: "center", behavior: "smooth" });
+    }, 120);
+    return () => window.clearTimeout(timer);
+  }, [bottomPanel, gitPanelFocus?.kind, gitPanelFocus?.nonce]);
+  function selectGitSummaryKind(kind) {
+    const nextKind = selectedGitKindFilter === kind ? "" : kind;
+    setSelectedGitKindFilter(nextKind);
+    setSelectedGitHunkId("");
+    if (!nextKind) {
+      setSelectedGitDiffPath("");
+      return;
+    }
+    const firstMatch = gitFiles.find((item) => gitFileMatchesSummaryKind(item, nextKind));
+    setSelectedGitDiffPath(firstMatch?.path || firstMatch?.previousPath || "");
+  }
   async function runGitFileAction(action, file = selectedGitFile) {
     const commandProjectPath = selectedGitWorkspaceProjectPath || activeProject?.path || "";
     if (!file?.path || !commandProjectPath) return;
@@ -6082,16 +6134,27 @@ function Conversation({
                     </button>
                   </div>
                 </div>
-                <section className="git-change-summary" aria-label={t.gitSummary}>
+                <section className="git-change-summary" aria-label={t.gitSummary} ref={gitChangeSummaryRef}>
                   <div>
                     <span>{t.gitSummary}</span>
                     <small>{t.gitSummaryBackedByCli}</small>
                   </div>
                   <div className="git-change-summary-chips">
                     {gitSummaryItems.length > 0 ? gitSummaryItems.map(([label, count, kind]) => (
-                      <em className={cx("git-summary-chip", kind)} key={label}>
+                      <button
+                        type="button"
+                        className={cx("git-summary-chip", kind, selectedGitKindFilter === kind && "selected")}
+                        data-git-summary-kind={kind}
+                        data-git-summary-count={String(count)}
+                        data-git-summary-selected={selectedGitKindFilter === kind ? "true" : "false"}
+                        data-git-summary-focused={selectedGitKindFilter === kind && gitPanelFocus?.kind === kind ? "true" : "false"}
+                        aria-pressed={selectedGitKindFilter === kind ? "true" : "false"}
+                        onClick={() => selectGitSummaryKind(kind)}
+                        title={`${t.gitSummary}: ${label} ${count}`}
+                        key={label}
+                      >
                         {label} {count}
-                      </em>
+                      </button>
                     )) : (
                       <em className="git-summary-chip clean">{gitAvailable ? t.noGitDiff : t.gitUnavailable}</em>
                     )}
@@ -6156,9 +6219,10 @@ function Conversation({
                       <div className="git-change-list" aria-label={t.changes}>
                         <button
                           type="button"
-                          className={cx("git-change-item", !selectedGitDiffPath && "selected")}
+                          className={cx("git-change-item", !selectedGitDiffPath && !selectedGitKindFilter && "selected")}
                           {...gitTraceAttributes({ gitRoot: gitRootPath, gitRelativePath })}
                           onClick={() => {
+                            setSelectedGitKindFilter("");
                             setSelectedGitDiffPath("");
                             setSelectedGitHunkId("");
                           }}
@@ -14836,6 +14900,46 @@ export function App() {
       };
     };
 
+    const gitSummaryBucketCommands = [
+      { kind: "staged", label: t.stagedChanges, count: Number(gitCommandSummary.staged || 0), keywords: "staged index cached git add" },
+      { kind: "unstaged", label: t.unstagedChanges, count: Number(gitCommandSummary.unstaged || 0), keywords: "unstaged modified worktree dirty git restore" },
+      { kind: "untracked", label: t.untrackedChanges, count: Number(gitCommandSummary.untracked || 0), keywords: "untracked new files git add" },
+      { kind: "mixed", label: t.mixedChanges, count: Number(gitCommandSummary.mixed || 0), keywords: "mixed staged unstaged partial" },
+      { kind: "renamed", label: t.renamedChanges, count: Number(gitCommandSummary.renamed || 0), keywords: "renamed moved files" },
+      { kind: "deleted", label: t.deletedChanges, count: Number(gitCommandSummary.deleted || 0), keywords: "deleted removed files" },
+      { kind: "conflicted", label: t.conflictedChanges, count: Number(gitCommandSummary.conflicted || 0), keywords: "conflicted merge conflict unresolved" },
+    ].filter((spec) => spec.count > 0).map((spec) => ({
+      id: `git-summary:${spec.kind}`,
+      title: `${t.gitSummary}: ${spec.label} ${spec.count}`,
+      subtitle: [
+        gitCommandBranch || t.settingsGit,
+        gitCommandRoot,
+        gitCommandRelativePath,
+        gitCommandAheadBehind,
+      ].filter(Boolean).join(" \u00b7 "),
+      group: t.changes,
+      target: "git-summary",
+      dataAttributes: {
+        ...gitCommandTraceAttributes({ scope: "summary", action: `filter:${spec.kind}` }),
+        "data-command-git-summary-kind": spec.kind,
+        "data-command-git-summary-count": String(spec.count),
+      },
+      priority: spec.kind === "conflicted" ? 74 : 63,
+      keywords: [
+        "git summary bucket status filter changes command palette evidence",
+        spec.keywords,
+        spec.label,
+        spec.kind,
+        spec.count,
+        gitCommandRoot,
+        gitCommandRelativePath,
+        gitCommandBranch,
+        environment?.git?.raw,
+        environment?.git?.stat,
+      ].filter(Boolean).join(" "),
+      action: () => openGitFileDiff("", "", { all: true, kind: spec.kind }),
+    }));
+
     const gitFileCommands = gitCommandFiles
       .filter((file) => file?.path || file?.previousPath)
       .map((file) => {
@@ -16749,6 +16853,7 @@ export function App() {
       ...capabilityRecoveryCommands,
       ...noticeCommands,
       ...latestGitActionCommands,
+      ...gitSummaryBucketCommands,
       ...gitFileCommands,
       ...gitFileActionCommands,
       ...gitOpenFileCommands,
@@ -17142,7 +17247,7 @@ export function App() {
   const [sidebarVisible, setSidebarVisible] = useState(true);
   const [rightPanelVisible, setRightPanelVisible] = useState(false);
   const [bottomPanel, setBottomPanel] = useState("");
-  const [gitPanelFocus, setGitPanelFocus] = useState({ path: "", hunkId: "", action: "", all: false, nonce: 0 });
+  const [gitPanelFocus, setGitPanelFocus] = useState({ path: "", hunkId: "", action: "", kind: "", all: false, nonce: 0 });
   const [sourcePanelFocus, setSourcePanelFocus] = useState({ id: "", path: "", nonce: 0 });
   const [browserPanelFocus, setBrowserPanelFocus] = useState({ id: "", url: "", nonce: 0 });
   const [taskCenterFocus, setTaskCenterFocus] = useState({ type: "", id: "", nonce: 0 });
@@ -17239,7 +17344,7 @@ export function App() {
     setScheduledOpen(false);
     setCommandsOpen(false);
     if (id === "changes" && options.resetGitFocus !== false) {
-      setGitPanelFocus({ path: "", hunkId: "", action: "", all: true, nonce: Date.now() });
+      setGitPanelFocus({ path: "", hunkId: "", action: "", kind: "", all: true, nonce: Date.now() });
     }
     setBottomPanel(id);
   }
@@ -17260,6 +17365,7 @@ export function App() {
       path: focusedPath,
       hunkId: String(hunkId || "").trim(),
       action: String(options.action || "").trim(),
+      kind: String(options.kind || "").trim(),
       all: Boolean(options.all),
       nonce: Date.now(),
     });

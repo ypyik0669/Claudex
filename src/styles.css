@@ -8491,8 +8491,18 @@ button.runtime-health-row {
   color: #d8d8d3;
   padding: 3px 8px;
   font-size: 11px;
+  font-family: inherit;
   font-style: normal;
   white-space: nowrap;
+}
+
+button.git-summary-chip {
+  cursor: pointer;
+}
+
+.git-summary-chip:focus-visible {
+  outline: 2px solid rgba(96, 165, 250, 0.55);
+  outline-offset: 2px;
 }
 
 .git-summary-chip.staged {
@@ -8520,6 +8530,13 @@ button.runtime-health-row {
   color: #efb0aa;
 }
 
+button.git-summary-chip:hover,
+.git-summary-chip.selected,
+.git-summary-chip[data-git-summary-focused="true"] {
+  border-color: rgba(96, 165, 250, 0.58);
+  background: rgba(96, 165, 250, 0.1);
+  box-shadow: 0 0 0 1px rgba(96, 165, 250, 0.16);
+}
 
 .git-latest-action {
   display: grid;
