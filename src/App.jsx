@@ -10559,6 +10559,11 @@ function SettingsModal({
         aria-modal={surface ? undefined : "true"}
         aria-label={t.settingsTitle}
         className={surface ? "settings-surface" : "settings-modal"}
+        data-settings-dirty={isDirty ? "true" : "false"}
+        data-settings-active-section={activeSection}
+        data-settings-runtime-health-focus-action={String(runtimeHealthFocus?.action || "")}
+        data-settings-runtime-health-focus-target={String(runtimeHealthFocus?.target || "")}
+        data-settings-runtime-health-focus-command={String(runtimeHealthFocus?.command || "")}
         onMouseDown={(event) => {
           if (!surface) event.stopPropagation();
         }}
