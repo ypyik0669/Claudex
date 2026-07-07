@@ -594,7 +594,10 @@ const copy = {
     installedCliPlugins: "CLI 已安装插件",
     marketplaceCatalog: "市场插件目录",
     marketplaceSources: "已配置市场",
-    marketplacePluginCount: "{count} 个可安装插件",
+    marketplacePluginCount: "{count} 个市场插件",
+    marketplaceFilterAvailable: "可安装",
+    marketplaceFilterInstalled: "已安装",
+    marketplaceFilterRisk: "有风险",
     noMarketplacePlugins: "本地市场目录里没有找到可安装插件。",
     noMcpServers: "没有配置 MCP 服务器。",
     mcpServers: "MCP 服务器",
@@ -2088,6 +2091,27 @@ function capabilityStatusFilterCounts(items = [], statusKindForItem = () => "dis
     all: rows.length,
     enabled,
     disabled: Math.max(0, rows.length - enabled),
+  };
+}
+
+function normalizeMarketplacePluginFilter(filter) {
+  return ["all", "available", "installed", "risk"].includes(filter) ? filter : "";
+}
+
+function marketplacePluginMatchesFilter(plugin = {}, filter) {
+  if (filter === "available") return !plugin?.installed;
+  if (filter === "installed") return Boolean(plugin?.installed);
+  if (filter === "risk") return Boolean(String(plugin?.risk || "").trim());
+  return true;
+}
+
+function marketplacePluginFilterCounts(items = []) {
+  const rows = Array.isArray(items) ? items : [];
+  return {
+    all: rows.length,
+    available: rows.filter((item) => !item?.installed).length,
+    installed: rows.filter((item) => item?.installed).length,
+    risk: rows.filter((item) => String(item?.risk || "").trim()).length,
   };
 }
 
@@ -8954,6 +8978,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
   const [marketplaceOutput, setMarketplaceOutput] = useState("");
   const [marketplaceBusy, setMarketplaceBusy] = useState(false);
   const [customMarketplaceUrl, setCustomMarketplaceUrl] = useState("");
+  const [marketplacePluginFilter, setMarketplacePluginFilter] = useState("all");
   const [capabilityActionFocus, setCapabilityActionFocus] = useState({ tab: "", kind: "", id: "", query: "", nonce: 0 });
   const manualCapabilityTabSwitchRef = useRef(0);
   const activeProject = state.activeProject || { name: t.localWorkspace, path: "" };
@@ -8988,7 +9013,9 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
     capabilityStatusMatchesFilter(pluginStatusKind(item), filter)
   ));
   const marketplaceRows = (Array.isArray(cliStatus?.marketplaces) ? cliStatus.marketplaces : []).filter((item) => structuredQueryMatch(item, normalizedQuery));
-  const marketplacePluginRows = (Array.isArray(cliStatus?.marketplacePlugins) ? cliStatus.marketplacePlugins : []).filter((item) => structuredQueryMatch(item, normalizedQuery));
+  const allMarketplacePluginRows = (Array.isArray(cliStatus?.marketplacePlugins) ? cliStatus.marketplacePlugins : []).filter((item) => structuredQueryMatch(item, normalizedQuery));
+  const marketplacePluginCounts = marketplacePluginFilterCounts(allMarketplacePluginRows);
+  const marketplacePluginRows = allMarketplacePluginRows.filter((item) => marketplacePluginMatchesFilter(item, marketplacePluginFilter));
   const mcpServerRows = allMcpServerRows.filter((item) => (
     structuredQueryMatch(item, normalizedQuery) &&
     capabilityStatusMatchesFilter(mcpStatusKind(item), filter)
@@ -9598,6 +9625,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
     if (!focus?.nonce) return;
     if (tabs.some(([id]) => id === focus.tab)) setActiveTab(focus.tab);
     setFilter(normalizeCapabilityStatusFilter(focus.filter) || "all");
+    setMarketplacePluginFilter(normalizeMarketplacePluginFilter(focus.marketplaceFilter) || "all");
     setQuery(String(focus.query || focus.id || "").trim());
     setCapabilityActionFocus({ tab: "", kind: "", id: "", query: "", nonce: 0 });
     if (focus.confirmCommand?.args) {
@@ -9877,7 +9905,29 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                   <span>{t.marketplaceSourceClaude}</span>
                   <strong>{t.marketplaceCatalog}</strong>
                 </div>
-                <em className="settings-badge">{t.marketplacePluginCount.replace("{count}", marketplacePluginRows.length)}</em>
+                <div className="marketplace-actions">
+                  <div className="segmented-control compact-segmented marketplace-filter-control" role="tablist" aria-label={t.marketplaceCatalog}>
+                    {[
+                      ["all", t.capabilityAll],
+                      ["available", t.marketplaceFilterAvailable],
+                      ["installed", t.marketplaceFilterInstalled],
+                      ["risk", t.marketplaceFilterRisk],
+                    ].map(([id, label]) => (
+                      <button
+                        type="button"
+                        key={id}
+                        className={cx(marketplacePluginFilter === id && "active")}
+                        data-marketplace-filter={id}
+                        onClick={() => setMarketplacePluginFilter(id)}
+                        aria-selected={marketplacePluginFilter === id}
+                      >
+                        {label}
+                        <em>{marketplacePluginCounts[id] || 0}</em>
+                      </button>
+                    ))}
+                  </div>
+                  <em className="settings-badge">{t.marketplacePluginCount.replace("{count}", marketplacePluginRows.length)}</em>
+                </div>
               </div>
               <div className="marketplace-plugin-grid">
                 {marketplacePluginRows.length === 0 && <p className="empty-list">{t.noMarketplacePlugins}</p>}
@@ -11056,7 +11106,7 @@ export function App() {
   const [settingsInitialSection, setSettingsInitialSection] = useState("general");
   const [capabilitiesOpen, setCapabilitiesOpen] = useState(false);
   const [capabilityInitialTab, setCapabilityInitialTab] = useState("plugins");
-  const [capabilityFocus, setCapabilityFocus] = useState({ tab: "plugins", kind: "", id: "", query: "", filter: "", nonce: 0 });
+  const [capabilityFocus, setCapabilityFocus] = useState({ tab: "plugins", kind: "", id: "", query: "", filter: "", marketplaceFilter: "", nonce: 0 });
   const [capabilityCommandStatus, setCapabilityCommandStatus] = useState(null);
   const [projectsOpen, setProjectsOpen] = useState(false);
   const [commandsOpen, setCommandsOpen] = useState(false);
@@ -12528,6 +12578,37 @@ export function App() {
         }),
       }));
 
+    const marketplacePluginItemsForCommands = Array.isArray(capabilityCommandStatus?.marketplacePlugins) ? capabilityCommandStatus.marketplacePlugins : [];
+    const marketplaceFilterLabels = {
+      all: t.capabilityAll,
+      available: t.marketplaceFilterAvailable,
+      installed: t.marketplaceFilterInstalled,
+      risk: t.marketplaceFilterRisk,
+    };
+    const marketplaceFilterCounts = marketplacePluginFilterCounts(marketplacePluginItemsForCommands);
+    const marketplaceFilterCommands = ["available", "installed", "risk", "all"].map((filterId) => ({
+      id: `marketplace-filter:${filterId}`,
+      title: `${t.marketplace}: ${marketplaceFilterLabels[filterId]}`,
+      subtitle: [
+        t.marketplaceCatalog,
+        t.taskCenterFilteredCount
+          .replace("{shown}", marketplaceFilterCounts[filterId] || 0)
+          .replace("{total}", marketplaceFilterCounts.all || 0),
+      ].filter(Boolean).join(" · "),
+      group: t.capabilities,
+      keywords: [
+        "marketplace filter plugin catalog install installed available risk command palette deep link",
+        filterId,
+        marketplaceFilterLabels[filterId],
+        t.marketplace,
+        t.marketplaceCatalog,
+        t.installFromMarketplace,
+        t.installedLocal,
+        t.marketplaceRisk,
+      ].filter(Boolean).join(" "),
+      action: () => openCapabilitiesSurface("marketplace", { marketplaceFilter: filterId }),
+    }));
+
     const marketplacePluginCommands = (Array.isArray(capabilityCommandStatus?.marketplacePlugins) ? capabilityCommandStatus.marketplacePlugins : [])
       .filter((plugin) => plugin?.id || plugin?.name)
       .slice(0, 24)
@@ -12590,6 +12671,7 @@ export function App() {
       ...mcpServerCommands,
       ...marketplaceSourceCommands,
       ...customMarketplaceCommands,
+      ...marketplaceFilterCommands,
       ...marketplacePluginCommands,
     ];
   }, [state.projects, state.sessions, state.notices, state.sourceRefs, state.browserVisits, state.automations, state.subagentRuns, state.commandRuns, state.runEvents, state.settings?.customMarketplaces, capabilityCommandStatus, runEvents, environment, t, activeProject?.path, activeProject?.name]);
@@ -12962,8 +13044,8 @@ export function App() {
     setCommandsOpen(false);
     setCapabilityInitialTab(nextTab);
     setCapabilityFocus(focus
-      ? { ...focus, tab: nextTab, filter: normalizeCapabilityStatusFilter(focus.filter), nonce: Date.now() }
-      : { tab: nextTab, kind: "", id: "", query: "", filter: "", nonce: Date.now() });
+      ? { ...focus, tab: nextTab, filter: normalizeCapabilityStatusFilter(focus.filter), marketplaceFilter: normalizeMarketplacePluginFilter(focus.marketplaceFilter), nonce: Date.now() }
+      : { tab: nextTab, kind: "", id: "", query: "", filter: "", marketplaceFilter: "", nonce: Date.now() });
     setCapabilitiesOpen(true);
   }
 
