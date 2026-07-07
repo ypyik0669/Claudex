@@ -4336,6 +4336,7 @@ function Sidebar({
   projectPathMissing = false,
   projectScope,
   threadScopeFocus,
+  threadActionFocus,
   onProjectScopeChange,
   activeSessionId,
   setActiveSessionId,
@@ -4386,9 +4387,12 @@ function Sidebar({
 
   const projects = visibleProjectsForUi(state, t);
   const threadScopeButtonRefs = useRef({});
+  const threadActionButtonRefs = useRef({});
   const focusedThreadScope = ["current", "all", "archived"].includes(threadScopeFocus?.scope)
     ? threadScopeFocus.scope
     : "";
+  const focusedThreadActionSessionId = String(threadActionFocus?.sessionId || "");
+  const focusedThreadAction = String(threadActionFocus?.action || "");
 
   useEffect(() => {
     if (!focusedThreadScope) return;
@@ -4397,6 +4401,27 @@ function Sidebar({
       window.setTimeout(() => target.focus({ preventScroll: true }), 0);
     }
   }, [focusedThreadScope, threadScopeFocus?.nonce]);
+  useEffect(() => {
+    if (!focusedThreadActionSessionId || !focusedThreadAction) return;
+    const target = threadActionButtonRefs.current[`${focusedThreadActionSessionId}:${focusedThreadAction}`];
+    if (target && typeof target.focus === "function") {
+      window.setTimeout(() => {
+        target.scrollIntoView({ block: "nearest" });
+        target.focus({ preventScroll: true });
+      }, 0);
+    }
+  }, [focusedThreadActionSessionId, focusedThreadAction, threadActionFocus?.nonce]);
+
+  function threadActionFocused(session, action) {
+    return Boolean(session?.id && session.id === focusedThreadActionSessionId && action === focusedThreadAction);
+  }
+
+  function threadActionFocusAttributes(session, action) {
+    return {
+      ref: (element) => { threadActionButtonRefs.current[`${session.id}:${action}`] = element; },
+      "data-thread-action-focused": threadActionFocused(session, action) ? "true" : "false",
+    };
+  }
 
   return (
     <aside className="sidebar">
@@ -4561,6 +4586,8 @@ function Sidebar({
                   "data-thread-project-path": session.projectPath || "",
                   "data-thread-scope": projectScope,
                 };
+                const pinThreadAction = session.pinned ? "unpin" : "pin";
+                const archiveThreadAction = session.archived ? "restore" : "archive";
                 return (
                   <article
                     key={session.id}
@@ -4593,22 +4620,22 @@ function Sidebar({
                       </span>
                     </button>
                     <span className="thread-actions" aria-label={t.commandPalette}>
-                      <button type="button" data-thread-action="rename" {...threadActionTraceAttributes} onClick={() => onRenameThread(session)} title={t.renameThread} aria-label={t.renameThread}>
+                      <button type="button" data-thread-action="rename" {...threadActionTraceAttributes} {...threadActionFocusAttributes(session, "rename")} onClick={() => onRenameThread(session)} title={t.renameThread} aria-label={t.renameThread}>
                         <Pencil size={12} />
                       </button>
-                      <button type="button" data-thread-action={session.pinned ? "unpin" : "pin"} {...threadActionTraceAttributes} data-thread-pinned={session.pinned ? "true" : "false"} onClick={() => onTogglePinThread(session)} title={session.pinned ? t.unpinThread : t.pinThread} aria-label={session.pinned ? t.unpinThread : t.pinThread}>
+                      <button type="button" data-thread-action={pinThreadAction} {...threadActionTraceAttributes} {...threadActionFocusAttributes(session, pinThreadAction)} data-thread-pinned={session.pinned ? "true" : "false"} onClick={() => onTogglePinThread(session)} title={session.pinned ? t.unpinThread : t.pinThread} aria-label={session.pinned ? t.unpinThread : t.pinThread}>
                         <Pin size={12} />
                       </button>
-                      <button type="button" data-thread-action="fork" {...threadActionTraceAttributes} onClick={() => onForkThread(session)} title={t.forkThread} aria-label={t.forkThread}>
+                      <button type="button" data-thread-action="fork" {...threadActionTraceAttributes} {...threadActionFocusAttributes(session, "fork")} onClick={() => onForkThread(session)} title={t.forkThread} aria-label={t.forkThread}>
                         <GitFork size={12} />
                       </button>
-                      <button type="button" data-thread-action={session.archived ? "restore" : "archive"} {...threadActionTraceAttributes} data-thread-archived={session.archived ? "true" : "false"} onClick={() => onArchiveThread(session)} title={session.archived ? t.restoreThread : t.archiveThread} aria-label={session.archived ? t.restoreThread : t.archiveThread}>
+                      <button type="button" data-thread-action={archiveThreadAction} {...threadActionTraceAttributes} {...threadActionFocusAttributes(session, archiveThreadAction)} data-thread-archived={session.archived ? "true" : "false"} onClick={() => onArchiveThread(session)} title={session.archived ? t.restoreThread : t.archiveThread} aria-label={session.archived ? t.restoreThread : t.archiveThread}>
                         <Archive size={12} />
                       </button>
-                      <button type="button" data-thread-action="delete" {...threadActionTraceAttributes} onClick={() => onDeleteThread(session)} title={t.deleteThread} aria-label={t.deleteThread}>
+                      <button type="button" data-thread-action="delete" {...threadActionTraceAttributes} {...threadActionFocusAttributes(session, "delete")} onClick={() => onDeleteThread(session)} title={t.deleteThread} aria-label={t.deleteThread}>
                         <Trash2 size={12} />
                       </button>
-                      <button type="button" data-thread-action="resume" {...threadActionTraceAttributes} data-thread-claude-session-id={session.claudeSessionId || ""} onClick={() => onResumeThread?.(session)} title={t.resumeThread} aria-label={t.resumeThread}>
+                      <button type="button" data-thread-action="resume" {...threadActionTraceAttributes} {...threadActionFocusAttributes(session, "resume")} data-thread-claude-session-id={session.claudeSessionId || ""} onClick={() => onResumeThread?.(session)} title={t.resumeThread} aria-label={t.resumeThread}>
                         <History size={12} />
                       </button>
                     </span>
@@ -13773,6 +13800,7 @@ export function App() {
   const [stateLoading, setStateLoading] = useState(true);
   const [projectScope, setProjectScope] = useState("current");
   const [threadScopeFocus, setThreadScopeFocus] = useState({ scope: "", nonce: 0 });
+  const [threadActionFocus, setThreadActionFocus] = useState({ sessionId: "", action: "", nonce: 0 });
   const [currentRequestId, setCurrentRequestId] = useState("");
   const [streamingAssistant, setStreamingAssistant] = useState(null);
   const [optimisticUser, setOptimisticUser] = useState(null);
@@ -14558,18 +14586,18 @@ export function App() {
         const meta = threadMetaForCommand(session);
         const searchParts = threadSearchParts(session, title);
         const pinAction = session.pinned
-          ? { id: "unpin", verb: "unpin", label: t.unpinThread, keywords: "unpin thread chat session pinned 取消置顶", action: () => togglePinThread(session) }
-          : { id: "pin", verb: "pin", label: t.pinThread, keywords: "pin thread chat session pinned 置顶", action: () => togglePinThread(session) };
+          ? { id: "unpin", verb: "unpin", label: t.unpinThread, keywords: "unpin thread chat session pinned ????" }
+          : { id: "pin", verb: "pin", label: t.pinThread, keywords: "pin thread chat session pinned ??" };
         const archiveAction = session.archived
-          ? { id: "restore", verb: "restore", label: t.restoreThread, keywords: "restore thread chat session archived 恢复 归档", action: () => archiveThread(session) }
-          : { id: "archive", verb: "archive", label: t.archiveThread, keywords: "archive thread chat session archived 归档", action: () => archiveThread(session) };
+          ? { id: "restore", verb: "restore", label: t.restoreThread, keywords: "restore thread chat session archived ?? ??" }
+          : { id: "archive", verb: "archive", label: t.archiveThread, keywords: "archive thread chat session archived ??" };
         return [
-          { id: "rename", verb: "rename", label: t.renameThread, keywords: "rename thread chat session title 重命名 标题", action: () => renameThread(session) },
+          { id: "rename", verb: "rename", label: t.renameThread, keywords: "rename thread chat session title ??? ??" },
           pinAction,
           archiveAction,
-          { id: "fork", verb: "fork", label: t.forkThread, keywords: "fork thread chat session copy branch 分叉 复制", action: () => forkThread(session) },
-          { id: "delete", verb: "delete", label: t.deleteThread, keywords: "delete thread chat session remove 删除", action: () => deleteThread(session) },
-          { id: "resume", verb: "resume", label: t.resumeThread, keywords: "resume thread chat session open continue 继续 打开", action: () => resumeThread(session) },
+          { id: "fork", verb: "fork", label: t.forkThread, keywords: "fork thread chat session copy branch ?? ??" },
+          { id: "delete", verb: "delete", label: t.deleteThread, keywords: "delete thread chat session remove ??" },
+          { id: "resume", verb: "resume", label: t.resumeThread, keywords: "resume thread chat session open continue ?? ??" },
         ].map((spec) => ({
           id: `thread-action:${spec.id}:${commandIdSegment(session.id)}`,
           title: `${spec.label}: ${title}`,
@@ -14583,7 +14611,7 @@ export function App() {
             spec.keywords,
             ...searchParts,
           ].join(" "),
-          action: spec.action,
+          action: () => { void focusThreadAction(session, spec.id); },
         }));
       });
 
@@ -17505,6 +17533,7 @@ export function App() {
     setSidebarVisible(true);
     setProjectScope(nextScope);
     setThreadScopeFocus({ scope: nextScope, nonce: Date.now() });
+    setThreadActionFocus({ sessionId: "", action: "", nonce: Date.now() });
     const nextSessionId = selectSessionIdForProject(state, t, activeProject, activeSessionId, nextScope);
     setActiveSessionId(nextSessionId);
   }
@@ -17524,6 +17553,7 @@ export function App() {
     setSidebarVisible(true);
     setProjectScope(nextScope);
     setThreadScopeFocus({ scope: nextScope, nonce: Date.now() });
+    setThreadActionFocus({ sessionId: "", action: "", nonce: Date.now() });
     try {
       if (desktopApi?.setActiveProject) {
         const next = await desktopApi.setActiveProject(project);
@@ -17533,6 +17563,39 @@ export function App() {
       }
       setActiveSessionId(selectSessionIdForProject(state, t, project, "", nextScope));
       setThreadScopeFocus({ scope: nextScope, nonce: Date.now() });
+    } catch (error) {
+      showToast(error.message || String(error));
+    }
+  }
+
+  async function focusThreadAction(session, action) {
+    const nextAction = String(action || "").trim();
+    if (!session?.id || !nextAction) return;
+    const targetScope = session.archived ? "archived" : "current";
+    const targetProject = {
+      name: session.project || activeProject?.name || t.localWorkspace,
+      path: session.projectPath || "",
+    };
+    const currentKey = String(activeProject?.path || activeProject?.name || "").trim().toLowerCase();
+    const targetKey = String(targetProject.path || targetProject.name || "").trim().toLowerCase();
+    setSettingsOpen(false);
+    setCapabilitiesOpen(false);
+    setProjectsOpen(false);
+    setScheduledOpen(false);
+    setCommandsOpen(false);
+    setBottomPanel("");
+    setSidebarVisible(true);
+    setProjectScope(targetScope);
+    setThreadScopeFocus({ scope: "", nonce: Date.now() });
+    setThreadActionFocus({ sessionId: session.id, action: nextAction, nonce: Date.now() });
+    try {
+      if (desktopApi?.setActiveProject && targetKey && targetKey !== currentKey) {
+        const next = await desktopApi.setActiveProject(targetProject);
+        applySessionState(next, session.id, targetScope);
+      } else {
+        setActiveSessionId(session.id);
+      }
+      setThreadActionFocus({ sessionId: session.id, action: nextAction, nonce: Date.now() });
     } catch (error) {
       showToast(error.message || String(error));
     }
@@ -18095,9 +18158,11 @@ export function App() {
           projectPathMissing={projectPathMissing}
           projectScope={projectScope}
           threadScopeFocus={threadScopeFocus}
+          threadActionFocus={threadActionFocus}
           onProjectScopeChange={(scope) => {
             setProjectScope(scope);
             setThreadScopeFocus({ scope, nonce: Date.now() });
+            setThreadActionFocus({ sessionId: "", action: "", nonce: Date.now() });
           }}
           activeSessionId={activeSession?.id}
           setActiveSessionId={setActiveSessionId}

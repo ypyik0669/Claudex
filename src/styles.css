@@ -533,7 +533,7 @@ select:focus-visible,
 
 .thread-actions {
   display: none;
-  grid-template-columns: repeat(5, 24px);
+  grid-template-columns: repeat(6, 24px);
   justify-content: end;
   gap: 2px;
   padding: 0 7px 6px;
@@ -541,7 +541,8 @@ select:focus-visible,
 
 .thread-item:hover .thread-actions,
 .thread-item:focus-within .thread-actions,
-.thread-item.active .thread-actions {
+.thread-item.active .thread-actions,
+.thread-actions:has(button[data-thread-action-focused="true"]) {
   display: grid;
 }
 
@@ -557,10 +558,15 @@ select:focus-visible,
 }
 
 .thread-actions button:hover,
-.thread-actions button:focus-visible {
+.thread-actions button:focus-visible,
+.thread-actions button[data-thread-action-focused="true"] {
   border-color: rgba(255, 255, 255, 0.08);
   background: rgba(255, 255, 255, 0.08);
   color: #f1eee8;
+}
+
+.thread-actions button[data-thread-action-focused="true"] {
+  box-shadow: inset 0 0 0 1px rgba(209, 131, 87, 0.48), 0 0 0 1px rgba(209, 131, 87, 0.12);
 }
 
 .thread-skeleton {
