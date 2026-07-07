@@ -7263,8 +7263,6 @@ function ToolRail({
   const activeNotices = useMemo(() => (notices || []).filter((notice) => !notice.dismissedAt), [notices]);
   const latestWorkspaceRun = useMemo(() => commandRunsToHistory(commandRuns, "workspace")[0], [commandRuns]);
   const latestWorkspaceFailed = latestWorkspaceRun && typeof latestWorkspaceRun.code === "number" && latestWorkspaceRun.code !== 0;
-  const latestBrowserVisit = (browserVisits || [])[0];
-  const browserFailed = latestBrowserVisit && String(latestBrowserVisit.status || "").toLowerCase() === "error";
   const runtimeSummary = runtimeHealthSummary(capabilityStatus, settings, activeProject, t);
   const runtimeIssueCount = Array.isArray(runtimeSummary?.issues) ? runtimeSummary.issues.length : 0;
   const pluginIssueCount = [
@@ -7275,6 +7273,10 @@ function ToolRail({
   const capabilityCount = (Array.isArray(capabilityStatus?.pluginItems) ? capabilityStatus.pluginItems.length : 0)
     + (Array.isArray(capabilityStatus?.mcpServers) ? capabilityStatus.mcpServers.length : 0);
   const countBadge = (count) => count > 99 ? "99+" : count > 0 ? String(count) : "";
+  const browserContext = browserVisitsContextSummary({ browserVisits, t });
+  const browserRailStatus = browserContext.status === "info" ? "ready" : browserContext.status || "idle";
+  const browserRailBadge = browserContext.status === "error" ? "!" : countBadge(Number(browserContext.badge || 0));
+  const browserRailDetail = browserContext.detail || t.browserIdle;
   const items = [
     {
       id: "workspace",
@@ -7298,9 +7300,9 @@ function ToolRail({
       id: "browser",
       label: t.browser,
       icon: Globe2,
-      badge: browserFailed ? "!" : countBadge((browserVisits || []).length),
-      status: browserFailed ? "error" : (browserVisits || []).length ? "ready" : "idle",
-      detail: browserFailed ? latestBrowserVisit.error || t.browserFailed : (browserVisits || []).length ? t.browserVisitCount.replace("{count}", browserVisits.length) : t.browserIdle,
+      badge: browserRailBadge,
+      status: browserRailStatus,
+      detail: browserRailDetail,
       action: () => onActivateTool("browser"),
     },
     {
