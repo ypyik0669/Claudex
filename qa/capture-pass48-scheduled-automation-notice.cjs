@@ -261,12 +261,15 @@ async function runTest() {
   assertStep("PASS48_SELECTED_AUTOMATION_RECOVERY_VISIBLE", await waitFor(win, `
     (function() {
       const panel = document.querySelector('.selected-run-evidence-panel.error');
+      const runNow = panel?.querySelector('[data-run-recovery-action="run-automation"]');
       return Boolean(
         panel &&
         /pass48 scheduled prompt/.test(panel.textContent || '') &&
         /pass48 scheduled automation failed/.test(panel.textContent || '') &&
         panel.querySelector('[data-run-recovery-action="task-center"]') &&
-        panel.querySelector('[data-run-recovery-action="run-automation"]') &&
+        runNow &&
+        runNow.getAttribute('data-run-recovery-action-focused') === 'true' &&
+        document.activeElement === runNow &&
         panel.querySelector('[data-run-recovery-action="terminal"]') &&
         panel.querySelector('[data-run-recovery-action="interactive-claude"]')
       );

@@ -342,12 +342,17 @@ async function runTest() {
     (function() {
       const active = document.querySelector('.workspace-context-button.active')?.textContent || '';
       const row = document.querySelector('.run-timeline-row.selected')?.textContent || '';
-      const panel = document.querySelector('.selected-run-evidence-panel')?.textContent || '';
+      const evidencePanel = document.querySelector('.selected-run-evidence-panel');
+      const retry = evidencePanel?.querySelector('[data-run-recovery-action="retry-subagent"]');
+      const panel = evidencePanel?.textContent || '';
       return /\\u8f93\\u51fa/.test(active) &&
         /Pass177 Retry Failed Subagent/.test(row) &&
         /pass177 retry strip failed task summary/.test(panel) &&
         /pass177-project-a/.test(panel) &&
-        /session-a/.test(panel);
+        /session-a/.test(panel) &&
+        retry &&
+        retry.getAttribute('data-run-recovery-action-focused') === 'true' &&
+        document.activeElement === retry;
     })();
   `, 8000));
 

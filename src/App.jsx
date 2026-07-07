@@ -2902,6 +2902,11 @@ function automationRecoveryFocusAction(automation = {}) {
   return automationNeedsRecovery(automation) && automation?.status !== "running" ? "run-now" : "";
 }
 
+function automationRunTimelineFocusAction(automation = {}, entry = {}) {
+  if (automation?.status === "running") return "";
+  return automationRunNeedsRecovery(entry) || automationNeedsRecovery(automation) ? "run-automation" : "";
+}
+
 function automationRecoveryEntry(automation = {}) {
   const entries = automationRunEntries(automation);
   return entries.find(automationRunNeedsRecovery)
@@ -3384,6 +3389,12 @@ function browserVisitRunEvent(visit = {}, t) {
 
 function browserVisitRecoveryFocusAction(visit = {}) {
   return browserVisitKey(visit) ? "retry-browser" : "";
+}
+
+function subagentRunTimelineFocusAction(run = {}) {
+  if (!subagentNeedsRecovery(run)) return "";
+  if (run?.task) return "retry-subagent";
+  return run?.continuedAt ? "" : "continue-subagent";
 }
 
 function fallbackRunEventForId(eventId, { commandRuns = [], automations = [], subagentRuns = [], browserVisits = [], t } = {}) {
@@ -7456,7 +7467,9 @@ function SubagentWorkbench({
                       copied={Boolean(recoveryEntry?.id && copiedAutomationRunId === recoveryEntry.id)}
                       onRunNow={() => handleAutomationAction(item, onRunAutomationNow)}
                       onCopyEvidence={() => copyAutomationEvidence(item, recoveryEntry)}
-                      onOpenTimeline={() => recoveryEntry?.id && onOpenRunTimeline?.(recoveryEntry.id)}
+                      onOpenTimeline={() => recoveryEntry?.id && onOpenRunTimeline?.(recoveryEntry.id, {
+                        action: automationRunTimelineFocusAction(item, recoveryEntry),
+                      })}
                       focusedAction={isFocusedAutomation ? focusedTaskAction : ""}
                       t={t}
                     />
@@ -7500,7 +7513,9 @@ function SubagentWorkbench({
                                     className="plain-action subtle-action"
                                     data-automation-history-action="timeline"
                                     {...taskSurfaceTraceAttributes({ kind: "automation", action: "timeline", item, entry })}
-                                    onClick={() => onOpenRunTimeline?.(entry.id)}
+                                    onClick={() => onOpenRunTimeline?.(entry.id, {
+                                      action: automationRunTimelineFocusAction(item, entry),
+                                    })}
                                     title={t.openRunTimeline}
                                   >
                                     <FileText size={12} />
@@ -7572,7 +7587,9 @@ function SubagentWorkbench({
                           data-automation-task-action="timeline"
                           {...taskActionFocusAttributes(isFocusedAutomation && focusedTaskAction === "timeline")}
                           {...taskSurfaceTraceAttributes({ kind: "automation", action: "timeline", item, entry: item.lastRun })}
-                          onClick={() => onOpenRunTimeline?.(item.lastRun.id)}
+                          onClick={() => onOpenRunTimeline?.(item.lastRun.id, {
+                            action: automationRunTimelineFocusAction(item, item.lastRun),
+                          })}
                           title={t.openRunTimeline}
                         >
                           <FileText size={13} />
@@ -7782,7 +7799,9 @@ function SubagentWorkbench({
               })}
               onContinue={() => onContinueSubagent?.(run)}
               onCopyEvidence={() => copySubagentEvidence(run)}
-              onOpenTimeline={() => onOpenRunTimeline?.(run.requestId || run.id)}
+              onOpenTimeline={() => onOpenRunTimeline?.(run.requestId || run.id, {
+                action: subagentRunTimelineFocusAction(run),
+              })}
               t={t}
             />
             <div className="subagent-run-foot">
@@ -7806,7 +7825,9 @@ function SubagentWorkbench({
                 className="plain-action subtle-action"
                 data-subagent-run-action="timeline"
                 {...taskSurfaceTraceAttributes({ kind: "subagent", action: "timeline", item: run })}
-                onClick={() => onOpenRunTimeline?.(run.requestId || run.id)}
+                onClick={() => onOpenRunTimeline?.(run.requestId || run.id, {
+                  action: subagentRunTimelineFocusAction(run),
+                })}
                 title={t.openRunTimeline}
               >
                 <FileText size={13} />
@@ -13762,7 +13783,9 @@ function ScheduledModal({
                     copied={Boolean(recoveryEntry?.id && copiedAutomationRunId === recoveryEntry.id)}
                     onRunNow={() => handleAction(item.id, () => onRunNow?.(item))}
                     onCopyEvidence={() => copyAutomationEvidence(item, recoveryEntry)}
-                    onOpenTimeline={() => recoveryEntry?.id && onOpenRunTimeline?.(recoveryEntry.id)}
+                    onOpenTimeline={() => recoveryEntry?.id && onOpenRunTimeline?.(recoveryEntry.id, {
+                      action: automationRunTimelineFocusAction(item, recoveryEntry),
+                    })}
                     t={t}
                   />
                   <details className="schedule-history">
@@ -13792,7 +13815,9 @@ function ScheduledModal({
                                   type="button"
                                   data-automation-history-action="timeline"
                                   {...taskSurfaceTraceAttributes({ kind: "automation", action: "timeline", surface: "scheduled", item, entry })}
-                                  onClick={() => onOpenRunTimeline?.(entry.id)}
+                                  onClick={() => onOpenRunTimeline?.(entry.id, {
+                                    action: automationRunTimelineFocusAction(item, entry),
+                                  })}
                                   title={t.openRunTimeline}
                                 >
                                   <FileText size={12} />
@@ -13875,7 +13900,9 @@ function ScheduledModal({
                       data-automation-schedule-action="timeline"
                       {...taskSurfaceTraceAttributes({ kind: "automation", action: "timeline", surface: "scheduled", item, entry: item.lastRun })}
                       {...taskActionFocusAttributes(scheduleActionFocused(item, "timeline"))}
-                      onClick={() => onOpenRunTimeline?.(item.lastRun.id)}
+                      onClick={() => onOpenRunTimeline?.(item.lastRun.id, {
+                        action: automationRunTimelineFocusAction(item, item.lastRun),
+                      })}
                       title={t.openRunTimeline}
                     >
                       <FileText size={14} />
@@ -15805,7 +15832,9 @@ export function App() {
           entry.stderr,
           entry.sessionId,
         ].filter(Boolean).join(" "),
-        action: () => openRunTimeline(entry.id),
+        action: () => openRunTimeline(entry.id, {
+          action: automationRunTimelineFocusAction(automation, entry),
+        }),
       })));
 
     const automationHistoryFocusCommands = automationItemsForCommands
@@ -15961,7 +15990,9 @@ export function App() {
             dataAttributes: taskTraceAttributes({ kind: "automation", action: "timeline", item: automation, entry: failedEntry, filter: "failed" }),
             priority: 14,
             keywords: recoveryKeywords,
-            action: () => openRunTimeline(failedEntry.id),
+            action: () => openRunTimeline(failedEntry.id, {
+              action: automationRunTimelineFocusAction(automation, failedEntry),
+            }),
           },
         ].filter(Boolean);
       });
@@ -16101,7 +16132,9 @@ export function App() {
             run.cwd,
             ...artifactSearchParts,
           ].filter(Boolean).join(" "),
-          action: () => openRunTimeline(runId),
+          action: () => openRunTimeline(runId, {
+            action: subagentRunTimelineFocusAction(run),
+          }),
         };
       });
 
@@ -16323,7 +16356,9 @@ export function App() {
             dataAttributes: taskTraceAttributes({ kind: "subagent", action: "timeline", item: run, id: runKey, runId, filter: "failed" }),
             priority: 14,
             keywords: recoveryKeywords,
-            action: () => openRunTimeline(runId),
+            action: () => openRunTimeline(runId, {
+              action: subagentRunTimelineFocusAction(run),
+            }),
           },
         ].filter(Boolean);
       });

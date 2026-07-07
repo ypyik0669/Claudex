@@ -324,12 +324,17 @@ async function runTest() {
     (function() {
       const active = document.querySelector('.workspace-context-button.active')?.textContent || '';
       const row = document.querySelector('.run-timeline-row.selected')?.textContent || '';
-      const panel = document.querySelector('.selected-run-evidence-panel')?.textContent || '';
+      const evidencePanel = document.querySelector('.selected-run-evidence-panel');
+      const runNow = evidencePanel?.querySelector('[data-run-recovery-action="run-automation"]');
+      const panel = evidencePanel?.textContent || '';
       return /\\u8f93\\u51fa/.test(active) &&
         /pass176 recovery strip automation prompt/.test(row) &&
         /pass176 recovery strip old failure/.test(panel) &&
         /pass176-project-a/.test(panel) &&
-        /session-a/.test(panel);
+        /session-a/.test(panel) &&
+        runNow &&
+        runNow.getAttribute('data-run-recovery-action-focused') === 'true' &&
+        document.activeElement === runNow;
     })();
   `, 8000));
 

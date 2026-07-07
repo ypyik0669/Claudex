@@ -360,10 +360,13 @@ app.whenReady().then(async () => {
     assertStep("PASS75_ERROR_RECOVERY_ACTIONS_VISIBLE", await waitFor(win, `
       (function() {
         const panel = document.querySelector('.selected-run-evidence-panel.error');
+        const retry = panel?.querySelector('[data-run-recovery-action="retry-subagent"]');
         return Boolean(
           panel &&
           panel.querySelector('[data-run-recovery-action="task-center"]') &&
-          panel.querySelector('[data-run-recovery-action="retry-subagent"]') &&
+          retry &&
+          retry.getAttribute('data-run-recovery-action-focused') === 'true' &&
+          document.activeElement === retry &&
           panel.querySelector('[data-run-recovery-action="continue-subagent"]') &&
           panel.querySelector('[data-run-recovery-action="terminal"]') &&
           panel.querySelector('[data-run-recovery-action="interactive-claude"]') &&

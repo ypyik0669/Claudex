@@ -349,14 +349,19 @@ async function runTest() {
   assertStep("PASS217_DEEP_AUTOMATION_RUN_TIMELINE_FOCUSED", await waitFor(win, `
     (function() {
       const selectedRow = document.querySelector('.run-timeline-row.selected')?.textContent || '';
-      const panel = document.querySelector('.selected-run-evidence-panel')?.textContent || '';
+      const evidencePanel = document.querySelector('.selected-run-evidence-panel');
+      const runNow = evidencePanel?.querySelector('[data-run-recovery-action="run-automation"]');
+      const panel = evidencePanel?.textContent || '';
       return Boolean(
         /pass217 deep automation 21 focus command palette/.test(selectedRow) &&
         /pass217 deep automation 21 detail evidence/.test(panel) &&
         /pass217 deep automation 21 stdout evidence/.test(panel) &&
         /pass217 deep automation 21 stderr evidence/.test(panel) &&
         /pass217-project-a/.test(panel) &&
-        !panel.includes(${JSON.stringify(PROJECT_B_DIR)})
+        !panel.includes(${JSON.stringify(PROJECT_B_DIR)}) &&
+        runNow &&
+        runNow.getAttribute('data-run-recovery-action-focused') === 'true' &&
+        document.activeElement === runNow
       );
     })();
   `, 10000));
@@ -412,7 +417,9 @@ async function runTest() {
   assertStep("PASS217_DEEP_SUBAGENT_RUN_TIMELINE_FOCUSED", await waitFor(win, `
     (function() {
       const selectedRow = document.querySelector('.run-timeline-row.selected')?.textContent || '';
-      const panel = document.querySelector('.selected-run-evidence-panel')?.textContent || '';
+      const evidencePanel = document.querySelector('.selected-run-evidence-panel');
+      const retry = evidencePanel?.querySelector('[data-run-recovery-action="retry-subagent"]');
+      const panel = evidencePanel?.textContent || '';
       return Boolean(
         /Pass217 Deep Agent 21/.test(selectedRow) &&
         /pass217 deep subagent 21 summary evidence/.test(panel) &&
@@ -420,7 +427,10 @@ async function runTest() {
         /pass217 deep subagent 21 stderr evidence/.test(panel) &&
         /pass217 deep subagent 21 artifact evidence/.test(panel) &&
         /pass217-project-a/.test(panel) &&
-        !panel.includes(${JSON.stringify(PROJECT_B_DIR)})
+        !panel.includes(${JSON.stringify(PROJECT_B_DIR)}) &&
+        retry &&
+        retry.getAttribute('data-run-recovery-action-focused') === 'true' &&
+        document.activeElement === retry
       );
     })();
   `, 10000));
