@@ -14323,6 +14323,68 @@ export function App() {
       action: () => openTaskCenterFocus("", "", { filter: item.id }),
     }));
 
+    const taskTraceValue = (value) => {
+      if (value === 0) return "0";
+      if (value === false) return "false";
+      if (value === true) return "true";
+      return String(value || "");
+    };
+    const taskTraceProject = (item = {}, entry = {}) => entry.project || item.project || {};
+    const taskTraceProjectPath = (item = {}, entry = {}) => {
+      const project = taskTraceProject(item, entry);
+      return project.path || entry.projectPath || item.projectPath || entry.cwd || item.cwd || "";
+    };
+    const taskTraceProjectName = (item = {}, entry = {}) => {
+      const project = taskTraceProject(item, entry);
+      return project.name || item.project || entry.project || "";
+    };
+    const automationRunHasEvidence = (entry = {}) => Boolean(
+      entry?.id || entry?.error || entry?.detail || entry?.summary || entry?.stdout || entry?.stderr || typeof entry?.code === "number",
+    );
+    const subagentRunHasEvidence = (run = {}) => Boolean(
+      run?.summary || run?.stdout || run?.stderr || run?.error || typeof run?.code === "number" || (Array.isArray(run?.artifacts) && run.artifacts.length > 0),
+    );
+    const taskFilterForAutomationRun = (entry = {}) => {
+      if (automationRunNeedsRecovery(entry)) return "failed";
+      if (["running", "scheduled"].includes(entry?.status)) return "active";
+      return "";
+    };
+    const taskTraceAttributes = ({ kind, action, item = {}, entry = null, filter = "", id = "", runId = "", requestId = "" }) => {
+      const isAutomation = kind === "automation";
+      const runEntry = isAutomation ? (entry || item.lastRun || {}) : item;
+      const taskId = id || item.id || item.requestId || "";
+      const resolvedRunId = runId || (isAutomation ? runEntry.id : (item.requestId || item.id || ""));
+      const resolvedRequestId = requestId || (!isAutomation ? (item.requestId || "") : "");
+      const status = runEntry.status || item.status || "";
+      const historyCount = isAutomation ? automationRunEntries(item).length : "";
+      const artifactCount = !isAutomation && Array.isArray(item.artifacts) ? item.artifacts.length : "";
+      const hasEvidence = isAutomation ? automationRunHasEvidence(runEntry) : subagentRunHasEvidence(item);
+      const resolvedFilter = filter || (isAutomation ? taskFilterForAutomationRun(runEntry) || taskCenterFilterForAutomation(item) : taskCenterFilterForSubagent(item));
+      return {
+        "data-command-task-kind": String(kind || ""),
+        "data-command-task-action": String(action || ""),
+        "data-command-task-id": taskTraceValue(taskId),
+        "data-command-task-run-id": taskTraceValue(resolvedRunId),
+        "data-command-task-request-id": taskTraceValue(resolvedRequestId),
+        "data-command-task-status": taskTraceValue(status),
+        "data-command-task-filter": taskTraceValue(resolvedFilter),
+        "data-command-task-project-name": taskTraceValue(taskTraceProjectName(item, runEntry)),
+        "data-command-task-project-path": taskTraceValue(taskTraceProjectPath(item, runEntry)),
+        "data-command-task-thread-id": taskTraceValue(isAutomation ? item.threadId : ""),
+        "data-command-task-session-id": taskTraceValue(runEntry.sessionId || item.sessionId || item.threadId || ""),
+        "data-command-task-archived": !isAutomation ? String(Boolean(item.archivedAt)) : "false",
+        "data-command-task-history-count": taskTraceValue(historyCount),
+        "data-command-task-artifact-count": taskTraceValue(artifactCount),
+        "data-command-task-has-evidence": String(Boolean(hasEvidence)),
+        "data-command-task-trigger": taskTraceValue(runEntry.trigger),
+        "data-command-task-code": typeof runEntry.code === "number" ? String(runEntry.code) : taskTraceValue(runEntry.code),
+        "data-command-task-duration-ms": typeof runEntry.durationMs === "number" ? String(runEntry.durationMs) : taskTraceValue(runEntry.durationMs),
+        "data-command-task-started-at": taskTraceValue(runEntry.startedAt),
+        "data-command-task-ended-at": taskTraceValue(runEntry.endedAt),
+        "data-command-task-updated-at": taskTraceValue(item.updatedAt),
+      };
+    };
+
     const automationCommands = automationItemsForCommands
       .filter((automation) => automation?.id)
       .map((automation) => {
@@ -14339,6 +14401,8 @@ export function App() {
             lastRun.error || lastRun.detail || lastRun.summary,
           ].filter(Boolean).join(" · "),
           group: t.taskCenter,
+          target: "automation",
+          dataAttributes: taskTraceAttributes({ kind: "automation", action: "open", item: automation, entry: lastRun, filter: statusFilter }),
           keywords: [
             "automation schedule task center run history failure evidence",
             automation.id,
@@ -14374,6 +14438,8 @@ export function App() {
           entry.endedAt ? formatDate(entry.endedAt) : "",
         ].filter(Boolean).join(" · "),
         group: t.taskCenter,
+        target: "timeline",
+        dataAttributes: taskTraceAttributes({ kind: "automation", action: "timeline", item: automation, entry, filter: taskFilterForAutomationRun(entry) }),
         keywords: [
           "automation run history timeline evidence stdout stderr",
           automation.id,
@@ -14432,6 +14498,8 @@ export function App() {
             title: `${t.runNow}: ${messageExcerpt(automation.prompt, 64)}`,
             subtitle,
             group: t.taskCenter,
+            target: "automation-action",
+            dataAttributes: taskTraceAttributes({ kind: "automation", action: "run-now", item: automation, entry: failedEntry, filter: "failed" }),
             priority: 18,
             keywords: recoveryKeywords,
             action: () => {
@@ -14444,6 +14512,8 @@ export function App() {
             title: `${t.copyAutomationEvidence}: ${messageExcerpt(automation.prompt, 64)}`,
             subtitle,
             group: t.taskCenter,
+            target: "clipboard",
+            dataAttributes: taskTraceAttributes({ kind: "automation", action: "copy", item: automation, entry: failedEntry, filter: "failed" }),
             priority: 16,
             keywords: recoveryKeywords,
             action: () => copyMessage(automationEvidenceText(automation, failedEntry, t, state.sessions)),
@@ -14453,6 +14523,8 @@ export function App() {
             title: `${t.openRunTimeline}: ${messageExcerpt(automation.prompt, 64)}`,
             subtitle,
             group: t.taskCenter,
+            target: "timeline",
+            dataAttributes: taskTraceAttributes({ kind: "automation", action: "timeline", item: automation, entry: failedEntry, filter: "failed" }),
             priority: 14,
             keywords: recoveryKeywords,
             action: () => openRunTimeline(failedEntry.id),
@@ -14473,6 +14545,8 @@ export function App() {
             run.archivedAt ? t.showArchivedSubagents : "",
           ].filter(Boolean).join(" · "),
           group: t.taskCenter,
+          target: "subagent",
+          dataAttributes: taskTraceAttributes({ kind: "subagent", action: "open", item: run, filter: statusFilter }),
           keywords: [
             "subagent agent task center run artifact failure evidence",
             run.id,
@@ -14518,6 +14592,8 @@ export function App() {
             run.endedAt ? formatDate(run.endedAt) : "",
           ].filter(Boolean).join(" · "),
           group: t.taskCenter,
+          target: "timeline",
+          dataAttributes: taskTraceAttributes({ kind: "subagent", action: "timeline", item: run, runId, filter: taskCenterFilterForSubagent(run) }),
           keywords: [
             "subagent run timeline evidence stdout stderr artifact",
             run.id,
@@ -14579,6 +14655,8 @@ export function App() {
             title: `${t.retrySubagent}: ${run.nickname || "Subagent"}`,
             subtitle,
             group: t.taskCenter,
+            target: "subagent-action",
+            dataAttributes: taskTraceAttributes({ kind: "subagent", action: "retry", item: run, id: runKey, runId, filter: "failed" }),
             priority: 18,
             keywords: recoveryKeywords,
             action: () => {
@@ -14594,6 +14672,8 @@ export function App() {
             title: `${t.continueSubagent}: ${run.nickname || "Subagent"}`,
             subtitle,
             group: t.taskCenter,
+            target: "subagent-action",
+            dataAttributes: taskTraceAttributes({ kind: "subagent", action: "continue", item: run, id: runKey, runId, filter: "failed" }),
             priority: 17,
             keywords: recoveryKeywords,
             action: () => {
@@ -14606,6 +14686,8 @@ export function App() {
             title: `${t.copySubagentEvidence}: ${run.nickname || "Subagent"}`,
             subtitle,
             group: t.taskCenter,
+            target: "clipboard",
+            dataAttributes: taskTraceAttributes({ kind: "subagent", action: "copy", item: run, id: runKey, runId, filter: "failed" }),
             priority: 16,
             keywords: recoveryKeywords,
             action: () => copyMessage(subagentRunEvidenceText(run, t)),
@@ -14615,6 +14697,8 @@ export function App() {
             title: `${t.openRunTimeline}: ${run.nickname || "Subagent"}`,
             subtitle,
             group: t.taskCenter,
+            target: "timeline",
+            dataAttributes: taskTraceAttributes({ kind: "subagent", action: "timeline", item: run, id: runKey, runId, filter: "failed" }),
             priority: 14,
             keywords: recoveryKeywords,
             action: () => openRunTimeline(runId),
