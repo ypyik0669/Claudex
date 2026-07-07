@@ -322,6 +322,10 @@ select:focus-visible,
   color: #d8d8d4;
 }
 
+.chat-scope-toggle button[data-thread-scope-focused="true"] {
+  box-shadow: inset 0 0 0 1px rgba(209, 131, 87, 0.55), 0 0 0 1px rgba(209, 131, 87, 0.14);
+}
+
 .chat-scope-toggle button.active em {
   background: rgba(209, 131, 87, 0.18);
   color: #f0c3a2;

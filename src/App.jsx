@@ -4335,6 +4335,7 @@ function Sidebar({
   activeProject,
   projectPathMissing = false,
   projectScope,
+  threadScopeFocus,
   onProjectScopeChange,
   activeSessionId,
   setActiveSessionId,
@@ -4384,6 +4385,18 @@ function Sidebar({
   });
 
   const projects = visibleProjectsForUi(state, t);
+  const threadScopeButtonRefs = useRef({});
+  const focusedThreadScope = ["current", "all", "archived"].includes(threadScopeFocus?.scope)
+    ? threadScopeFocus.scope
+    : "";
+
+  useEffect(() => {
+    if (!focusedThreadScope) return;
+    const target = threadScopeButtonRefs.current[focusedThreadScope];
+    if (target && typeof target.focus === "function") {
+      window.setTimeout(() => target.focus({ preventScroll: true }), 0);
+    }
+  }, [focusedThreadScope, threadScopeFocus?.nonce]);
 
   return (
     <aside className="sidebar">
@@ -4450,6 +4463,7 @@ function Sidebar({
             <span>{t.chats}</span>
             <div className="chat-scope-toggle" aria-label={t.chats}>
               <button
+                ref={(element) => { threadScopeButtonRefs.current.current = element; }}
                 type="button"
                 className={cx(projectScope === "current" && "active")}
                 onClick={() => onProjectScopeChange?.("current")}
@@ -4457,11 +4471,13 @@ function Sidebar({
                 data-thread-scope="current"
                 data-thread-scope-count={scopeCounts.current}
                 data-thread-active-project-path={activeProject?.path || ""}
+                data-thread-scope-focused={focusedThreadScope === "current" ? "true" : "false"}
               >
                 <span>{t.projectFilteredChats}</span>
                 <em>{scopeCounts.current}</em>
               </button>
               <button
+                ref={(element) => { threadScopeButtonRefs.current.all = element; }}
                 type="button"
                 className={cx(projectScope === "all" && "active")}
                 onClick={() => onProjectScopeChange?.("all")}
@@ -4469,11 +4485,13 @@ function Sidebar({
                 data-thread-scope="all"
                 data-thread-scope-count={scopeCounts.all}
                 data-thread-active-project-path={activeProject?.path || ""}
+                data-thread-scope-focused={focusedThreadScope === "all" ? "true" : "false"}
               >
                 <span>{t.allProjectChats}</span>
                 <em>{scopeCounts.all}</em>
               </button>
               <button
+                ref={(element) => { threadScopeButtonRefs.current.archived = element; }}
                 type="button"
                 className={cx(projectScope === "archived" && "active")}
                 onClick={() => onProjectScopeChange?.("archived")}
@@ -4481,6 +4499,7 @@ function Sidebar({
                 data-thread-scope="archived"
                 data-thread-scope-count={scopeCounts.archived}
                 data-thread-active-project-path={activeProject?.path || ""}
+                data-thread-scope-focused={focusedThreadScope === "archived" ? "true" : "false"}
               >
                 <span>{t.showArchivedChats}</span>
                 <em>{scopeCounts.archived}</em>
@@ -13753,6 +13772,7 @@ export function App() {
   const [loadError, setLoadError] = useState("");
   const [stateLoading, setStateLoading] = useState(true);
   const [projectScope, setProjectScope] = useState("current");
+  const [threadScopeFocus, setThreadScopeFocus] = useState({ scope: "", nonce: 0 });
   const [currentRequestId, setCurrentRequestId] = useState("");
   const [streamingAssistant, setStreamingAssistant] = useState(null);
   const [optimisticUser, setOptimisticUser] = useState(null);
@@ -13908,6 +13928,7 @@ export function App() {
   }, [activeProject?.path, stateLoading]);
   const projectPathMissing = Boolean(activeProject?.path && environment?.projectMissing);
   const visibleThreadItems = useMemo(() => sidebarThreadItems(state.sessions, t, activeProject, projectScope), [state.sessions, t, activeProject, projectScope]);
+  const threadScopeCountsForCommands = useMemo(() => sidebarScopeCounts(state.sessions, t, activeProject), [state.sessions, t, activeProject]);
   const activeSession =
     state.sessions.find((session) => (
       session.id === activeSessionId &&
@@ -14419,16 +14440,65 @@ export function App() {
           title: `${t.projects}: ${label}`,
           subtitle: project.path || t.noProjectPath,
           group: t.projects,
+          target: "project",
+          dataAttributes: {
+            "data-command-project-name": project.name || "",
+            "data-command-project-path": project.path || "",
+          },
           keywords: [
             "project workspace folder switch open",
             project.name,
             project.path,
           ].filter(Boolean).join(" "),
-          action: () => {
-            setProjectScope("current");
-            void setActiveProject(project);
-          },
+          action: () => { void openProjectThreadScope(project, "current"); },
         };
+      });
+
+    const projectThreadScopeCommands = visibleProjectsForUi(state, t)
+      .filter((project) => project?.path || project?.name)
+      .flatMap((project) => {
+        const label = projectLabel(project, t);
+        const key = project.path || project.name;
+        const scopeSpecs = [
+          {
+            scope: "current",
+            label: t.projectFilteredChats,
+            keywords: "current project chats threads history 当前项目 聊天 历史",
+          },
+          {
+            scope: "archived",
+            label: t.showArchivedChats,
+            keywords: "archived project chats threads history restore 归档 聊天 历史 恢复",
+          },
+        ];
+        return scopeSpecs.map((spec) => {
+          const count = sidebarThreadItems(state.sessions, t, project, spec.scope).length;
+          return {
+            id: `project-threads-${spec.scope}:${commandIdSegment(key)}`,
+            title: `${spec.label}: ${label}`,
+            subtitle: [
+              project.path || t.noProjectPath,
+              t.threadScopeCount.replace("{count}", count),
+            ].filter(Boolean).join(" Â· "),
+            group: t.chats,
+            target: "project-thread-scope",
+            priority: 12,
+            dataAttributes: {
+              "data-command-project-name": project.name || "",
+              "data-command-project-path": project.path || "",
+              "data-command-thread-scope": spec.scope,
+              "data-command-thread-scope-count": String(count),
+            },
+            keywords: [
+              `${spec.label} ${label}`,
+              `${label} ${spec.scope} chats threads history`,
+              spec.keywords,
+              project.name,
+              project.path,
+            ].filter(Boolean).join(" "),
+            action: () => { void openProjectThreadScope(project, spec.scope); },
+          };
+        });
       });
 
     const threadCommandSessions = (state.sessions || [])
@@ -16945,6 +17015,7 @@ export function App() {
 
     return [
       ...projectCommands,
+      ...projectThreadScopeCommands,
       ...threadCommands,
       ...threadActionCommands,
       ...runEvidenceCommands,
@@ -17433,8 +17504,38 @@ export function App() {
     setBottomPanel("");
     setSidebarVisible(true);
     setProjectScope(nextScope);
+    setThreadScopeFocus({ scope: nextScope, nonce: Date.now() });
     const nextSessionId = selectSessionIdForProject(state, t, activeProject, activeSessionId, nextScope);
     setActiveSessionId(nextSessionId);
+  }
+
+  async function openProjectThreadScope(project, scope = "current") {
+    const nextScope = ["current", "archived"].includes(scope) ? scope : "current";
+    if (!project) {
+      openThreadScope(nextScope);
+      return;
+    }
+    setSettingsOpen(false);
+    setCapabilitiesOpen(false);
+    setProjectsOpen(false);
+    setScheduledOpen(false);
+    setCommandsOpen(false);
+    setBottomPanel("");
+    setSidebarVisible(true);
+    setProjectScope(nextScope);
+    setThreadScopeFocus({ scope: nextScope, nonce: Date.now() });
+    try {
+      if (desktopApi?.setActiveProject) {
+        const next = await desktopApi.setActiveProject(project);
+        applySessionState(next, "", nextScope);
+        setThreadScopeFocus({ scope: nextScope, nonce: Date.now() });
+        return;
+      }
+      setActiveSessionId(selectSessionIdForProject(state, t, project, "", nextScope));
+      setThreadScopeFocus({ scope: nextScope, nonce: Date.now() });
+    } catch (error) {
+      showToast(error.message || String(error));
+    }
   }
 
   function openBottomPanel(id, options = {}) {
@@ -17913,11 +18014,18 @@ export function App() {
     action: () => openSettingsRuntimeHealthActionFocus({ action: spec.action }),
   }));
 
+  const threadScopeCommandDataAttributes = (scope) => ({
+    "data-command-thread-scope": scope,
+    "data-command-thread-scope-count": String(threadScopeCountsForCommands?.[scope] || 0),
+    "data-command-thread-active-project": activeProject?.name || "",
+    "data-command-thread-active-project-path": activeProject?.path || "",
+  });
+
   const commands = [
     { id: "new", title: t.newChat, subtitle: t.chats, group: t.chats, kbd: "Ctrl+N", keywords: "聊天 对话 会话", action: createSession },
-    { id: "threads-current", title: t.projectFilteredChats, subtitle: t.chats, group: t.chats, keywords: "current project chats threads 当前项目 聊天 线程 历史", action: () => openThreadScope("current") },
-    { id: "threads-all", title: t.allProjectChats, subtitle: t.chats, group: t.chats, keywords: "all project chats threads history 全部项目 聊天 线程 历史", action: () => openThreadScope("all") },
-    { id: "threads-archived", title: t.showArchivedChats, subtitle: t.chats, group: t.chats, keywords: "archived chats threads restore 归档聊天 查看归档 恢复 聊天 历史", action: () => openThreadScope("archived") },
+    { id: "threads-current", title: t.projectFilteredChats, subtitle: t.chats, group: t.chats, target: "thread-scope", dataAttributes: threadScopeCommandDataAttributes("current"), keywords: "current project chats threads 当前项目 聊天 线程 历史", action: () => openThreadScope("current") },
+    { id: "threads-all", title: t.allProjectChats, subtitle: t.chats, group: t.chats, target: "thread-scope", dataAttributes: threadScopeCommandDataAttributes("all"), keywords: "all project chats threads history 全部项目 聊天 线程 历史", action: () => openThreadScope("all") },
+    { id: "threads-archived", title: t.showArchivedChats, subtitle: t.chats, group: t.chats, target: "thread-scope", dataAttributes: threadScopeCommandDataAttributes("archived"), keywords: "archived chats threads restore 归档聊天 查看归档 恢复 聊天 历史", action: () => openThreadScope("archived") },
     { id: "project", title: t.selectProject, subtitle: t.activeProject, group: t.activeProject, kbd: "Ctrl+P", keywords: "文件夹 工作区 项目", action: openProjectsSurface },
     { id: "terminal", title: t.openTerminal, subtitle: projectLabel(activeProject, t), group: t.tools, keywords: "终端 shell powershell", action: openTerminal },
     { id: "settings", title: t.settings, subtitle: t.setupProvider, group: t.settings, kbd: "Ctrl+,", keywords: "服务商 api key 模型 设置", action: openSettingsSurface },
@@ -17986,7 +18094,11 @@ export function App() {
           activeProject={activeProject}
           projectPathMissing={projectPathMissing}
           projectScope={projectScope}
-          onProjectScopeChange={setProjectScope}
+          threadScopeFocus={threadScopeFocus}
+          onProjectScopeChange={(scope) => {
+            setProjectScope(scope);
+            setThreadScopeFocus({ scope, nonce: Date.now() });
+          }}
           activeSessionId={activeSession?.id}
           setActiveSessionId={setActiveSessionId}
           onOpenThread={openThread}
