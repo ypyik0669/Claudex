@@ -4542,6 +4542,10 @@ function Conversation({
         })
       : null
   ), [selectedRunEvent, commandRuns, automationItemsForUi, subagentRuns, browserVisits, sessions, t]);
+  const runTimelineEventsForView = useMemo(() => {
+    if (!selectedRunEvent || runTimelineEvents.some((event) => event.id === selectedRunEvent.id)) return runTimelineEvents;
+    return [selectedRunEvent, ...runTimelineEvents];
+  }, [runTimelineEvents, selectedRunEvent]);
   const selectedRunAutomation = selectedRunEvidence?.automationId
     ? automationItemsForUi.find((automation) => automation?.id === selectedRunEvidence.automationId)
     : null;
@@ -5236,10 +5240,10 @@ function Conversation({
                     <div><dt>{t.changes}</dt><dd>{environment?.git?.available ? environment.git.changes || 0 : t.gitUnavailable}</dd></div>
                   </dl>
                 </div>
-                {(runTimelineEvents.length > 0 || selectedRunEvent) && (
+                {(runTimelineEventsForView.length > 0 || selectedRunEvent) && (
                   <div className="run-evidence-layout">
                     <RunTimeline
-                      events={runTimelineEvents}
+                      events={runTimelineEventsForView}
                       commandRuns={commandRuns}
                       automations={automationItemsForUi}
                       subagentRuns={subagentRuns}
@@ -6200,6 +6204,13 @@ function SubagentWorkbench({
     return showArchivedRuns ? true : !run?.archivedAt;
   };
   const visibleAutomationItems = automationItems.filter(automationMatchesTaskFilter);
+  const focusedAutomationItem = focusedAutomationId
+    ? visibleAutomationItems.find((item) => item?.id === focusedAutomationId)
+    : null;
+  const topAutomationCards = visibleAutomationItems.slice(0, 4);
+  const visibleAutomationCards = focusedAutomationItem && !topAutomationCards.some((item) => item?.id === focusedAutomationItem.id)
+    ? [...topAutomationCards, focusedAutomationItem]
+    : topAutomationCards;
   const visibleRuns = runs.filter(subagentMatchesTaskFilter);
   const runCount = t.subagentCount.replace("{count}", visibleRuns.length);
   const automationCountLabel = t.taskCenterFilteredCount
@@ -6415,7 +6426,7 @@ function SubagentWorkbench({
         </div>
         {visibleAutomationItems.length ? (
           <div className="automation-task-list">
-            {visibleAutomationItems.slice(0, 4).map((item) => {
+            {visibleAutomationCards.map((item) => {
               const isFocusedAutomation = focusedAutomationId === item.id;
               const openFocusedAutomationEvidence = Boolean(isFocusedAutomation && focusedTaskOptions?.expandEvidence);
               const openFocusedAutomationHistory = Boolean(isFocusedAutomation && (focusedTaskOptions?.expandHistory || focusedTaskOptions?.expandEvidence));
@@ -13538,7 +13549,6 @@ export function App() {
 
     const automationCommands = automationItemsForCommands
       .filter((automation) => automation?.id)
-      .slice(0, 16)
       .map((automation) => {
         const lastRun = automation.lastRun || {};
         const hasEvidence = Boolean(lastRun.id || lastRun.error || lastRun.detail || lastRun.summary || lastRun.stdout || lastRun.stderr);
@@ -13577,7 +13587,6 @@ export function App() {
 
     const automationRunCommands = automationItemsForCommands
       .filter((automation) => automation?.id)
-      .slice(0, 16)
       .flatMap((automation) => automationRunEntries(automation).slice(0, 6).map((entry) => ({
         id: `automation-run:${commandIdSegment(entry.id)}`,
         title: `${t.openRunTimeline}: ${messageExcerpt(automation.prompt, 56)}`,
@@ -13609,7 +13618,6 @@ export function App() {
 
     const automationRecoveryCommands = automationItemsForCommands
       .filter(automationNeedsRecovery)
-      .slice(0, 16)
       .flatMap((automation) => {
         const entries = automationRunEntries(automation);
         const failedEntry = automationRecoveryEntry(automation)
@@ -13676,7 +13684,6 @@ export function App() {
 
     const subagentCommands = subagentRunsForCommands
       .filter((run) => run?.id || run?.requestId)
-      .slice(0, 16)
       .map((run) => ({
         id: `subagent:${commandIdSegment(run.id || run.requestId)}`,
         title: `${t.subagents}: ${run.nickname || "Subagent"}`,
@@ -13710,7 +13717,6 @@ export function App() {
 
     const subagentRunCommands = subagentRunsForCommands
       .filter((run) => run?.id || run?.requestId)
-      .slice(0, 16)
       .map((run) => {
         const runId = run.requestId || run.id;
         const artifactSearchParts = Array.isArray(run.artifacts)
@@ -13752,7 +13758,6 @@ export function App() {
 
     const subagentRecoveryCommands = subagentRunsForCommands
       .filter(subagentNeedsRecovery)
-      .slice(0, 16)
       .flatMap((run) => {
         const runKey = run.id || run.requestId;
         const runId = run.requestId || run.id;
