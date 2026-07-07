@@ -4078,6 +4078,8 @@ function Sidebar({
                 onClick={() => onProjectScopeChange?.("current")}
                 title={activeProject?.path || activeProject?.name || t.projectFilteredChats}
                 data-thread-scope="current"
+                data-thread-scope-count={scopeCounts.current}
+                data-thread-active-project-path={activeProject?.path || ""}
               >
                 <span>{t.projectFilteredChats}</span>
                 <em>{scopeCounts.current}</em>
@@ -4088,6 +4090,8 @@ function Sidebar({
                 onClick={() => onProjectScopeChange?.("all")}
                 title={t.allProjectChats}
                 data-thread-scope="all"
+                data-thread-scope-count={scopeCounts.all}
+                data-thread-active-project-path={activeProject?.path || ""}
               >
                 <span>{t.allProjectChats}</span>
                 <em>{scopeCounts.all}</em>
@@ -4098,13 +4102,25 @@ function Sidebar({
                 onClick={() => onProjectScopeChange?.("archived")}
                 title={t.showArchivedChats}
                 data-thread-scope="archived"
+                data-thread-scope-count={scopeCounts.archived}
+                data-thread-active-project-path={activeProject?.path || ""}
               >
                 <span>{t.showArchivedChats}</span>
                 <em>{scopeCounts.archived}</em>
               </button>
             </div>
           </div>
-          <div className="thread-scope-summary" aria-label={t.threadScopeEvidence} title={activeProject?.path || projectLabel(activeProject, t)}>
+          <div
+            className="thread-scope-summary"
+            aria-label={t.threadScopeEvidence}
+            title={activeProject?.path || projectLabel(activeProject, t)}
+            data-thread-scope={projectScope}
+            data-thread-active-project={activeProject?.name || ""}
+            data-thread-active-project-path={activeProject?.path || ""}
+            data-thread-visible-count={filtered.length}
+            data-thread-total-count={threadItems.length}
+            data-thread-query={query.trim()}
+          >
             <span>{t.threadScopeEvidence}</span>
             <strong>{scopeSummary}</strong>
           </div>
@@ -4132,17 +4148,29 @@ function Sidebar({
                 const isStreaming = streamingSessionId === session.id;
                 const isDraft = item.messageCount === 0;
                 const meta = sessionMetaLabel(session, t, isStreaming);
+                const threadTraceAttributes = {
+                  "data-thread-id": session.id,
+                  "data-thread-project": session.project || "",
+                  "data-thread-project-path": session.projectPath || "",
+                  "data-thread-scope": projectScope,
+                  "data-thread-active": activeSessionId === session.id ? "true" : "false",
+                  "data-thread-claude-session-id": session.claudeSessionId || "",
+                  "data-thread-pinned": session.pinned ? "true" : "false",
+                  "data-thread-archived": session.archived ? "true" : "false",
+                  "data-thread-message-count": item.messageCount,
+                  "data-thread-updated-at": session.updatedAt || "",
+                };
+                const threadActionTraceAttributes = {
+                  "data-thread-id": session.id,
+                  "data-thread-project-path": session.projectPath || "",
+                  "data-thread-scope": projectScope,
+                };
                 return (
                   <article
                     key={session.id}
                     className={cx("thread-item", isDraft && "draft-thread", activeSessionId === session.id && "active", session.pinned && "pinned-thread")}
                     title={`${item.title}\n${item.subtitle}`}
-                    data-thread-id={session.id}
-                    data-thread-project={session.project || ""}
-                    data-thread-project-path={session.projectPath || ""}
-                    data-thread-pinned={session.pinned ? "true" : "false"}
-                    data-thread-archived={session.archived ? "true" : "false"}
-                    data-thread-message-count={item.messageCount}
+                    {...threadTraceAttributes}
                   >
                     <button
                       type="button"
@@ -4169,22 +4197,22 @@ function Sidebar({
                       </span>
                     </button>
                     <span className="thread-actions" aria-label={t.commandPalette}>
-                      <button type="button" data-thread-action="rename" onClick={() => onRenameThread(session)} title={t.renameThread} aria-label={t.renameThread}>
+                      <button type="button" data-thread-action="rename" {...threadActionTraceAttributes} onClick={() => onRenameThread(session)} title={t.renameThread} aria-label={t.renameThread}>
                         <Pencil size={12} />
                       </button>
-                      <button type="button" data-thread-action={session.pinned ? "unpin" : "pin"} onClick={() => onTogglePinThread(session)} title={session.pinned ? t.unpinThread : t.pinThread} aria-label={session.pinned ? t.unpinThread : t.pinThread}>
+                      <button type="button" data-thread-action={session.pinned ? "unpin" : "pin"} {...threadActionTraceAttributes} data-thread-pinned={session.pinned ? "true" : "false"} onClick={() => onTogglePinThread(session)} title={session.pinned ? t.unpinThread : t.pinThread} aria-label={session.pinned ? t.unpinThread : t.pinThread}>
                         <Pin size={12} />
                       </button>
-                      <button type="button" data-thread-action="fork" onClick={() => onForkThread(session)} title={t.forkThread} aria-label={t.forkThread}>
+                      <button type="button" data-thread-action="fork" {...threadActionTraceAttributes} onClick={() => onForkThread(session)} title={t.forkThread} aria-label={t.forkThread}>
                         <GitFork size={12} />
                       </button>
-                      <button type="button" data-thread-action={session.archived ? "restore" : "archive"} onClick={() => onArchiveThread(session)} title={session.archived ? t.restoreThread : t.archiveThread} aria-label={session.archived ? t.restoreThread : t.archiveThread}>
+                      <button type="button" data-thread-action={session.archived ? "restore" : "archive"} {...threadActionTraceAttributes} data-thread-archived={session.archived ? "true" : "false"} onClick={() => onArchiveThread(session)} title={session.archived ? t.restoreThread : t.archiveThread} aria-label={session.archived ? t.restoreThread : t.archiveThread}>
                         <Archive size={12} />
                       </button>
-                      <button type="button" data-thread-action="delete" onClick={() => onDeleteThread(session)} title={t.deleteThread} aria-label={t.deleteThread}>
+                      <button type="button" data-thread-action="delete" {...threadActionTraceAttributes} onClick={() => onDeleteThread(session)} title={t.deleteThread} aria-label={t.deleteThread}>
                         <Trash2 size={12} />
                       </button>
-                      <button type="button" data-thread-action="resume" onClick={() => onResumeThread?.(session)} title={t.resumeThread} aria-label={t.resumeThread}>
+                      <button type="button" data-thread-action="resume" {...threadActionTraceAttributes} data-thread-claude-session-id={session.claudeSessionId || ""} onClick={() => onResumeThread?.(session)} title={t.resumeThread} aria-label={t.resumeThread}>
                         <History size={12} />
                       </button>
                     </span>
