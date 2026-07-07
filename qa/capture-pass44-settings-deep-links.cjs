@@ -3,7 +3,30 @@ const os = require("os");
 const path = require("path");
 const { app, BrowserWindow } = require("electron");
 
-const REPO_DIR = path.join(__dirname, "..");
+function findRepoDir() {
+  const candidates = [
+    process.env.CLAUDEX_REPO_DIR,
+    process.cwd(),
+    __dirname,
+    path.join(__dirname, ".."),
+  ].filter(Boolean);
+  for (const candidate of candidates) {
+    let current = path.resolve(candidate);
+    while (current && current !== path.dirname(current)) {
+      if (
+        fs.existsSync(path.join(current, "package.json")) &&
+        fs.existsSync(path.join(current, "electron", "main.cjs"))
+      ) {
+        return current;
+      }
+      current = path.dirname(current);
+    }
+  }
+  throw new Error("Unable to locate Claudex repo root");
+}
+
+const REPO_DIR = findRepoDir();
+process.chdir(REPO_DIR);
 const USER_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "claudex-pass44-settings-deep-links-"));
 const FAKE_CLAUDE = path.join(USER_DATA_DIR, "fake-claude.cmd");
 const DATA_FILE = path.join(USER_DATA_DIR, "desktop-data.json");
@@ -114,10 +137,10 @@ async function openSettings(win) {
   return waitFor(win, "Boolean(document.querySelector('.settings-workspace'))", 5000);
 }
 
-async function selectSettingsSection(win, index) {
+async function selectSettingsSection(win, id) {
   return win.webContents.executeJavaScript(`
     (function() {
-      const button = Array.from(document.querySelectorAll('.settings-nav button'))[${index}];
+      const button = document.querySelector('.settings-nav button[data-settings-section="${id}"]');
       if (!button) return false;
       button.click();
       return true;
@@ -146,22 +169,67 @@ async function runTest() {
   assertStep("PASS44_READY", await waitFor(win, "Boolean(document.querySelector('.app-grid') && window.claudexDesktop)", 15000));
 
   assertStep("PASS44_SETTINGS_OPEN_MCP", await openSettings(win));
-  assertStep("PASS44_SELECT_MCP", await selectSettingsSection(win, 5));
+  assertStep("PASS44_SELECT_MCP", await selectSettingsSection(win, "mcp"));
   assertStep("PASS44_MCP_QUICK_ACTIONS", await waitFor(win, "Boolean(document.querySelector('.settings-quick-actions button'))", 5000));
   assertStep("PASS44_OPEN_MCP_WORKBENCH", await clickQuickAction(win, 0));
-  assertStep("PASS44_MCP_WORKBENCH_VISIBLE", await waitFor(win, "Boolean(document.querySelector('.plugin-manager-modal'))", 8000));
+  assertStep("PASS44_MCP_WORKBENCH_VISIBLE", await waitFor(win, `
+    Boolean(
+      document.querySelector('.plugin-manager-modal') &&
+      /MCP/.test(document.querySelector('.plugin-manager-tabs button.active')?.textContent || '')
+    )
+  `, 8000));
 
   assertStep("PASS44_SETTINGS_OPEN_BROWSER", await openSettings(win));
-  assertStep("PASS44_SELECT_BROWSER", await selectSettingsSection(win, 6));
+  assertStep("PASS44_SELECT_BROWSER", await selectSettingsSection(win, "browser"));
   assertStep("PASS44_BROWSER_QUICK_ACTIONS", await waitFor(win, "Boolean(document.querySelector('.settings-quick-actions button'))", 5000));
   assertStep("PASS44_OPEN_BROWSER_TOOL", await clickQuickAction(win, 0));
   assertStep("PASS44_BROWSER_TOOL_VISIBLE", await waitFor(win, "Boolean(!document.querySelector('.settings-workspace') && document.querySelector('.tools-panel .browser-detail'))", 8000));
 
+  assertStep("PASS44_SETTINGS_OPEN_COMPUTER_CLAUDE", await openSettings(win));
+  assertStep("PASS44_SELECT_COMPUTER_CLAUDE", await selectSettingsSection(win, "computer"));
+  assertStep("PASS44_COMPUTER_QUICK_ACTIONS", await waitFor(win, "document.querySelectorAll('.settings-quick-actions button').length >= 2", 5000));
+  assertStep("PASS44_OPEN_COMPUTER_CLAUDE_TOOL", await clickQuickAction(win, 0));
+  assertStep("PASS44_COMPUTER_CLAUDE_TOOL_VISIBLE", await waitFor(win, "Boolean(!document.querySelector('.settings-workspace') && document.querySelector('#claude-tool-detail'))", 8000));
+
+  assertStep("PASS44_SETTINGS_OPEN_COMPUTER_TERMINAL", await openSettings(win));
+  assertStep("PASS44_SELECT_COMPUTER_TERMINAL", await selectSettingsSection(win, "computer"));
+  assertStep("PASS44_OPEN_COMPUTER_TERMINAL_TOOL", await clickQuickAction(win, 1));
+  assertStep("PASS44_COMPUTER_TERMINAL_TOOL_VISIBLE", await waitFor(win, "Boolean(!document.querySelector('.settings-workspace') && document.querySelector('#terminal-tool-detail'))", 8000));
+
+  assertStep("PASS44_SETTINGS_OPEN_HOOKS", await openSettings(win));
+  assertStep("PASS44_SELECT_HOOKS", await selectSettingsSection(win, "hooks"));
+  assertStep("PASS44_HOOKS_QUICK_ACTIONS", await waitFor(win, "Boolean(document.querySelector('.settings-quick-actions button'))", 5000));
+  assertStep("PASS44_OPEN_HOOKS_CLAUDE_TOOL", await clickQuickAction(win, 0));
+  assertStep("PASS44_HOOKS_CLAUDE_TOOL_VISIBLE", await waitFor(win, "Boolean(!document.querySelector('.settings-workspace') && document.querySelector('#claude-tool-detail'))", 8000));
+
   assertStep("PASS44_SETTINGS_OPEN_GIT", await openSettings(win));
-  assertStep("PASS44_SELECT_GIT", await selectSettingsSection(win, 10));
+  assertStep("PASS44_SELECT_GIT", await selectSettingsSection(win, "git"));
   assertStep("PASS44_GIT_QUICK_ACTIONS", await waitFor(win, "Boolean(document.querySelector('.settings-quick-actions button'))", 5000));
   assertStep("PASS44_OPEN_CHANGES_PANEL", await clickQuickAction(win, 0));
   assertStep("PASS44_CHANGES_PANEL_VISIBLE", await waitFor(win, "Boolean(!document.querySelector('.settings-workspace') && document.querySelector('.bottom-work-panel .git-diff-preview'))", 8000));
+
+  assertStep("PASS44_SETTINGS_OPEN_ENVIRONMENT", await openSettings(win));
+  assertStep("PASS44_SELECT_ENVIRONMENT", await selectSettingsSection(win, "environments"));
+  assertStep("PASS44_ENVIRONMENT_QUICK_ACTIONS", await waitFor(win, "Boolean(document.querySelector('.settings-quick-actions button'))", 5000));
+  assertStep("PASS44_OPEN_ENVIRONMENT_PANEL", await clickQuickAction(win, 0));
+  assertStep("PASS44_ENVIRONMENT_PANEL_VISIBLE", await waitFor(win, `
+    Boolean(
+      !document.querySelector('.settings-workspace') &&
+      document.querySelector('.bottom-work-panel') &&
+      /环境|Environment|Claudex/.test(document.querySelector('.bottom-work-panel')?.textContent || '')
+    )
+  `, 8000));
+
+  assertStep("PASS44_SETTINGS_OPEN_WORKTREES_CHANGES", await openSettings(win));
+  assertStep("PASS44_SELECT_WORKTREES_CHANGES", await selectSettingsSection(win, "worktrees"));
+  assertStep("PASS44_WORKTREES_QUICK_ACTIONS", await waitFor(win, "document.querySelectorAll('.settings-quick-actions button').length >= 2", 5000));
+  assertStep("PASS44_OPEN_WORKTREES_CHANGES_PANEL", await clickQuickAction(win, 0));
+  assertStep("PASS44_WORKTREES_CHANGES_PANEL_VISIBLE", await waitFor(win, "Boolean(!document.querySelector('.settings-workspace') && document.querySelector('.bottom-work-panel .git-diff-preview'))", 8000));
+
+  assertStep("PASS44_SETTINGS_OPEN_WORKTREES_CLAUDE", await openSettings(win));
+  assertStep("PASS44_SELECT_WORKTREES_CLAUDE", await selectSettingsSection(win, "worktrees"));
+  assertStep("PASS44_OPEN_WORKTREES_CLAUDE_TOOL", await clickQuickAction(win, 1));
+  assertStep("PASS44_WORKTREES_CLAUDE_TOOL_VISIBLE", await waitFor(win, "Boolean(!document.querySelector('.settings-workspace') && document.querySelector('#claude-tool-detail'))", 8000));
 
   assertStep("PASS44_SETTINGS_DIRTY_GUARD_OPEN", await openSettings(win));
   assertStep("PASS44_SETTINGS_MARK_DIRTY", await win.webContents.executeJavaScript(`
@@ -173,7 +241,7 @@ async function runTest() {
       return true;
     })();
   `));
-  assertStep("PASS44_DIRTY_SELECT_BROWSER", await selectSettingsSection(win, 6));
+  assertStep("PASS44_DIRTY_SELECT_BROWSER", await selectSettingsSection(win, "browser"));
   assertStep("PASS44_DIRTY_CLICK_DEEPLINK", await clickQuickAction(win, 0));
   assertStep("PASS44_DIRTY_GUARD_STAYS", await waitFor(win, "Boolean(document.querySelector('.settings-workspace') && document.querySelector('.dirty-confirm-banner'))", 5000));
 

@@ -10168,7 +10168,7 @@ function SettingsBackedStatus({
       { label: t.openClaudeTool, icon: Bot, onClick: () => onOpenTool?.("claude") },
     ],
     mcp: [
-      { label: t.openMcpWorkbench, icon: Blocks, onClick: onOpenCapabilities },
+      { label: t.openMcpWorkbench, icon: Blocks, onClick: () => onOpenCapabilities?.("mcp") },
       { label: t.openClaudeTool, icon: Bot, onClick: () => onOpenTool?.("claude") },
     ],
     browser: [
@@ -10183,7 +10183,7 @@ function SettingsBackedStatus({
       { label: t.openClaudeTool, icon: Bot, onClick: () => onOpenTool?.("claude") },
     ],
     connections: [
-      { label: t.openMcpWorkbench, icon: Blocks, onClick: onOpenCapabilities },
+      { label: t.openMcpWorkbench, icon: Blocks, onClick: () => onOpenCapabilities?.("mcp") },
       { label: t.openClaudeTool, icon: Bot, onClick: () => onOpenTool?.("claude") },
     ],
     git: [
