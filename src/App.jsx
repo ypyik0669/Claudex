@@ -2976,6 +2976,108 @@ function taskCommandTraceAttributes(options) {
   return taskTraceAttributesWithPrefix("data-command-task-", taskTraceFields({ surface: "command-palette", ...options }));
 }
 
+function capabilityTraceAttrValue(value) {
+  if (value === 0) return "0";
+  if (value === false) return "false";
+  if (value === true) return "true";
+  return String(value || "");
+}
+
+function capabilityTraceToolNames(item = {}) {
+  if (Array.isArray(item.toolDetails) && item.toolDetails.length) {
+    return item.toolDetails.map((tool) => tool?.name).filter(Boolean).join(", ");
+  }
+  if (Array.isArray(item.toolNames)) return item.toolNames.filter(Boolean).join(", ");
+  if (item.toolsSummary) return String(item.toolsSummary || "");
+  return summarizePanelPluginField(item.tools || "");
+}
+
+function capabilityTraceToolCount(item = {}) {
+  if (typeof item.tools === "number") return String(item.tools);
+  if (Array.isArray(item.toolDetails)) return String(item.toolDetails.length);
+  if (Array.isArray(item.toolNames)) return String(item.toolNames.length);
+  if (Array.isArray(item.tools)) return String(item.tools.length);
+  return "";
+}
+
+function capabilityTraceSource(item = {}, kind = "") {
+  if (kind === "marketplace-source") {
+    return [item.source, item.repo, item.installLocation]
+      .filter(Boolean)
+      .map((value) => summarizePanelPluginField(value))
+      .join(" ");
+  }
+  return summarizePanelPluginField(item.source || item.repo || item.installLocation || item.installPath || item.detail || "");
+}
+
+function capabilityTraceStatus(item = {}, kind = "") {
+  if (kind === "marketplace-plugin") return item.installed ? "installed" : "available";
+  if (kind === "plugin") return item.status || (item.enabled ? "enabled" : "disabled");
+  return item.status || "";
+}
+
+function capabilityTraceEnabled(item = {}, kind = "") {
+  if (kind === "marketplace-plugin") return item.installed ? "true" : "false";
+  if (kind === "plugin") return item.enabled ? "true" : "false";
+  return "";
+}
+
+function capabilityTraceFields({ kind, action = "open", item = {}, id = "", name = "", projectPath = "", marketplace = "" }) {
+  const resolvedId = id || item.id || item.name || item.repo || item.source || "";
+  const resolvedName = name || item.name || resolvedId;
+  return {
+    kind: capabilityTraceAttrValue(kind),
+    action: capabilityTraceAttrValue(action),
+    id: capabilityTraceAttrValue(resolvedId),
+    name: capabilityTraceAttrValue(resolvedName),
+    status: capabilityTraceAttrValue(capabilityTraceStatus(item, kind)),
+    enabled: capabilityTraceAttrValue(capabilityTraceEnabled(item, kind)),
+    version: capabilityTraceAttrValue(item.version && item.version !== "unknown" ? item.version : ""),
+    source: capabilityTraceAttrValue(capabilityTraceSource(item, kind)),
+    marketplace: capabilityTraceAttrValue(item.marketplace || marketplace),
+    toolCount: capabilityTraceAttrValue(capabilityTraceToolCount(item)),
+    tools: capabilityTraceAttrValue(capabilityTraceToolNames(item)),
+    risk: capabilityTraceAttrValue(summarizePanelPluginField(item.risk || "")),
+    permissions: capabilityTraceAttrValue(summarizePanelPluginField(item.permissions || item.allowedTools || "")),
+    transport: capabilityTraceAttrValue(item.transport || ""),
+    error: capabilityTraceAttrValue(summarizePanelPluginField(item.error || "")),
+    projectPath: capabilityTraceAttrValue(projectPath),
+  };
+}
+
+const CAPABILITY_TRACE_ATTRIBUTE_KEYS = {
+  kind: "kind",
+  action: "action",
+  id: "id",
+  name: "name",
+  status: "status",
+  enabled: "enabled",
+  version: "version",
+  source: "source",
+  marketplace: "marketplace",
+  toolCount: "tool-count",
+  tools: "tools",
+  risk: "risk",
+  permissions: "permissions",
+  transport: "transport",
+  error: "error",
+  projectPath: "project-path",
+};
+
+function capabilityTraceAttributesWithPrefix(prefix, fields = {}) {
+  return Object.fromEntries(
+    Object.entries(CAPABILITY_TRACE_ATTRIBUTE_KEYS).map(([field, suffix]) => [`${prefix}${suffix}`, capabilityTraceAttrValue(fields[field])]),
+  );
+}
+
+function capabilityCommandTraceAttributes(options) {
+  return capabilityTraceAttributesWithPrefix("data-command-capability-", capabilityTraceFields(options));
+}
+
+function capabilitySurfaceTraceAttributes(options) {
+  return capabilityTraceAttributesWithPrefix("data-capability-", capabilityTraceFields(options));
+}
+
 function taskArtifactTraceAttributes({ action, surface = "task-center", run = {}, artifact = {}, index = 0, label = "" }) {
   const artifactPath = subagentArtifactPathValue(artifact);
   const projectPath = subagentArtifactProjectPath(artifact, run?.project?.path || run?.cwd || "");
@@ -10909,6 +11011,13 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
   const recentMarketplaceActionRun = findRecentMarketplaceActionRun(recentCapabilityRuns);
   const recentMcpActionRun = findRecentMcpActionRun(recentCapabilityRuns);
   const cliWorking = cliBusy || marketplaceBusy || Boolean(cliAction);
+  const surfaceTraceAttributes = (kind, action, item = {}, options = {}) => capabilitySurfaceTraceAttributes({
+    kind,
+    action,
+    item,
+    projectPath: activeProject?.path || "",
+    ...options,
+  });
   const cliStatusIssueByTab = {
     plugins: cliStatusIssue(t.plugins, "plugin list", cliStatus?.pluginCommand, t, "plugin list --json"),
     mcp: cliStatusIssue(t.mcps, "mcp list", cliStatus?.mcpCommand, t),
@@ -11699,6 +11808,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                       className={cx("marketplace-source-row structured-source-row", sourceFocused && "focused-capability-row")}
                       key={item.name}
                       data-marketplace-source-id={item.name}
+                      {...surfaceTraceAttributes("marketplace-source", "open", item, { id: item.name, name: item.name })}
                     >
                       <div>
                         <strong>{item.name}</strong>
@@ -11716,7 +11826,15 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                       </div>
                       <div className="marketplace-source-actions">
                         <em>{item.status || item.source || t.source}</em>
-                        <button type="button" className="plain-action subtle-action" data-marketplace-source-action="copy-evidence" onClick={() => copyMarketplaceSourceEvidence(item)} disabled={cliWorking} title={cliWorking ? t.workingHint : copiedMarketplaceSourceId === item.name ? t.copied : t.copyEvidence}>
+                        <button
+                          type="button"
+                          className="plain-action subtle-action"
+                          data-marketplace-source-action="copy-evidence"
+                          {...surfaceTraceAttributes("marketplace-source", "copy", item, { id: item.name, name: item.name })}
+                          onClick={() => copyMarketplaceSourceEvidence(item)}
+                          disabled={cliWorking}
+                          title={cliWorking ? t.workingHint : copiedMarketplaceSourceId === item.name ? t.copied : t.copyEvidence}
+                        >
                           {copiedMarketplaceSourceId === item.name ? <Check size={13} /> : <Copy size={13} />}
                           {copiedMarketplaceSourceId === item.name ? t.copied : t.copyEvidence}
                         </button>
@@ -11777,6 +11895,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                       className={cx("marketplace-plugin-card", item.installed && "installed", pluginFocused && "focused-capability-row")}
                       key={item.id}
                       data-marketplace-plugin-id={item.id}
+                      {...surfaceTraceAttributes("marketplace-plugin", "open", item, { id: item.id || item.name })}
                     >
                     <div className="marketplace-plugin-card-head">
                       <div>
@@ -11810,7 +11929,14 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                       </details>
                     )}
                     <div className="marketplace-card-actions">
-                      <button type="button" className="plain-action" onClick={() => requestCapabilityClaude(`plugin install ${item.id}`, `${t.installFromMarketplace}: ${item.name || item.id}`, marketplaceInstallReviewRows(item))} disabled={cliWorking || item.installed} title={item.installed ? t.installedLocal : cliWorking ? t.workingHint : t.installFromMarketplace}>
+                      <button
+                        type="button"
+                        className="plain-action"
+                        {...surfaceTraceAttributes("marketplace-plugin", "install", item, { id: item.id || item.name })}
+                        onClick={() => requestCapabilityClaude(`plugin install ${item.id}`, `${t.installFromMarketplace}: ${item.name || item.id}`, marketplaceInstallReviewRows(item))}
+                        disabled={cliWorking || item.installed}
+                        title={item.installed ? t.installedLocal : cliWorking ? t.workingHint : t.installFromMarketplace}
+                      >
                         <Download size={14} />
                         {item.installed ? t.installedLocal : t.installFromMarketplace}
                       </button>
@@ -11821,12 +11947,26 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                         </button>
                       )}
                       {installedPlugin && (
-                        <button type="button" className="plain-action subtle-action" data-marketplace-plugin-action="open-installed" onClick={() => openInstalledPluginRow(installedPlugin, item.id)}>
+                        <button
+                          type="button"
+                          className="plain-action subtle-action"
+                          data-marketplace-plugin-action="open-installed"
+                          {...surfaceTraceAttributes("marketplace-plugin", "open-installed", item, { id: item.id || item.name })}
+                          onClick={() => openInstalledPluginRow(installedPlugin, item.id)}
+                        >
                           <ArrowRight size={13} />
                           {t.openInstalledPlugin}
                         </button>
                       )}
-                      <button type="button" className="plain-action subtle-action" data-marketplace-plugin-action="copy-evidence" onClick={() => copyMarketplacePluginEvidence(item)} disabled={cliWorking} title={cliWorking ? t.workingHint : copiedMarketplacePluginId === item.id ? t.copied : t.copyEvidence}>
+                      <button
+                        type="button"
+                        className="plain-action subtle-action"
+                        data-marketplace-plugin-action="copy-evidence"
+                        {...surfaceTraceAttributes("marketplace-plugin", "copy", item, { id: item.id || item.name })}
+                        onClick={() => copyMarketplacePluginEvidence(item)}
+                        disabled={cliWorking}
+                        title={cliWorking ? t.workingHint : copiedMarketplacePluginId === item.id ? t.copied : t.copyEvidence}
+                      >
                         {copiedMarketplacePluginId === item.id ? <Check size={13} /> : <Copy size={13} />}
                         {copiedMarketplacePluginId === item.id ? t.copied : t.copyEvidence}
                       </button>
@@ -11954,6 +12094,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                       className={cx("structured-plugin-row", pluginFocused && "focused-capability-row")}
                       key={plugin.id}
                       data-plugin-id={plugin.id}
+                      {...surfaceTraceAttributes("plugin", "open", plugin, { id: plugin.id || plugin.name })}
                     >
                     <span className="plugin-manager-icon"><Plug size={17} /></span>
                     <div className="plugin-manager-copy">
@@ -11987,12 +12128,46 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                     <em className={cx("plugin-status-badge", pluginStatusKind(plugin))}>{pluginStatusDisplay(plugin, t)}</em>
                     <div className="structured-row-actions">
                       {plugin.enabled ? (
-                        <button type="button" className="plain-action subtle-action" onClick={() => requestCapabilityClaude(`plugin disable ${plugin.id}`, `${t.disablePlugin}: ${plugin.id}`, pluginActionReviewRows(plugin, t.disablePlugin))} disabled={cliWorking} title={cliWorking ? t.workingHint : undefined}>{t.disablePlugin}</button>
+                        <button
+                          type="button"
+                          className="plain-action subtle-action"
+                          {...surfaceTraceAttributes("plugin", "disable", plugin, { id: plugin.id || plugin.name })}
+                          onClick={() => requestCapabilityClaude(`plugin disable ${plugin.id}`, `${t.disablePlugin}: ${plugin.id}`, pluginActionReviewRows(plugin, t.disablePlugin))}
+                          disabled={cliWorking}
+                          title={cliWorking ? t.workingHint : undefined}
+                        >
+                          {t.disablePlugin}
+                        </button>
                       ) : (
-                        <button type="button" className="plain-action subtle-action" onClick={() => requestCapabilityClaude(`plugin enable ${plugin.id}`, `${t.enablePlugin}: ${plugin.id}`, pluginActionReviewRows(plugin, t.enablePlugin))} disabled={cliWorking} title={cliWorking ? t.workingHint : undefined}>{t.enablePlugin}</button>
+                        <button
+                          type="button"
+                          className="plain-action subtle-action"
+                          {...surfaceTraceAttributes("plugin", "enable", plugin, { id: plugin.id || plugin.name })}
+                          onClick={() => requestCapabilityClaude(`plugin enable ${plugin.id}`, `${t.enablePlugin}: ${plugin.id}`, pluginActionReviewRows(plugin, t.enablePlugin))}
+                          disabled={cliWorking}
+                          title={cliWorking ? t.workingHint : undefined}
+                        >
+                          {t.enablePlugin}
+                        </button>
                       )}
-                      <button type="button" className="plain-action subtle-action" onClick={() => requestCapabilityClaude(`plugin update ${plugin.id}`, `${t.updatePlugin}: ${plugin.id}`, pluginActionReviewRows(plugin, t.updatePlugin))} disabled={cliWorking} title={cliWorking ? t.workingHint : undefined}>{t.updatePlugin}</button>
-                      <button type="button" className="plain-action subtle-action" data-plugin-action="copy-evidence" onClick={() => copyPluginEvidence(plugin)} title={copiedPluginId === plugin.id ? t.copied : t.copyEvidence}>
+                      <button
+                        type="button"
+                        className="plain-action subtle-action"
+                        {...surfaceTraceAttributes("plugin", "update", plugin, { id: plugin.id || plugin.name })}
+                        onClick={() => requestCapabilityClaude(`plugin update ${plugin.id}`, `${t.updatePlugin}: ${plugin.id}`, pluginActionReviewRows(plugin, t.updatePlugin))}
+                        disabled={cliWorking}
+                        title={cliWorking ? t.workingHint : undefined}
+                      >
+                        {t.updatePlugin}
+                      </button>
+                      <button
+                        type="button"
+                        className="plain-action subtle-action"
+                        data-plugin-action="copy-evidence"
+                        {...surfaceTraceAttributes("plugin", "copy", plugin, { id: plugin.id || plugin.name })}
+                        onClick={() => copyPluginEvidence(plugin)}
+                        title={copiedPluginId === plugin.id ? t.copied : t.copyEvidence}
+                      >
                         {copiedPluginId === plugin.id ? <Check size={13} /> : <Copy size={13} />}
                         {copiedPluginId === plugin.id ? t.copied : t.copyEvidence}
                       </button>
@@ -12055,6 +12230,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                       key={rowKey}
                       data-mcp-server-id={server.name}
                       data-mcp-server-key={rowKey}
+                      {...surfaceTraceAttributes("mcp", "open", server, { id: server.name, name: server.name })}
                     >
                       <span className="plugin-manager-icon"><Blocks size={17} /></span>
                       <div className="plugin-manager-copy">
@@ -12087,19 +12263,44 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                       </div>
                       <em className={cx("plugin-status-badge", server.status)}>{mcpStatusLabel(server.status, t)}</em>
                       <div className="structured-row-actions">
-                        <button type="button" className="plain-action subtle-action" onClick={onOpenClaudePanel}>
+                        <button
+                          type="button"
+                          className="plain-action subtle-action"
+                          {...surfaceTraceAttributes("mcp", "open-claude", server, { id: server.name, name: server.name })}
+                          onClick={onOpenClaudePanel}
+                        >
                           <Bot size={13} />
                           {t.openClaudePanel}
                         </button>
-                        <button type="button" className="plain-action subtle-action" onClick={() => copyMcpServerRaw(server)} title={server.raw || server.detail || server.name}>
+                        <button
+                          type="button"
+                          className="plain-action subtle-action"
+                          {...surfaceTraceAttributes("mcp", "copy-raw", server, { id: server.name, name: server.name })}
+                          onClick={() => copyMcpServerRaw(server)}
+                          title={server.raw || server.detail || server.name}
+                        >
                           {copiedMcpServerKey === rowKey ? <Check size={13} /> : <Copy size={13} />}
                           {copiedMcpServerKey === rowKey ? t.copied : t.copyRawMcpStatus}
                         </button>
-                        <button type="button" className="plain-action subtle-action" data-mcp-server-action="copy-evidence" onClick={() => copyMcpServerEvidence(server)} title={copiedMcpEvidenceKey === rowKey ? t.copied : t.copyEvidence}>
+                        <button
+                          type="button"
+                          className="plain-action subtle-action"
+                          data-mcp-server-action="copy-evidence"
+                          {...surfaceTraceAttributes("mcp", "copy", server, { id: server.name, name: server.name })}
+                          onClick={() => copyMcpServerEvidence(server)}
+                          title={copiedMcpEvidenceKey === rowKey ? t.copied : t.copyEvidence}
+                        >
                           {copiedMcpEvidenceKey === rowKey ? <Check size={13} /> : <Copy size={13} />}
                           {copiedMcpEvidenceKey === rowKey ? t.copied : t.copyEvidence}
                         </button>
-                        <button type="button" className="plain-action subtle-action" onClick={() => runCapabilityClaude("mcp list")} disabled={cliWorking} title={cliWorking ? t.workingHint : undefined}>
+                        <button
+                          type="button"
+                          className="plain-action subtle-action"
+                          {...surfaceTraceAttributes("mcp", "refresh", server, { id: server.name, name: server.name })}
+                          onClick={() => runCapabilityClaude("mcp list")}
+                          disabled={cliWorking}
+                          title={cliWorking ? t.workingHint : undefined}
+                        >
                           <RefreshCw size={13} className={rowRecording ? "spin" : undefined} />
                           {t.recordMcpStatus}
                         </button>
@@ -15075,59 +15276,13 @@ export function App() {
       }));
     });
 
-    const capabilityTraceToolNames = (item = {}) => {
-      if (Array.isArray(item.toolDetails) && item.toolDetails.length) {
-        return item.toolDetails.map((tool) => tool?.name).filter(Boolean).join(", ");
-      }
-      if (Array.isArray(item.toolNames)) return item.toolNames.filter(Boolean).join(", ");
-      if (item.toolsSummary) return String(item.toolsSummary || "");
-      return summarizePanelPluginField(item.tools || "");
-    };
-    const capabilityTraceToolCount = (item = {}) => {
-      if (typeof item.tools === "number") return String(item.tools);
-      if (Array.isArray(item.toolDetails)) return String(item.toolDetails.length);
-      if (Array.isArray(item.toolNames)) return String(item.toolNames.length);
-      if (Array.isArray(item.tools)) return String(item.tools.length);
-      return "";
-    };
-    const capabilityTraceSource = (item = {}, kind = "") => {
-      if (kind === "marketplace-source") {
-        return [item.source, item.repo, item.installLocation].filter(Boolean).map((value) => summarizePanelPluginField(value)).join(" ");
-      }
-      return summarizePanelPluginField(item.source || item.repo || item.installLocation || item.installPath || item.detail || "");
-    };
-    const capabilityTraceStatus = (item = {}, kind = "") => {
-      if (kind === "marketplace-plugin") return item.installed ? "installed" : "available";
-      if (kind === "plugin") return item.status || (item.enabled ? "enabled" : "disabled");
-      return item.status || "";
-    };
-    const capabilityTraceEnabled = (item = {}, kind = "") => {
-      if (kind === "marketplace-plugin") return item.installed ? "true" : "false";
-      if (kind === "plugin") return item.enabled ? "true" : "false";
-      return "";
-    };
-    const capabilityTraceAttributes = (kind, action, item = {}, options = {}) => {
-      const id = options.id || item.id || item.name || item.repo || item.source || "";
-      const name = options.name || item.name || id;
-      return {
-        "data-command-capability-kind": String(kind || ""),
-        "data-command-capability-action": String(action || ""),
-        "data-command-capability-id": String(id || ""),
-        "data-command-capability-name": String(name || ""),
-        "data-command-capability-status": String(capabilityTraceStatus(item, kind) || ""),
-        "data-command-capability-enabled": String(capabilityTraceEnabled(item, kind) || ""),
-        "data-command-capability-version": String(item.version && item.version !== "unknown" ? item.version : ""),
-        "data-command-capability-source": String(capabilityTraceSource(item, kind) || ""),
-        "data-command-capability-marketplace": String(item.marketplace || options.marketplace || ""),
-        "data-command-capability-tool-count": capabilityTraceToolCount(item),
-        "data-command-capability-tools": String(capabilityTraceToolNames(item) || ""),
-        "data-command-capability-risk": String(summarizePanelPluginField(item.risk || "")),
-        "data-command-capability-permissions": String(summarizePanelPluginField(item.permissions || item.allowedTools || "")),
-        "data-command-capability-transport": String(item.transport || ""),
-        "data-command-capability-error": String(summarizePanelPluginField(item.error || "")),
-        "data-command-capability-project-path": String(options.projectPath || activeProject?.path || ""),
-      };
-    };
+    const capabilityTraceAttributes = (kind, action, item = {}, options = {}) => capabilityCommandTraceAttributes({
+      kind,
+      action,
+      item,
+      projectPath: activeProject?.path || "",
+      ...options,
+    });
 
     const installedPluginCommands = (Array.isArray(capabilityCommandStatus?.pluginItems) ? capabilityCommandStatus.pluginItems : [])
       .filter((plugin) => plugin?.id || plugin?.name)
