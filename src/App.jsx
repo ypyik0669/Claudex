@@ -2308,6 +2308,10 @@ function browserVisitFinalUrl(visit = {}) {
   return visit.finalUrl || visit.validatedUrl || visit.url || "";
 }
 
+function hasBrowserVisitUrl(visit = {}) {
+  return Boolean(visit?.url || browserVisitFinalUrl(visit));
+}
+
 function sourceRefKey(source = {}) {
   return source.id || [source.project?.path, source.project?.name, source.path].filter(Boolean).join(":") || source.path || "";
 }
@@ -2383,7 +2387,7 @@ function browserVisitEvidenceText(visit = {}, t) {
 }
 
 function browserVisitsContextSummary({ browserVisits = [], t } = {}) {
-  const visits = Array.isArray(browserVisits) ? browserVisits.filter((visit) => visit?.url || browserVisitFinalUrl(visit)) : [];
+  const visits = Array.isArray(browserVisits) ? browserVisits.filter(hasBrowserVisitUrl) : [];
   const total = visits.length;
   const ready = visits.filter((visit) => visit.status === "ready").length;
   const loading = visits.filter((visit) => visit.status === "loading").length;
@@ -2426,6 +2430,14 @@ function browserVisitsContextSummary({ browserVisits = [], t } = {}) {
     label: "",
     detail: t.browserNoHistory,
   };
+}
+
+function prioritizedBrowserVisit(browserVisits = []) {
+  const visits = Array.isArray(browserVisits) ? browserVisits.filter(hasBrowserVisitUrl) : [];
+  return visits.find((visit) => visit.status === "error")
+    || visits.find((visit) => visit.status === "loading")
+    || visits[0]
+    || null;
 }
 
 function noticeLevelLabel(level, t) {
@@ -6708,7 +6720,12 @@ function BrowserEvidenceList({ visits = [], focusedVisitKey = "", onOpenVisit, o
         const recoveryUrl = browserVisitFinalUrl(visit) || visit.url;
         const isErrorVisit = visit.status === "error";
         return (
-          <article className={cx("browser-evidence-card", visit.status, selected && "selected")} key={visitKey}>
+          <article
+            className={cx("browser-evidence-card", visit.status, selected && "selected")}
+            data-browser-visit-id={visit.id || ""}
+            data-browser-visit-status={visit.status || ""}
+            key={visitKey}
+          >
             <Globe2 size={14} />
             <div>
               <strong title={browserVisitFinalUrl(visit)}>{browserVisitFinalUrl(visit) || visit.url}</strong>
@@ -7249,6 +7266,7 @@ function ToolRail({
   selectedTool,
   onActivateTool,
   onOpenBottomPanel,
+  onOpenBrowserEvidence,
   onSettings,
   onCapabilities,
   busy,
@@ -7277,6 +7295,14 @@ function ToolRail({
   const browserRailStatus = browserContext.status === "info" ? "ready" : browserContext.status || "idle";
   const browserRailBadge = browserContext.status === "error" ? "!" : countBadge(Number(browserContext.badge || 0));
   const browserRailDetail = browserContext.detail || t.browserIdle;
+  const browserRailVisit = prioritizedBrowserVisit(browserVisits);
+  const openBrowserRailTarget = () => {
+    if ((browserRailStatus === "error" || browserRailStatus === "running") && browserRailVisit) {
+      onOpenBrowserEvidence?.(browserRailVisit);
+      return;
+    }
+    onActivateTool("browser");
+  };
   const items = [
     {
       id: "workspace",
@@ -7303,7 +7329,7 @@ function ToolRail({
       badge: browserRailBadge,
       status: browserRailStatus,
       detail: browserRailDetail,
-      action: () => onActivateTool("browser"),
+      action: openBrowserRailTarget,
     },
     {
       id: "terminal",
@@ -14631,6 +14657,7 @@ export function App() {
             selectedTool={selectedTool}
             onActivateTool={activateTool}
             onOpenBottomPanel={openBottomPanel}
+            onOpenBrowserEvidence={openBrowserEvidence}
             onSettings={openSettingsSurface}
             onCapabilities={openCapabilitiesSurface}
             busy={busy}
