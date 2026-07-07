@@ -3,7 +3,30 @@ const os = require("os");
 const path = require("path");
 const { app, BrowserWindow } = require("electron");
 
-const PROJECT_PATH = path.join(__dirname, "..");
+function findRepoDir() {
+  const candidates = [
+    process.env.CLAUDEX_REPO_DIR,
+    process.cwd(),
+    __dirname,
+    path.join(__dirname, ".."),
+  ].filter(Boolean);
+  for (const candidate of candidates) {
+    let current = path.resolve(candidate);
+    while (current && current !== path.dirname(current)) {
+      if (
+        fs.existsSync(path.join(current, "package.json")) &&
+        fs.existsSync(path.join(current, "electron", "main.cjs"))
+      ) {
+        return current;
+      }
+      current = path.dirname(current);
+    }
+  }
+  throw new Error("Unable to locate Claudex repo root");
+}
+
+const PROJECT_PATH = findRepoDir();
+process.chdir(PROJECT_PATH);
 const QA_DIR = path.join(PROJECT_PATH, "qa");
 const USER_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "claudex-pass30-surfaces-"));
 
@@ -17,11 +40,11 @@ fs.writeFileSync(
       version: 1,
       settings: {
         provider: "anthropic",
-        model: "claude-sonnet-4-5-20250929",
+        model: "claude-haiku-4-5-20251001",
         baseUrl: "https://api.example.com",
         temperature: 0.2,
         timeoutMs: 600000,
-        language: "en",
+        language: "zh",
         appearance: { fontSize: "compact", density: "compact" },
         claudeCode: {
           executionMode: "claude-code",
@@ -97,7 +120,7 @@ app.whenReady().then(async () => {
 
   assertStep("PASS30_BOTTOM_PANEL", await win.webContents.executeJavaScript(`
     (function() {
-      const button = document.querySelector('.workspace-top-button[aria-label="Bottom panel"]');
+      const button = document.querySelector('.workspace-context-tabs .workspace-context-button');
       if (!button) return false;
       button.click();
       return true;
@@ -119,7 +142,7 @@ app.whenReady().then(async () => {
 
   assertStep("PASS30_APPEARANCE_OPEN", await win.webContents.executeJavaScript(`
     (function() {
-      const button = [...document.querySelectorAll('.settings-nav button')].find((candidate) => /Appearance/i.test(candidate.textContent || ''));
+      const button = [...document.querySelectorAll('.settings-nav button')].find((candidate) => /外观|Appearance/i.test(candidate.textContent || ''));
       if (!button) return false;
       button.click();
       return true;
@@ -128,7 +151,7 @@ app.whenReady().then(async () => {
   assertStep("PASS30_APPEARANCE_CONTROLS", await waitFor(win, `
     (function() {
       const text = document.querySelector('.settings-content')?.textContent || '';
-      return /Font size/i.test(text) && /Density/i.test(text) && /Interface language/i.test(text);
+      return /字号|Font size/i.test(text) && /密度|Density/i.test(text) && /界面语言|Interface language/i.test(text);
     })();
   `, 5000));
   await shot(win, "pass30-settings-appearance.png");
@@ -143,7 +166,7 @@ app.whenReady().then(async () => {
   `));
   assertStep("PASS30_PLUGINS_OPEN", await waitFor(win, "Boolean(!document.querySelector('.settings-surface'))", 5000) && await win.webContents.executeJavaScript(`
     (function() {
-      const button = [...document.querySelectorAll('.nav-stack button')].find((candidate) => /Plugins/i.test(candidate.textContent || ''));
+      const button = [...document.querySelectorAll('.nav-stack button')].find((candidate) => /插件|Plugins/i.test(candidate.textContent || ''));
       if (!button) return false;
       button.click();
       return true;

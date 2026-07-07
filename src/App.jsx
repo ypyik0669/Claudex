@@ -2055,6 +2055,21 @@ function mcpStatusLabel(status, t) {
   return t.mcpStatusUnknown;
 }
 
+function mcpStatusKind(server = {}) {
+  const status = String(server?.status || "").trim().toLowerCase();
+  if (server?.error || status === "error") return "error";
+  if (status === "pending") return "pending";
+  if (status === "ok") return "enabled";
+  return "disabled";
+}
+
+function skillStatusKind(skill = {}) {
+  const status = String(skill?.status || "").trim().toLowerCase();
+  if (skill?.error || /\b(?:error|failed|failure|missing|unavailable)\b/i.test(status)) return "error";
+  if (/\b(?:pending|scanning|loading)\b/i.test(status)) return "pending";
+  return skill?.enabled === false ? "disabled" : "enabled";
+}
+
 function mcpPanelDisplay(server, t) {
   const rawName = String(server?.name || "").trim();
   const detailText = String(server?.detail || "").trim();
@@ -8789,10 +8804,11 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
     mcp: visibleRows.filter((item) => item.type === "tool" && /mcp/i.test(item.id + item.name + item.description)),
   };
   const allInstalledPluginRows = Array.isArray(cliStatus?.pluginItems) ? cliStatus.pluginItems : [];
+  const allMcpServerRows = Array.isArray(cliStatus?.mcpServers) ? cliStatus.mcpServers : [];
   const installedPluginRows = allInstalledPluginRows.filter((item) => structuredQueryMatch(item, normalizedQuery));
   const marketplaceRows = (Array.isArray(cliStatus?.marketplaces) ? cliStatus.marketplaces : []).filter((item) => structuredQueryMatch(item, normalizedQuery));
   const marketplacePluginRows = (Array.isArray(cliStatus?.marketplacePlugins) ? cliStatus.marketplacePlugins : []).filter((item) => structuredQueryMatch(item, normalizedQuery));
-  const mcpServerRows = (Array.isArray(cliStatus?.mcpServers) ? cliStatus.mcpServers : []).filter((item) => structuredQueryMatch(item, normalizedQuery));
+  const mcpServerRows = allMcpServerRows.filter((item) => structuredQueryMatch(item, normalizedQuery));
   const rawSkillRows = Array.isArray(cliStatus?.skillItems) ? cliStatus.skillItems : Array.isArray(cliStatus?.skills) ? cliStatus.skills : [];
   const skillRegistryRoots = Array.isArray(cliStatus?.skillRoots) ? cliStatus.skillRoots.filter(Boolean) : [];
   const skillRegistryTruncated = Boolean(cliStatus?.skillsTruncated);
@@ -8806,11 +8822,44 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
   const totalCount = capabilityRows.filter((item) => item.type !== "skill").length
     + (hasRegisteredSkills ? rawSkillRows.length : skillRegistryKnown ? capabilityRows.filter((item) => item.type === "skill").length : 0);
   const installedCapabilityRows = [
-    ...capabilityRows.filter((item) => item.type !== "skill" && item.enabled),
-    ...(hasRegisteredSkills
-      ? rawSkillRows.map((skill) => ({ ...skill, type: "skill", enabled: true }))
-      : skillRegistryKnown ? capabilityRows.filter((item) => item.type === "skill" && item.enabled) : []),
-  ];
+    ...allInstalledPluginRows.map((plugin) => ({
+      key: `plugin:${plugin.id || plugin.name}`,
+      kind: "plugin",
+      icon: "plugin",
+      label: plugin.name || plugin.id || t.plugins,
+      detail: [plugin.id, plugin.version && plugin.version !== "unknown" ? `v${plugin.version}` : "", plugin.scope, plugin.marketplace].filter(Boolean).join(" · "),
+      statusKind: pluginStatusKind(plugin),
+      statusLabel: pluginStatusDisplay(plugin, t),
+      focusId: plugin.id || plugin.name,
+      query: plugin.id || plugin.name,
+    })),
+    ...allMcpServerRows.map((server) => {
+      const display = mcpPanelDisplay(server, t);
+      const rowKey = mcpServerKey(server);
+      return {
+        key: `mcp:${rowKey}`,
+        kind: "mcp",
+        icon: "mcp",
+        label: display.name,
+        detail: [display.detail, typeof server.tools === "number" ? `${t.tools}: ${server.tools}` : "", server.toolsSummary, server.transport, server.source, server.error].filter(Boolean).join(" · "),
+        statusKind: mcpStatusKind(server),
+        statusLabel: mcpStatusLabel(server.status, t),
+        focusId: rowKey || display.name,
+        query: display.name,
+      };
+    }),
+    ...(hasRegisteredSkills ? rawSkillRows.map((skill) => ({
+      key: `skill:${skill.id || skill.path || skill.name}`,
+      kind: "skill",
+      icon: "skill",
+      label: skill.name || skill.id || t.skills,
+      detail: [skill.id, skill.source, skill.relativePath || skill.path].filter(Boolean).join(" · "),
+      statusKind: skillStatusKind(skill),
+      statusLabel: skill.status || t.localSkillRegistry,
+      focusId: skill.id || skill.name || skill.path,
+      query: skill.id || skill.name || skill.path,
+    })) : []),
+  ].filter((item) => item.focusId);
   const customMarketplaceRows = customMarketplaces.filter((item) => structuredQueryMatch({ name: item, repo: item, source: item }, normalizedQuery));
   const marketplaceTabCount = marketplacePluginRows.length + marketplaceRows.length + customMarketplaceRows.length;
   const recentCapabilityRuns = useMemo(() => capabilityRunsNewestFirst(state.commandRuns), [state.commandRuns]);
@@ -9289,6 +9338,24 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
     openRuntimeHealthTargetName(runtimeHealthTargetForIssue(issue));
   }
 
+  function openCapabilityStripItem(item) {
+    const kind = String(item?.kind || "").trim();
+    const focusId = String(item?.focusId || "").trim();
+    if (!kind || !focusId) return;
+    const tab = kind === "mcp" ? "mcp" : kind === "skill" ? "skills" : "plugins";
+    const queryText = String(item?.query || focusId).trim();
+    setActiveTab(tab);
+    setFilter("all");
+    setQuery(queryText);
+    setCapabilityActionFocus({
+      tab,
+      kind,
+      id: focusId,
+      query: queryText,
+      nonce: Date.now(),
+    });
+  }
+
   function openInstalledPluginRow(plugin, fallbackIdentifier = "") {
     const id = String(plugin?.id || fallbackIdentifier || "").trim();
     if (!id) return;
@@ -9368,15 +9435,17 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
         {installedCapabilityRows.slice(0, 14).map((item) => (
           <button
             type="button"
-            key={item.path || item.id}
-            className={cx("installed-capability-icon", item.type)}
-            title={item.name}
-            onClick={() => {
-              setQuery(item.name);
-              setActiveTab(item.type === "skill" ? "skills" : item.type === "plugin" ? "plugins" : "mcp");
-            }}
+            key={item.key}
+            className={cx("installed-capability-icon", item.icon, item.statusKind)}
+            title={[item.label, item.statusLabel, item.detail].filter(Boolean).join(" · ")}
+            data-capability-strip-kind={item.kind}
+            data-capability-strip-status={item.statusKind}
+            data-capability-strip-id={item.focusId}
+            aria-label={[item.label, item.statusLabel].filter(Boolean).join(" · ")}
+            onClick={() => openCapabilityStripItem(item)}
           >
-            {item.type === "plugin" ? <Plug size={15} /> : item.type === "skill" ? <Blocks size={15} /> : <SquareTerminal size={15} />}
+            {item.icon === "plugin" ? <Plug size={15} /> : item.icon === "skill" ? <Blocks size={15} /> : <SquareTerminal size={15} />}
+            <em>{item.statusLabel}</em>
           </button>
         ))}
       </div>
