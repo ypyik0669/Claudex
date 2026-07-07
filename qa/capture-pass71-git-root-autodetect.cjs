@@ -114,8 +114,7 @@ app.whenReady().then(async () => {
     (async function() {
       if (!window.__pass71EnvironmentClicked) {
         window.__pass71EnvironmentClicked = true;
-        const button = Array.from(document.querySelectorAll('.workspace-context-button'))
-          .find((item) => /\\u73af\\u5883/.test(item.textContent || ''));
+        const button = document.querySelector('.workspace-context-button[data-context-tab="environment"]');
         if (!button) return false;
         button.click();
       }
@@ -131,8 +130,7 @@ app.whenReady().then(async () => {
     (async function() {
       if (!window.__pass71ChangesClicked) {
         window.__pass71ChangesClicked = true;
-        const button = Array.from(document.querySelectorAll('.workspace-context-button'))
-          .find((item) => /\\u53d8\\u66f4/.test(item.textContent || ''));
+        const button = document.querySelector('.workspace-context-button[data-context-tab="changes"]');
         if (!button) return false;
         button.click();
       }

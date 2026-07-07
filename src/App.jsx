@@ -446,6 +446,7 @@ const copy = {
     tools: "工具",
     contextPanel: "上下文",
     environment: "环境",
+    environmentBadgeDetail: "状态 {status} · 变更 {changes} · 同步 {sync} · Git {git}",
     outputs: "输出",
     bottomPanel: "底部面板",
     openSidePanel: "打开侧边面板",
@@ -3283,6 +3284,71 @@ function gitAheadBehindLabel(git, t) {
   return git?.upstream ? t.gitSynced : t.noGitUpstream;
 }
 
+function environmentContextSummary({ environment, activeProject, projectPathMissing = false, t } = {}) {
+  const git = environment?.git;
+  const gitAvailable = Boolean(git?.available);
+  const projectPath = String(activeProject?.path || environment?.requestedProjectPath || "").trim();
+  const changes = Number(git?.changes || 0);
+  const ahead = Number(git?.ahead || 0);
+  const behind = Number(git?.behind || 0);
+  const syncLabel = gitAheadBehindLabel(git, t);
+  const syncCount = Math.max(0, ahead) + Math.max(0, behind);
+  const branchLabel = git?.branch || t.gitUnavailable;
+  const gitLabel = gitAvailable ? branchLabel : t.gitUnavailable;
+  const statusLabel = projectPathMissing
+    ? t.projectPathMissing
+    : !gitAvailable && projectPath
+      ? t.gitUnavailable
+      : changes > 0
+        ? `${t.changes} ${changes}`
+        : syncCount > 0
+          ? syncLabel
+          : branchLabel;
+  const detail = t.environmentBadgeDetail
+    .replace("{status}", statusLabel)
+    .replace("{changes}", changes)
+    .replace("{sync}", syncLabel)
+    .replace("{git}", gitLabel);
+  if (projectPathMissing) {
+    return {
+      status: "error",
+      badge: "!",
+      label: t.projectPathMissing,
+      detail: projectPath ? `${detail} · ${projectPath}` : detail,
+    };
+  }
+  if (!gitAvailable && projectPath) {
+    return {
+      status: "warning",
+      badge: "!",
+      label: t.gitUnavailable,
+      detail: projectPath ? `${detail} · ${projectPath}` : detail,
+    };
+  }
+  if (changes > 0) {
+    return {
+      status: "warning",
+      badge: String(changes),
+      label: branchLabel,
+      detail,
+    };
+  }
+  if (syncCount > 0) {
+    return {
+      status: "warning",
+      badge: String(syncCount),
+      label: syncLabel,
+      detail,
+    };
+  }
+  return {
+    status: "",
+    badge: "",
+    label: branchLabel,
+    detail,
+  };
+}
+
 function gitCommandOutput(result = {}) {
   return [result.stdout, result.stderr].filter(Boolean).join("\n").trim();
 }
@@ -3907,6 +3973,12 @@ function Conversation({
   const upstreamLabel = git?.upstream || t.noGitUpstream;
   const remoteLabel = git?.remote || t.noGitRemote;
   const aheadBehindLabel = gitAheadBehindLabel(git, t);
+  const environmentContext = useMemo(() => environmentContextSummary({
+    environment,
+    activeProject,
+    projectPathMissing,
+    t,
+  }), [environment, activeProject, projectPathMissing, t]);
   const gitRootPath = String(git?.root || "").trim();
   const gitRelativePath = String(git?.relativePath || "").trim();
   const gitRootLabel = gitRootPath ? compactPath(gitRootPath, 78) : t.gitUnavailable;
@@ -4405,7 +4477,16 @@ function Conversation({
   const activeTaskCount = automationItemsForUi.filter((item) => ["running", "scheduled"].includes(item.status)).length
     + (subagentRuns || []).filter((run) => run.status === "running").length;
   const contextTabs = [
-    { id: "environment", label: t.environment, icon: HardDrive, meta: projectPathMissing ? t.projectPathMissing : branchLabel },
+    {
+      id: "environment",
+      label: t.environment,
+      icon: HardDrive,
+      meta: environmentContext.label,
+      titleMeta: environmentContext.detail || environmentContext.label,
+      ariaMeta: environmentContext.detail || environmentContext.label,
+      badge: environmentContext.badge,
+      status: environmentContext.status,
+    },
     {
       id: "outputs",
       label: t.outputs,
