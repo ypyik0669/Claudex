@@ -4928,6 +4928,7 @@ function Conversation({
       "aria-current": focused ? "true" : undefined,
     };
   }
+  const commitMessageInputFocused = gitActionFocused("commit-message") || (gitActionFocused("commit") && !gitCanCommit);
   useEffect(() => () => {
     if (copiedGitEvidenceTimer.current) window.clearTimeout(copiedGitEvidenceTimer.current);
   }, []);
@@ -6354,6 +6355,9 @@ function Conversation({
                           <span>{t.gitCommitMessage}</span>
                           <input
                             type="text"
+                            data-git-action="commit-message"
+                            data-git-action-focused={commitMessageInputFocused ? "true" : "false"}
+                            aria-current={commitMessageInputFocused ? "true" : undefined}
                             value={gitCommitMessage}
                             onChange={(event) => setGitCommitMessage(event.target.value)}
                             placeholder={gitStagedCount > 0 ? t.gitCommitPlaceholder : t.gitNoStagedChanges}
@@ -6365,6 +6369,7 @@ function Conversation({
                             type="button"
                             className="plain-action subtle-action"
                             data-git-action="commit"
+                            {...gitActionFocusAttributes("commit")}
                             onClick={() => runGitRepoAction("commit")}
                             disabled={!gitCanCommit}
                             title={gitStagedCount > 0 ? t.commitStaged : t.gitNoStagedChanges}
@@ -6376,6 +6381,7 @@ function Conversation({
                             type="button"
                             className="plain-action subtle-action"
                             data-git-action="push"
+                            {...gitActionFocusAttributes("push")}
                             onClick={() => runGitRepoAction("push")}
                             disabled={!gitCanPush}
                             title={gitPushTitle}
@@ -14798,6 +14804,10 @@ export function App() {
     const gitCommandRoot = String(environment?.git?.root || activeProject?.path || "").trim();
     const gitCommandRelativePath = String(environment?.git?.relativePath || "").trim();
     const gitCommandBranch = String(environment?.git?.branch || "").trim();
+    const gitCommandSummary = environment?.git?.summary || {};
+    const gitCommandStagedCount = Number(gitCommandSummary.staged || 0);
+    const gitCommandUpstream = String(environment?.git?.upstream || "").trim();
+    const gitCommandAheadBehind = gitAheadBehindLabel(environment?.git, t);
     const gitCommandTraceAttributes = ({ scope, file, filePath, hunk = null, hunkIndex = "", action = "" }) => {
       const selectedFile = file || gitCommandFileByPath.get(filePath) || {};
       const selectedPath = filePath || selectedFile.path || selectedFile.previousPath || hunk?.filePath || "";
@@ -14820,6 +14830,9 @@ export function App() {
         "data-command-git-branch": gitCommandBranch,
         "data-command-git-additions": typeof additions === "number" ? String(additions) : "",
         "data-command-git-deletions": typeof deletions === "number" ? String(deletions) : "",
+        "data-command-git-staged-count": String(gitCommandStagedCount || 0),
+        "data-command-git-upstream": gitCommandUpstream,
+        "data-command-git-sync": gitCommandAheadBehind,
       };
     };
 
@@ -15000,6 +15013,44 @@ export function App() {
             action: () => openGitFileDiff(filePath, hunk.id, { action: gitEvidenceActionSpec.action }),
           }));
       });
+
+    const gitRepoActionCommands = [
+      gitCommandStagedCount > 0 ? {
+        action: "commit",
+        label: t.commitStaged,
+        subtitle: `${t.stagedChanges} ${gitCommandStagedCount}`,
+        keywords: "git commit staged changes message review confirmation focus action button",
+        priority: 60,
+      } : null,
+      gitCommandUpstream ? {
+        action: "push",
+        label: t.pushBranch,
+        subtitle: [gitCommandBranch, gitCommandUpstream, gitCommandAheadBehind].filter(Boolean).join(" \u00b7 "),
+        keywords: "git push branch upstream remote review confirmation focus action button",
+        priority: 58,
+      } : null,
+    ].filter(Boolean).map((spec) => ({
+      id: `git-repo-action:${spec.action}`,
+      title: `${spec.label}: ${gitCommandBranch || t.settingsGit}`,
+      subtitle: spec.subtitle,
+      group: t.changes,
+      target: "git-repo-action",
+      dataAttributes: gitCommandTraceAttributes({ scope: "repo", action: spec.action }),
+      priority: spec.priority,
+      keywords: [
+        "git repo action focus command palette changes",
+        spec.keywords,
+        spec.label,
+        gitCommandRoot,
+        gitCommandRelativePath,
+        gitCommandBranch,
+        gitCommandUpstream,
+        gitCommandAheadBehind,
+        environment?.git?.raw,
+        environment?.git?.stat,
+      ].filter(Boolean).join(" "),
+      action: () => openGitFileDiff("", "", { all: true, action: spec.action }),
+    }));
 
     const sourceRefCommands = (Array.isArray(state.sourceRefs) ? state.sourceRefs : [])
       .filter((source) => source?.path || source?.name || source?.id)
@@ -16703,6 +16754,7 @@ export function App() {
       ...gitOpenFileCommands,
       ...gitHunkCommands,
       ...gitHunkActionCommands,
+      ...gitRepoActionCommands,
       ...sourceRefCommands,
       ...sourceFileCommands,
       ...browserEvidenceCommands,

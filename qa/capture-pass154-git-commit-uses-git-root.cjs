@@ -127,7 +127,12 @@ async function openPanel(win, labelPattern) {
   return win.webContents.executeJavaScript(`
     (function() {
       const pattern = new RegExp(${JSON.stringify(labelPattern)});
-      const button = [...document.querySelectorAll('.workspace-context-button, .bottom-panel-tabs button')]
+      const candidates = [...document.querySelectorAll('.workspace-context-button, .bottom-panel-tabs button')];
+      const preferredTab = /\\\\u53d8\\\\u66f4|\\u53d8\\u66f4|Changes/i.test(${JSON.stringify(labelPattern)}) ? 'changes' : '';
+      const button = candidates.find((candidate) =>
+          preferredTab &&
+          (candidate.getAttribute('data-context-tab') === preferredTab || candidate.getAttribute('data-bottom-tab') === preferredTab)
+        ) || candidates
         .find((candidate) => pattern.test(candidate.textContent || '') || pattern.test(candidate.getAttribute('aria-label') || ''));
       if (!button) return false;
       button.click();
