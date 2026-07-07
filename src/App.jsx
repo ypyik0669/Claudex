@@ -13970,7 +13970,40 @@ export function App() {
       } : null,
     ].filter(Boolean);
 
-    const gitFileCommands = (Array.isArray(environment?.git?.files) ? environment.git.files : [])
+    const gitCommandFiles = Array.isArray(environment?.git?.files) ? environment.git.files : [];
+    const gitCommandFileByPath = new Map();
+    gitCommandFiles.forEach((file) => {
+      if (file?.path) gitCommandFileByPath.set(file.path, file);
+      if (file?.previousPath) gitCommandFileByPath.set(file.previousPath, file);
+    });
+    const gitCommandRoot = String(environment?.git?.root || activeProject?.path || "").trim();
+    const gitCommandRelativePath = String(environment?.git?.relativePath || "").trim();
+    const gitCommandBranch = String(environment?.git?.branch || "").trim();
+    const gitCommandTraceAttributes = ({ scope, file, filePath, hunk = null, hunkIndex = "" }) => {
+      const selectedFile = file || gitCommandFileByPath.get(filePath) || {};
+      const selectedPath = filePath || selectedFile.path || selectedFile.previousPath || hunk?.filePath || "";
+      const hunkFile = hunk?.filePath || selectedPath;
+      const additions = hunk ? hunk.additions : selectedFile.additions;
+      const deletions = hunk ? hunk.deletions : selectedFile.deletions;
+      return {
+        "data-command-git-evidence-scope": String(scope || ""),
+        "data-command-git-root": gitCommandRoot,
+        "data-command-git-relative-path": gitCommandRelativePath,
+        "data-command-git-selected-path": String(selectedPath || ""),
+        "data-command-git-previous-path": String(selectedFile.previousPath || ""),
+        "data-command-git-selected-kind": String(selectedFile.kind || ""),
+        "data-command-git-selected-status": String(selectedFile.status || ""),
+        "data-command-git-selected-hunk-id": String(hunk?.id || ""),
+        "data-command-git-selected-hunk-file": String(hunkFile || ""),
+        "data-command-git-hunk-index": hunkIndex ? String(hunkIndex) : "",
+        "data-command-git-hunk-header": String(hunk?.header || ""),
+        "data-command-git-branch": gitCommandBranch,
+        "data-command-git-additions": typeof additions === "number" ? String(additions) : "",
+        "data-command-git-deletions": typeof deletions === "number" ? String(deletions) : "",
+      };
+    };
+
+    const gitFileCommands = gitCommandFiles
       .filter((file) => file?.path || file?.previousPath)
       .map((file) => {
         const filePath = file.path || file.previousPath || "";
@@ -13983,8 +14016,10 @@ export function App() {
             file.status,
             typeof file.additions === "number" || typeof file.deletions === "number" ? `+${file.additions || 0} -${file.deletions || 0}` : "",
             previousLabel,
-          ].filter(Boolean).join(" · "),
+          ].filter(Boolean).join(" \u00b7 "),
           group: t.changes,
+          target: "git-file",
+          dataAttributes: gitCommandTraceAttributes({ scope: "file", file, filePath }),
           keywords: [
             "git file diff changes status evidence focus changed file",
             filePath,
@@ -14004,7 +14039,7 @@ export function App() {
     const gitWorkspaceProjectLabel = gitWorkspaceProjectPath && gitWorkspaceProjectPath !== activeProject?.path
       ? compactPath(gitWorkspaceProjectPath, 54)
       : projectLabel(activeProject, t);
-    const gitOpenFileCommands = (Array.isArray(environment?.git?.files) ? environment.git.files : [])
+    const gitOpenFileCommands = gitCommandFiles
       .filter((file) => file?.path && !/D/.test(file.status || ""))
       .map((file) => {
         const filePath = file.path || "";
@@ -14017,8 +14052,10 @@ export function App() {
             file.status,
             typeof file.additions === "number" || typeof file.deletions === "number" ? `+${file.additions || 0} -${file.deletions || 0}` : "",
             previousLabel,
-          ].filter(Boolean).join(" Â· "),
+          ].filter(Boolean).join(" \u00b7 "),
           group: t.changes,
+          target: "git-open-file",
+          dataAttributes: gitCommandTraceAttributes({ scope: "workspace-file", file, filePath }),
           keywords: [
             "git changed file workspace open editor diff changes status evidence",
             filePath,
@@ -14042,6 +14079,7 @@ export function App() {
       .filter((fileDiff) => fileDiff?.text && (fileDiff.path || fileDiff.previousPath))
       .flatMap((fileDiff) => {
         const filePath = fileDiff.path || fileDiff.previousPath || "";
+        const file = gitCommandFileByPath.get(filePath) || gitCommandFileByPath.get(fileDiff.previousPath) || null;
         return buildGitHunks(fileDiff.text)
           .map((hunk, index) => ({
             id: `git-hunk:${commandIdSegment(filePath)}:${commandIdSegment(hunk.id || String(index))}`,
@@ -14050,8 +14088,10 @@ export function App() {
               `${index + 1}. ${hunk.header}`,
               `+${hunk.additions || 0} -${hunk.deletions || 0}`,
               messageExcerpt(hunk.text, 96),
-            ].filter(Boolean).join(" · "),
+            ].filter(Boolean).join(" \u00b7 "),
             group: t.changes,
+            target: "git-hunk",
+            dataAttributes: gitCommandTraceAttributes({ scope: "hunk", file, filePath, hunk, hunkIndex: index + 1 }),
             keywords: [
               "git hunk diff changes status evidence focus selected hunk patch",
               filePath,
