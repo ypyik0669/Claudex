@@ -2,9 +2,34 @@ const path = require("path");
 const fs = require("fs");
 const { app, BrowserWindow } = require("electron");
 
-require(path.join(__dirname, "..", "electron", "main.cjs"));
+function findRepoDir() {
+  const candidates = [
+    process.env.CLAUDEX_REPO_DIR,
+    process.cwd(),
+    __dirname,
+    path.join(__dirname, ".."),
+  ].filter(Boolean);
+  for (const candidate of candidates) {
+    let current = path.resolve(candidate);
+    while (current && current !== path.dirname(current)) {
+      if (
+        fs.existsSync(path.join(current, "package.json")) &&
+        fs.existsSync(path.join(current, "electron", "main.cjs"))
+      ) {
+        return current;
+      }
+      current = path.dirname(current);
+    }
+  }
+  throw new Error("Unable to locate Claudex repo root");
+}
 
-const PROJECT_PATH = path.join(__dirname, "..");
+const REPO_DIR = findRepoDir();
+process.chdir(REPO_DIR);
+
+require(path.join(REPO_DIR, "electron", "main.cjs"));
+
+const PROJECT_PATH = REPO_DIR;
 const SENTINEL = path.join(PROJECT_PATH, "qa", "pass36-command-cancel-sentinel.tmp");
 
 function wait(ms) {
