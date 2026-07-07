@@ -304,6 +304,32 @@ async function runTest() {
     })();
   `, 5000));
   assertStep("PASS175_CLICK_AUTOMATION_RECOVERY_RUN_NOW", await clickCommand(win, "automation-recovery:run-now:pass175-automation"));
+  assertStep("PASS175_AUTOMATION_RECOVERY_RUN_NOW_FOCUSED", await waitFor(win, `
+    (async function() {
+      const state = await window.claudexDesktop.getState();
+      const automation = state.automations?.find((item) => item.id === 'pass175-automation');
+      const card = document.querySelector('.automation-task-card.focused-task-card[data-automation-id="pass175-automation"]');
+      const button = card?.querySelector('[data-automation-recovery-action="run-now"]');
+      return Boolean(
+        automation?.lastRun?.status === 'failed' &&
+        card &&
+        button &&
+        button.getAttribute('data-task-action-focused') === 'true' &&
+        button.getAttribute('data-task-kind') === 'automation' &&
+        button.getAttribute('data-task-action') === 'run-now' &&
+        button.getAttribute('data-task-id') === 'pass175-automation' &&
+        !button.disabled
+      );
+    })();
+  `, 10000));
+  assertStep("PASS175_CLICK_AUTOMATION_RECOVERY_RUN_NOW_BUTTON", await win.webContents.executeJavaScript(`
+    (function() {
+      const button = document.querySelector('.automation-task-card[data-automation-id="pass175-automation"] [data-automation-recovery-action="run-now"]');
+      if (!button || button.disabled) return false;
+      button.click();
+      return true;
+    })();
+  `));
   assertStep("PASS175_AUTOMATION_RECOVERY_RUNS_IN_ORIGINAL_PROJECT", await waitFor(win, `
     (async function() {
       const state = await window.claudexDesktop.getState();

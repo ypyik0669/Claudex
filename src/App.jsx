@@ -3042,6 +3042,13 @@ function taskSurfaceTraceAttributes(options) {
   return taskTraceAttributesWithPrefix("data-task-", taskTraceFields(options));
 }
 
+function taskActionFocusAttributes(focused) {
+  return {
+    "data-task-action-focused": focused ? "true" : "false",
+    "aria-current": focused ? "true" : undefined,
+  };
+}
+
 function taskCommandTraceAttributes(options) {
   return taskTraceAttributesWithPrefix("data-command-task-", taskTraceFields({ surface: "command-palette", ...options }));
 }
@@ -6846,6 +6853,7 @@ function AutomationRecoveryStrip({
   onRunNow,
   onCopyEvidence,
   onOpenTimeline,
+  focusedAction = "",
   t,
 }) {
   const recoveryEntry = entry || automationRecoveryEntry(item);
@@ -6882,6 +6890,7 @@ function AutomationRecoveryStrip({
           type="button"
           className="plain-action subtle-action"
           data-automation-recovery-action="run-now"
+          {...taskActionFocusAttributes(focusedAction === "run-now")}
           {...recoveryTrace("run-now")}
           onClick={onRunNow}
           disabled={working || item.status === "running"}
@@ -6894,6 +6903,7 @@ function AutomationRecoveryStrip({
           type="button"
           className="plain-action subtle-action"
           data-automation-recovery-action="copy-evidence"
+          {...taskActionFocusAttributes(focusedAction === "copy-evidence")}
           {...recoveryTrace("copy-evidence")}
           onClick={onCopyEvidence}
           title={copied ? t.copied : t.copyAutomationEvidence}
@@ -6906,6 +6916,7 @@ function AutomationRecoveryStrip({
             type="button"
             className="plain-action subtle-action"
             data-automation-recovery-action="timeline"
+            {...taskActionFocusAttributes(focusedAction === "timeline")}
             {...recoveryTrace("timeline")}
             onClick={onOpenTimeline}
             title={t.openRunTimeline}
@@ -7052,6 +7063,7 @@ function SubagentWorkbench({
   const focusedSubagentId = externalFocusedSubagentId || localFocusedSubagentId;
   const focusedTaskOptions = (externalFocusedAutomationId || externalFocusedSubagentId) ? focus : localTaskFocus || {};
   const focusedTaskFilter = ["all", "active", "failed", "archived"].includes(focus?.filter) ? focus.filter : "";
+  const focusedTaskAction = String(focusedTaskOptions?.action || "").trim();
   const focusedAutomationHistoryRunId = String(focusedTaskOptions?.historyRunId || focusedTaskOptions?.runId || "").trim();
   const focusedSubagentArtifactIndex = String(focusedTaskOptions?.artifactIndex ?? "").trim();
   const automationItems = Array.isArray(automations) ? automations : [];
@@ -7227,12 +7239,25 @@ function SubagentWorkbench({
     const id = focusedAutomationId || focusedSubagentId;
     if (!id) return undefined;
     const timer = window.setTimeout(() => {
+      const actionTarget = focusedTaskAction
+        ? document.querySelector([
+          `.focused-task-card [data-automation-recovery-action="${focusedTaskAction}"]`,
+          `.focused-task-card [data-automation-task-action="${focusedTaskAction}"]`,
+          `.focused-task-card [data-automation-history-action="${focusedTaskAction}"]`,
+          `.focused-task-card [data-subagent-recovery-action="${focusedTaskAction}"]`,
+          `.focused-task-card [data-subagent-run-action="${focusedTaskAction}"]`,
+        ].join(", "))
+        : null;
       const historyRun = document.querySelector(".focused-task-card .focused-automation-history-run");
       const artifact = document.querySelector(".focused-task-card .focused-subagent-artifact");
-      (historyRun || artifact || document.querySelector(".focused-task-card"))?.scrollIntoView?.({ block: "center", behavior: "smooth" });
+      const target = actionTarget || historyRun || artifact || document.querySelector(".focused-task-card");
+      target?.scrollIntoView?.({ block: "center", behavior: "smooth" });
+      if (actionTarget && typeof actionTarget.focus === "function") {
+        actionTarget.focus({ preventScroll: true });
+      }
     }, 80);
     return () => window.clearTimeout(timer);
-  }, [focusedAutomationId, focusedSubagentId, focusedAutomationHistoryRunId, focusedSubagentArtifactIndex, focus?.nonce, localTaskFocus?.nonce, showArchivedRuns]);
+  }, [focusedAutomationId, focusedSubagentId, focusedTaskAction, focusedAutomationHistoryRunId, focusedSubagentArtifactIndex, focus?.nonce, localTaskFocus?.nonce, showArchivedRuns]);
 
   return (
     <div className="subagent-workbench">
@@ -7383,6 +7408,7 @@ function SubagentWorkbench({
                       onRunNow={() => handleAutomationAction(item, onRunAutomationNow)}
                       onCopyEvidence={() => copyAutomationEvidence(item, recoveryEntry)}
                       onOpenTimeline={() => recoveryEntry?.id && onOpenRunTimeline?.(recoveryEntry.id)}
+                      focusedAction={isFocusedAutomation ? focusedTaskAction : ""}
                       t={t}
                     />
                     {history.length > 0 && (
@@ -7467,6 +7493,7 @@ function SubagentWorkbench({
                         type="button"
                         className="plain-action subtle-action"
                         data-automation-task-action="run-now"
+                        {...taskActionFocusAttributes(isFocusedAutomation && focusedTaskAction === "run-now")}
                         {...taskSurfaceTraceAttributes({ kind: "automation", action: "run-now", item, entry: traceEntry })}
                         onClick={() => handleAutomationAction(item, onRunAutomationNow)}
                         disabled={automationWorkingId === item.id || item.status === "running"}
@@ -7480,6 +7507,7 @@ function SubagentWorkbench({
                           type="button"
                           className="plain-action subtle-action"
                           data-automation-task-action="copy-evidence"
+                          {...taskActionFocusAttributes(isFocusedAutomation && focusedTaskAction === "copy-evidence")}
                           {...taskSurfaceTraceAttributes({ kind: "automation", action: "copy-evidence", item, entry: item.lastRun })}
                           onClick={() => copyAutomationEvidence(item)}
                           title={copiedAutomationRunId === item.lastRun.id ? t.copied : t.copyAutomationEvidence}
@@ -7493,6 +7521,7 @@ function SubagentWorkbench({
                           type="button"
                           className="plain-action subtle-action"
                           data-automation-task-action="timeline"
+                          {...taskActionFocusAttributes(isFocusedAutomation && focusedTaskAction === "timeline")}
                           {...taskSurfaceTraceAttributes({ kind: "automation", action: "timeline", item, entry: item.lastRun })}
                           onClick={() => onOpenRunTimeline?.(item.lastRun.id)}
                           title={t.openRunTimeline}
@@ -7505,6 +7534,7 @@ function SubagentWorkbench({
                         type="button"
                         className="plain-action subtle-action"
                         data-automation-task-action={item.enabled ? "pause" : "resume"}
+                        {...taskActionFocusAttributes(isFocusedAutomation && focusedTaskAction === (item.enabled ? "pause" : "resume"))}
                         {...taskSurfaceTraceAttributes({ kind: "automation", action: item.enabled ? "pause" : "resume", item, entry: traceEntry })}
                         onClick={() => handleAutomationAction(item, () => onToggleAutomationEnabled?.(item, !item.enabled))}
                         disabled={!item.schedule?.runAt || automationWorkingId === item.id || item.status === "running"}
@@ -7517,6 +7547,7 @@ function SubagentWorkbench({
                         type="button"
                         className="plain-action subtle-action danger-inline-action"
                         data-automation-task-action="delete"
+                        {...taskActionFocusAttributes(isFocusedAutomation && focusedTaskAction === "delete")}
                         {...taskSurfaceTraceAttributes({ kind: "automation", action: "delete", item, entry: traceEntry })}
                         onClick={() => handleAutomationAction(item, onDeleteAutomation)}
                         disabled={automationWorkingId === item.id}
@@ -15832,10 +15863,12 @@ export function App() {
             dataAttributes: taskTraceAttributes({ kind: "automation", action: "run-now", item: automation, entry: failedEntry, filter: "failed" }),
             priority: 18,
             keywords: recoveryKeywords,
-            action: () => {
-              openTaskCenterFocus("automation", automation.id, { filter: "failed", expandEvidence: true, expandHistory: true });
-              void runAutomationNow(automation);
-            },
+            action: () => openTaskCenterFocus("automation", automation.id, {
+              filter: "failed",
+              expandEvidence: true,
+              expandHistory: true,
+              action: "run-now",
+            }),
           },
           failedEntry.id && {
             id: `automation-recovery:copy:${entryId}`,
@@ -17833,6 +17866,7 @@ export function App() {
       expandEvidence: Boolean(options.expandEvidence),
       expandArtifacts: Boolean(options.expandArtifacts),
       expandHistory: Boolean(options.expandHistory),
+      action: String(options.action || "").trim(),
       historyRunId: String(options.historyRunId || options.runId || "").trim(),
       artifactIndex: options.artifactIndex === 0 ? "0" : String(options.artifactIndex || "").trim(),
       nonce: Date.now(),
