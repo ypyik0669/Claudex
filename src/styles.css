@@ -1506,7 +1506,7 @@ select:focus-visible,
   background:
     linear-gradient(180deg, rgba(20, 20, 20, 0.98), rgba(12, 12, 12, 0.98)),
     var(--panel-bg);
-  padding: 10px 7px;
+  padding: 9px 5px;
 }
 
 .tool-rail-stack,
@@ -1525,8 +1525,8 @@ select:focus-visible,
 
 .tool-rail-button {
   position: relative;
-  width: 34px;
-  height: 34px;
+  width: 32px;
+  height: 32px;
   display: grid;
   place-items: center;
   border: 1px solid #252525;
@@ -1549,12 +1549,31 @@ select:focus-visible,
   color: #f2d0bc;
 }
 
+.tool-rail-button.ready {
+  border-color: rgba(125, 211, 168, 0.18);
+}
+
+.tool-rail-button.warning {
+  border-color: rgba(242, 163, 96, 0.32);
+  color: #f1c296;
+}
+
+.tool-rail-button.error {
+  border-color: rgba(224, 94, 84, 0.4);
+  color: #f0b0aa;
+}
+
+.tool-rail-button.running {
+  border-color: rgba(125, 211, 168, 0.36);
+  color: #c7f1d9;
+}
+
 .tool-rail-button em {
   position: absolute;
-  right: -5px;
-  top: -5px;
-  min-width: 16px;
-  height: 16px;
+  right: -4px;
+  top: -4px;
+  min-width: 15px;
+  height: 15px;
   display: grid;
   place-items: center;
   border: 1px solid rgba(18, 18, 18, 0.9);
@@ -1569,6 +1588,21 @@ select:focus-visible,
 }
 
 .tool-rail-button.running em {
+  background: #7dd3a8;
+  color: #06120c;
+}
+
+.tool-rail-button.warning em {
+  background: #f2a360;
+  color: #170d05;
+}
+
+.tool-rail-button.error em {
+  background: #e05e54;
+  color: #160606;
+}
+
+.tool-rail-button.ready em {
   background: #7dd3a8;
   color: #06120c;
 }
@@ -8788,7 +8822,7 @@ button.runtime-health-row {
 }
 
 .app-grid.right-panel-hidden {
-  grid-template-columns: 304px minmax(520px, 1fr) 50px;
+  grid-template-columns: 304px minmax(520px, 1fr) 44px;
 }
 
 .app-grid.right-panel-hidden .tools-panel {
@@ -8800,7 +8834,7 @@ button.runtime-health-row {
 }
 
 .app-grid.sidebar-hidden.right-panel-hidden {
-  grid-template-columns: minmax(520px, 1fr) 50px;
+  grid-template-columns: minmax(520px, 1fr) 44px;
 }
 
 .app-grid.surface-open {

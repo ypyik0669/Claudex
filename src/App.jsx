@@ -6438,21 +6438,101 @@ function EnvironmentOverview({
 
 function ToolRail({
   activeProject,
+  settings,
   environment,
   selectedTool,
   onActivateTool,
+  onOpenBottomPanel,
   onSettings,
   onCapabilities,
   busy,
+  capabilityStatus,
+  commandRuns = [],
+  browserVisits = [],
+  notices = [],
   t,
 }) {
   const gitChanges = environment?.git?.available ? Number(environment.git.changes || 0) : 0;
   const projectMissing = Boolean(activeProject?.path && environment?.projectMissing);
+  const activeNotices = useMemo(() => (notices || []).filter((notice) => !notice.dismissedAt), [notices]);
+  const latestWorkspaceRun = useMemo(() => commandRunsToHistory(commandRuns, "workspace")[0], [commandRuns]);
+  const latestWorkspaceFailed = latestWorkspaceRun && typeof latestWorkspaceRun.code === "number" && latestWorkspaceRun.code !== 0;
+  const latestBrowserVisit = (browserVisits || [])[0];
+  const browserFailed = latestBrowserVisit && String(latestBrowserVisit.status || "").toLowerCase() === "error";
+  const runtimeSummary = runtimeHealthSummary(capabilityStatus, settings, activeProject, t);
+  const runtimeIssueCount = Array.isArray(runtimeSummary?.issues) ? runtimeSummary.issues.length : 0;
+  const pluginIssueCount = [
+    cliStatusIssue(t.plugins, "plugin list", capabilityStatus?.pluginCommand, t, "plugin list --json"),
+    cliStatusIssue(t.mcps, "mcp list", capabilityStatus?.mcpCommand, t),
+    cliStatusIssue(t.marketplace, "plugin marketplace list", capabilityStatus?.marketplaceCommand, t, "plugin marketplace list --json"),
+  ].filter(Boolean).length;
+  const capabilityCount = (Array.isArray(capabilityStatus?.pluginItems) ? capabilityStatus.pluginItems.length : 0)
+    + (Array.isArray(capabilityStatus?.mcpServers) ? capabilityStatus.mcpServers.length : 0);
+  const countBadge = (count) => count > 99 ? "99+" : count > 0 ? String(count) : "";
   const items = [
-    { id: "workspace", label: t.workspaceTool, icon: Folder, badge: gitChanges > 0 ? String(gitChanges) : "" },
-    { id: "claude", label: t.claudeCodeTool, icon: Bot, badge: busy ? "●" : "" },
-    { id: "browser", label: t.browser, icon: Globe2, badge: "" },
-    { id: "terminal", label: t.terminal, icon: SquareTerminal, badge: "" },
+    {
+      id: "workspace",
+      label: t.workspaceTool,
+      icon: Folder,
+      badge: latestWorkspaceFailed ? "!" : countBadge(gitChanges),
+      status: projectMissing || latestWorkspaceFailed ? "error" : gitChanges > 0 ? "warning" : activeProject?.path ? "ready" : "idle",
+      detail: latestWorkspaceFailed ? t.commandFailed : projectMissing ? t.projectPathMissing : gitChanges > 0 ? `${t.changes}: ${gitChanges}` : activeProject?.path || t.noProjectPath,
+      action: () => onActivateTool("workspace"),
+    },
+    {
+      id: "claude",
+      label: t.claudeCodeTool,
+      icon: Bot,
+      badge: busy ? "●" : runtimeIssueCount ? countBadge(runtimeIssueCount) : "",
+      status: busy ? "running" : runtimeIssueCount ? "error" : capabilityStatus?.available ? "ready" : "idle",
+      detail: busy ? t.commandRunning : runtimeSummary?.headline || t.claudeStatus,
+      action: () => onActivateTool("claude"),
+    },
+    {
+      id: "browser",
+      label: t.browser,
+      icon: Globe2,
+      badge: browserFailed ? "!" : countBadge((browserVisits || []).length),
+      status: browserFailed ? "error" : (browserVisits || []).length ? "ready" : "idle",
+      detail: browserFailed ? latestBrowserVisit.error || t.browserFailed : (browserVisits || []).length ? t.browserVisitCount.replace("{count}", browserVisits.length) : t.browserIdle,
+      action: () => onActivateTool("browser"),
+    },
+    {
+      id: "terminal",
+      label: t.terminal,
+      icon: SquareTerminal,
+      badge: projectMissing ? "!" : "",
+      status: projectMissing ? "error" : activeProject?.path ? "ready" : "idle",
+      detail: projectMissing ? t.projectPathMissing : activeProject?.path || t.noProjectPath,
+      action: () => onActivateTool("terminal"),
+    },
+    {
+      id: "environment",
+      label: t.environment,
+      icon: HardDrive,
+      badge: projectMissing ? "!" : countBadge(gitChanges),
+      status: projectMissing ? "error" : gitChanges > 0 ? "warning" : environment ? "ready" : "idle",
+      detail: projectMissing ? t.projectPathMissing : environment?.git?.branch || environment?.cwd || t.environment,
+      action: () => onOpenBottomPanel?.("environment"),
+    },
+    {
+      id: "capabilities",
+      label: t.pluginsAndMcp,
+      icon: Blocks,
+      badge: pluginIssueCount ? countBadge(pluginIssueCount) : countBadge(capabilityCount),
+      status: pluginIssueCount ? "error" : capabilityStatus ? "ready" : "idle",
+      detail: pluginIssueCount ? t.capabilityStatusIssueCount.replace("{count}", pluginIssueCount) : t.capabilitySummary.replace("{enabled}", capabilityCount).replace("{total}", capabilityCount),
+      action: () => onCapabilities?.("plugins"),
+    },
+    {
+      id: "notices",
+      label: t.notices,
+      icon: AlertTriangle,
+      badge: countBadge(activeNotices.length),
+      status: activeNotices.length ? "error" : "idle",
+      detail: activeNotices.length ? t.noticeCount.replace("{count}", activeNotices.length) : t.noticeNoActive,
+      action: () => onOpenBottomPanel?.("notices"),
+    },
   ];
   return (
     <aside className="tool-rail app-rail" aria-label={t.tools}>
@@ -6466,15 +6546,16 @@ function ToolRail({
         <PanelRight size={17} />
       </button>
       <div className="tool-rail-stack" role="list" aria-label={t.tools}>
-        {items.map(({ id, label, icon: Icon, badge }) => (
+        {items.map(({ id, label, icon: Icon, badge, status, detail, action }) => (
           <button
             type="button"
             key={id}
-            className={cx("tool-rail-button rail-button", selectedTool === id && "active", badge === "●" && "running")}
+            className={cx("tool-rail-button rail-button", selectedTool === id && "active", status)}
             data-tool={id}
-            onClick={() => onActivateTool(id)}
-            title={badge && badge !== "●" ? `${label} · ${badge}` : label}
-            aria-label={badge && badge !== "●" ? `${label}: ${badge}` : label}
+            data-tool-rail-status={status}
+            onClick={action}
+            title={[label, detail, badge && badge !== "●" ? badge : ""].filter(Boolean).join(" · ")}
+            aria-label={[label, detail].filter(Boolean).join(": ")}
           >
             <Icon size={17} />
             {badge && <em>{badge}</em>}
@@ -13171,12 +13252,18 @@ export function App() {
         {!surfaceOpen && !rightPanelVisible && (
           <ToolRail
             activeProject={activeProject}
+            settings={state.settings}
             environment={environment}
             selectedTool={selectedTool}
             onActivateTool={activateTool}
+            onOpenBottomPanel={openBottomPanel}
             onSettings={openSettingsSurface}
             onCapabilities={openCapabilitiesSurface}
             busy={busy}
+            capabilityStatus={capabilityCommandStatus}
+            commandRuns={state.commandRuns}
+            browserVisits={state.browserVisits}
+            notices={state.notices}
             t={t}
           />
         )}
