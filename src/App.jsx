@@ -2463,6 +2463,18 @@ function noticeLevelLabel(level, t) {
   return t.noticeLevelInfo;
 }
 
+function noticeActionTargetKind(notice = {}) {
+  const action = String(notice?.action || "");
+  if (String(notice?.runEventId || "").trim() || action.startsWith("run:") || action.startsWith("git-run:")) return "timeline";
+  return "surface";
+}
+
+function noticeActionLabel(notice = {}, t) {
+  return noticeActionTargetKind(notice) === "timeline"
+    ? (t.noticeOpenEvidence || t.noticeOpenAction || t.runtimeHealthOpenTarget)
+    : (t.noticeOpenAction || t.runtimeHealthOpenTarget);
+}
+
 function decodeActionSuffix(action, prefix) {
   const encoded = String(action || "").slice(prefix.length);
   return decodeActionPart(encoded);
@@ -6917,11 +6929,11 @@ function NoticeCenter({ notices = [], onDismiss, onClear, onAction, t }) {
                       type="button"
                       className="plain-action subtle-action"
                       data-notice-action="open"
-                      data-notice-action-target={notice.runEventId ? "timeline" : "surface"}
+                      data-notice-action-target={noticeActionTargetKind(notice)}
                       onClick={() => onAction?.(notice)}
                     >
                       <PanelRight size={13} />
-                      {notice.runEventId ? (t.noticeOpenEvidence || t.noticeOpenAction) : (t.noticeOpenAction || t.runtimeHealthOpenTarget)}
+                      {noticeActionLabel(notice, t)}
                     </button>
                   )}
                   <button type="button" className="plain-action subtle-action" data-notice-action="dismiss" onClick={() => onDismiss?.(notice)}>
@@ -11752,6 +11764,7 @@ function CommandPalette({ commands, t, onClose }) {
             key={command.id}
             data-command-id={command.id}
             data-command-group={command.group || ""}
+            data-command-target={command.target || ""}
             onClick={() => {
               onClose();
               command.action();
@@ -12839,30 +12852,39 @@ export function App() {
     const noticeCommands = (state.notices || [])
       .filter((notice) => notice?.id && notice?.title && !notice.dismissedAt)
       .slice(0, 16)
-      .map((notice) => ({
-        id: `notice:${commandIdSegment(notice.id)}`,
-        title: `${t.noticeCenter}: ${notice.title}`,
-        subtitle: [
-          noticeLevelLabel(notice.level, t),
-          notice.source || t.noticeSource,
-          notice.detail,
-          projectLabel(notice.project, t),
-        ].filter(Boolean).join(" · "),
-        group: t.notices,
-        keywords: [
-          "notice error warning failure alert status action deep link",
-          notice.id,
-          notice.key,
-          notice.level,
-          notice.source,
-          notice.title,
-          notice.detail,
-          notice.action,
-          notice.project?.name,
-          notice.project?.path,
-        ].filter(Boolean).join(" "),
-        action: () => openNoticeTarget(notice),
-      }));
+      .map((notice) => {
+        const actionLabel = noticeActionLabel(notice, t);
+        const actionTarget = noticeActionTargetKind(notice);
+        return {
+          id: `notice:${commandIdSegment(notice.id)}`,
+          title: `${t.noticeCenter}: ${notice.title}`,
+          subtitle: [
+            actionLabel,
+            noticeLevelLabel(notice.level, t),
+            notice.source || t.noticeSource,
+            notice.detail,
+            projectLabel(notice.project, t),
+          ].filter(Boolean).join(" · "),
+          group: t.notices,
+          target: actionTarget,
+          keywords: [
+            "notice error warning failure alert status action deep link",
+            actionTarget,
+            actionLabel,
+            notice.id,
+            notice.key,
+            notice.level,
+            notice.source,
+            notice.title,
+            notice.detail,
+            notice.action,
+            notice.runEventId,
+            notice.project?.name,
+            notice.project?.path,
+          ].filter(Boolean).join(" "),
+          action: () => openNoticeTarget(notice),
+        };
+      });
 
     const gitFileCommands = (Array.isArray(environment?.git?.files) ? environment.git.files : [])
       .filter((file) => file?.path || file?.previousPath)
