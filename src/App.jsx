@@ -2743,6 +2743,71 @@ function noticeRecoveryBuckets(notices = [], t = {}) {
     .filter((bucket) => bucket.count > 0 && bucket.first);
 }
 
+function noticeRecoveryTraceAttrValue(value) {
+  if (value === 0) return "0";
+  if (value === false) return "false";
+  if (value === true) return "true";
+  return String(value || "");
+}
+
+function noticeRecoveryTraceFields(bucket = {}, surface = "notice-center") {
+  const first = bucket.first || {};
+  const items = Array.isArray(bucket.items) ? bucket.items : [];
+  return {
+    surface,
+    action: "open-first",
+    target: bucket.target || "",
+    count: bucket.count || items.length || "",
+    errorCount: items.filter((notice) => notice?.level === "error").length,
+    warningCount: items.filter((notice) => notice?.level === "warning").length,
+    firstId: first.id || "",
+    firstKey: first.key || "",
+    firstLevel: first.level || "",
+    firstSource: first.source || "",
+    firstTitle: first.title || "",
+    firstAction: first.action || "",
+    firstRunEventId: first.runEventId || "",
+    projectName: first.project?.name || "",
+    projectPath: first.project?.path || "",
+  };
+}
+
+const NOTICE_RECOVERY_TRACE_ATTRIBUTE_KEYS = {
+  surface: "surface",
+  action: "action",
+  target: "target",
+  count: "count",
+  errorCount: "error-count",
+  warningCount: "warning-count",
+  firstId: "first-id",
+  firstKey: "first-key",
+  firstLevel: "first-level",
+  firstSource: "first-source",
+  firstTitle: "first-title",
+  firstAction: "first-action",
+  firstRunEventId: "first-run-event-id",
+  projectName: "project-name",
+  projectPath: "project-path",
+};
+
+function noticeRecoveryTraceAttributesWithPrefix(prefix, bucket = {}, surface = "notice-center") {
+  const fields = noticeRecoveryTraceFields(bucket, surface);
+  return Object.fromEntries(
+    Object.entries(NOTICE_RECOVERY_TRACE_ATTRIBUTE_KEYS).map(([field, suffix]) => [
+      `${prefix}${suffix}`,
+      noticeRecoveryTraceAttrValue(fields[field]),
+    ]),
+  );
+}
+
+function noticeRecoverySurfaceTraceAttributes(bucket = {}) {
+  return noticeRecoveryTraceAttributesWithPrefix("data-notice-recovery-", bucket, "notice-center");
+}
+
+function noticeRecoveryCommandTraceAttributes(bucket = {}) {
+  return noticeRecoveryTraceAttributesWithPrefix("data-command-notice-recovery-", bucket, "command-palette");
+}
+
 function decodeActionSuffix(action, prefix) {
   const encoded = String(action || "").slice(prefix.length);
   return decodeActionPart(encoded);
@@ -8196,9 +8261,7 @@ function NoticeCenter({ notices = [], onDismiss, onClear, onAction, t }) {
               <button
                 type="button"
                 className="plain-action subtle-action"
-                data-notice-recovery-target={bucket.target}
-                data-notice-recovery-count={bucket.count}
-                data-notice-recovery-first-id={bucket.first?.id || ""}
+                {...noticeRecoverySurfaceTraceAttributes(bucket)}
                 key={bucket.target}
                 title={bucket.detail}
                 onClick={() => onAction?.(bucket.first)}
@@ -15160,6 +15223,7 @@ export function App() {
           "data-notice-recovery-target": bucket.target,
           "data-notice-recovery-count": String(bucket.count),
           "data-notice-recovery-first-id": bucket.first?.id || "",
+          ...noticeRecoveryCommandTraceAttributes(bucket),
         },
         keywords: [
           "notice recovery summary error warning failure command palette deep link",
