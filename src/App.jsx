@@ -4842,6 +4842,7 @@ function Conversation({
   onSettings,
   onCapabilities,
   onOpenRuntimeHealthFocus,
+  onOpenGitRunEvidence,
   onRunEvent,
   onCopy,
   onRetry,
@@ -5802,15 +5803,19 @@ function Conversation({
       onOpenRunTimeline?.(eventId, { action: "retry-capability" });
       return;
     }
+    if (action.startsWith("git-run:")) {
+      const eventId = decodeActionSuffix(action, "git-run:");
+      if (onOpenGitRunEvidence) {
+        onOpenGitRunEvidence(eventId || noticeRunEventId, { action: "open-timeline" });
+        return;
+      }
+      if (eventId) setSelectedRunEventId(eventId);
+      openConversationBottomPanel("changes");
+      return;
+    }
     if (noticeRunEventId) {
       const run = findCommandRunForEvent({ id: noticeRunEventId }, commandRuns);
       onOpenRunTimeline?.(noticeRunEventId, { action: commandRunRecoveryFocusAction(run) });
-      return;
-    }
-    if (action.startsWith("git-run:")) {
-      const eventId = decodeActionSuffix(action, "git-run:");
-      if (eventId) setSelectedRunEventId(eventId);
-      openConversationBottomPanel("changes");
       return;
     }
     if (action.startsWith("run:")) {
@@ -17826,6 +17831,23 @@ export function App() {
     openBottomPanel("outputs");
   }
 
+  function openGitRunEvidence(eventId = "", options = {}) {
+    const focusedId = String(eventId || "").trim();
+    setRunTimelineFocus({
+      id: focusedId,
+      nonce: Date.now(),
+    });
+    setGitPanelFocus({
+      path: "",
+      hunkId: "",
+      action: String(options.action || "open-timeline").trim(),
+      kind: "",
+      all: true,
+      nonce: Date.now(),
+    });
+    openBottomPanel("changes", { resetGitFocus: false });
+  }
+
   function openGitFileDiff(pathValue = "", hunkId = "", options = {}) {
     const focusedPath = String(pathValue || "").trim();
     setGitPanelFocus({
@@ -17888,15 +17910,14 @@ export function App() {
       openRunTimeline(decodeActionSuffix(action, "capability-recovery:") || noticeRunEventId, { action: "retry-capability" });
       return;
     }
+    if (action.startsWith("git-run:")) {
+      const eventId = decodeActionSuffix(action, "git-run:");
+      openGitRunEvidence(eventId || noticeRunEventId, { action: "open-timeline" });
+      return;
+    }
     if (noticeRunEventId) {
       const run = findCommandRunForEvent({ id: noticeRunEventId }, state.commandRuns);
       openRunTimeline(noticeRunEventId, { action: commandRunRecoveryFocusAction(run) });
-      return;
-    }
-    if (action.startsWith("git-run:")) {
-      const eventId = decodeActionSuffix(action, "git-run:");
-      setRunTimelineFocus({ id: eventId, nonce: Date.now() });
-      openBottomPanel("changes");
       return;
     }
     if (action.startsWith("run:")) {
@@ -18457,6 +18478,7 @@ export function App() {
           onSettings={openSettingsSurface}
           onCapabilities={openCapabilitiesSurface}
           onOpenRuntimeHealthFocus={openRuntimeHealthActionFocus}
+          onOpenGitRunEvidence={openGitRunEvidence}
           onRunEvent={recordRunEvent}
           onCopy={copyMessage}
           onRetry={retryLast}
