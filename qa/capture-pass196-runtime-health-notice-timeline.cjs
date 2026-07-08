@@ -227,11 +227,11 @@ async function runTest() {
         /runtime-health/.test(text) &&
         /pass196 plugin json failed/.test(text) &&
         button &&
-        button.getAttribute('data-notice-action-target') === 'timeline' &&
-        /查看证据/.test(button.textContent || ''));
+        button.getAttribute('data-notice-action-target') === 'surface' &&
+        /打开对应工作台/.test(button.textContent || ''));
     })();
   `, 10000));
-  assertStep("PASS196_CLICK_NOTICE_TIMELINE", await win.webContents.executeJavaScript(`
+  assertStep("PASS196_CLICK_NOTICE_RUNTIME_ACTION", await win.webContents.executeJavaScript(`
     (function() {
       const button = document.querySelector('.notice-card button[data-notice-action="open"]');
       if (!button) return false;
@@ -239,26 +239,27 @@ async function runTest() {
       return true;
     })();
   `));
-  assertStep("PASS196_NOTICE_FOCUSES_RUNTIME_HEALTH_TIMELINE", await waitFor(win, `
+  assertStep("PASS196_NOTICE_FOCUSES_RUNTIME_HEALTH_ACTION", await waitFor(win, `
     (function() {
-      const active = document.querySelector('.bottom-panel-tabs button[data-bottom-tab="outputs"].active');
-      const row = document.querySelector('.run-timeline-row.selected.error');
-      const panel = document.querySelector('.selected-run-evidence-panel.error');
-      const text = panel?.textContent || '';
+      const modal = document.querySelector('.capability-modal');
+      const activeTab = document.querySelector('.plugin-manager-tabs button[aria-selected="true"], .plugin-manager-tabs button.active');
+      const issue = document.querySelector('.capability-modal .runtime-health-issue[data-runtime-health-issue-target="plugins"]');
+      const action = issue?.querySelector('button[data-runtime-health-issue-action="open"]');
       return Boolean(
-        active &&
-        row &&
-        /runtime-health/.test(row.textContent || '') &&
-        panel &&
-        /pass196 plugin json failed/.test(text) &&
-        /pass196 mcp failed/.test(text) &&
-        /pass196 marketplace json failed/.test(text) &&
-        panel.querySelector('[data-run-event-type="runtime-health"]')
+        modal &&
+        activeTab &&
+        /插件|plugin/i.test(activeTab.textContent || '') &&
+        issue &&
+        /pass196 plugin json failed/.test(issue.textContent || '') &&
+        action &&
+        issue.getAttribute('data-runtime-health-issue-focused') === 'true' &&
+        action.getAttribute('data-runtime-health-action-focused') === 'true' &&
+        document.activeElement === action
       );
     })();
   `, 10000));
 
-  console.log("PASS196_RUNTIME_HEALTH_NOTICE_TIMELINE_DONE");
+  console.log("PASS196_RUNTIME_HEALTH_NOTICE_ACTION_FOCUS_DONE");
   cleanup();
   app.exit(0);
 }

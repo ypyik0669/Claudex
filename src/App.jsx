@@ -1449,6 +1449,14 @@ function runtimeHealthTargetForIssue(issue) {
   return "claude";
 }
 
+function runtimeHealthNoticeFocusForTarget(target) {
+  if (["plugins", "skills", "mcp", "marketplace"].includes(target)) {
+    return { action: "open-issue", target };
+  }
+  if (target === "claude") return { action: "open-claude", target };
+  return null;
+}
+
 function runtimeHealthIssueSignature(summary) {
   return (summary?.issues || [])
     .map((issue) => [
@@ -1511,6 +1519,12 @@ function RuntimeHealthCard({
   const focusedRuntimeAction = String(focus?.action || "").trim();
   const focusedRuntimeTarget = String(focus?.target || "").trim();
   const focusedRuntimeCommand = String(focus?.command || "").trim();
+  const runtimeHealthFocusEvidenceKey = [
+    summary.status,
+    summary.rows.length,
+    summary.issues.length,
+    ...summary.issues.map((issue) => `${runtimeHealthTargetForIssue(issue)}:${issue.commandLine}:${issue.code}`),
+  ].join("|");
 
   function runtimeHealthActionFocused(action, options = {}) {
     if (!focus?.nonce || focusedRuntimeAction !== action) return false;
@@ -1529,12 +1543,13 @@ function RuntimeHealthCard({
   useEffect(() => {
     if (!focus?.nonce) return undefined;
     const timer = window.setTimeout(() => {
-      cardRef.current
+      const target = cardRef.current
         ?.querySelector('[data-runtime-health-action-focused="true"]')
-        ?.scrollIntoView?.({ block: "center", behavior: "smooth" });
+      target?.focus?.({ preventScroll: true });
+      target?.scrollIntoView?.({ block: "center", behavior: "smooth" });
     }, 120);
     return () => window.clearTimeout(timer);
-  }, [focus?.nonce, focusedRuntimeAction, focusedRuntimeTarget, focusedRuntimeCommand]);
+  }, [focus?.nonce, focusedRuntimeAction, focusedRuntimeTarget, focusedRuntimeCommand, runtimeHealthFocusEvidenceKey]);
 
   async function copyEvidence() {
     const text = runtimeHealthEvidenceText(summary, t);
@@ -2665,6 +2680,7 @@ function noticeLevelLabel(level, t) {
 
 function noticeActionTargetKind(notice = {}) {
   const action = String(notice?.action || "");
+  if (action.startsWith("runtime-health:")) return "surface";
   if (action.startsWith("git-run:")) return "changes";
   if (String(notice?.runEventId || "").trim() || action.startsWith("run:") || action.startsWith("capability-recovery:")) return "timeline";
   return "surface";
@@ -4825,6 +4841,7 @@ function Conversation({
   onSelectProject,
   onSettings,
   onCapabilities,
+  onOpenRuntimeHealthFocus,
   onRunEvent,
   onCopy,
   onRetry,
@@ -5772,6 +5789,14 @@ function Conversation({
   function handleNoticeAction(notice) {
     const noticeRunEventId = String(notice?.runEventId || "").trim();
     const action = String(notice?.action || "");
+    if (action.startsWith("runtime-health:")) {
+      const target = action.split(":")[1] || "";
+      const focus = runtimeHealthNoticeFocusForTarget(target);
+      if (focus) {
+        onOpenRuntimeHealthFocus?.(focus, ["plugins", "skills", "mcp", "marketplace"].includes(target) ? target : "plugins");
+        return;
+      }
+    }
     if (action.startsWith("capability-recovery:")) {
       const eventId = decodeActionSuffix(action, "capability-recovery:") || noticeRunEventId;
       onOpenRunTimeline?.(eventId, { action: "retry-capability" });
@@ -17669,9 +17694,9 @@ export function App() {
     setCapabilitiesOpen(true);
   }
 
-  function openRuntimeHealthActionFocus(focus = {}) {
+  function openRuntimeHealthActionFocus(focus = {}, initialTab = "plugins") {
     setRuntimeHealthFocus(runtimeHealthFocusState(focus));
-    openCapabilitiesSurface("plugins");
+    openCapabilitiesSurface(initialTab);
   }
 
   function openSettingsRuntimeHealthActionFocus(focus = {}) {
@@ -17851,6 +17876,14 @@ export function App() {
   function openNoticeTarget(notice = {}) {
     const noticeRunEventId = String(notice?.runEventId || "").trim();
     const action = String(notice?.action || "");
+    if (action.startsWith("runtime-health:")) {
+      const target = action.split(":")[1] || "";
+      const focus = runtimeHealthNoticeFocusForTarget(target);
+      if (focus) {
+        openRuntimeHealthActionFocus(focus, ["plugins", "skills", "mcp", "marketplace"].includes(target) ? target : "plugins");
+        return;
+      }
+    }
     if (action.startsWith("capability-recovery:")) {
       openRunTimeline(decodeActionSuffix(action, "capability-recovery:") || noticeRunEventId, { action: "retry-capability" });
       return;
@@ -18423,6 +18456,7 @@ export function App() {
           onSelectProject={openProjectsSurface}
           onSettings={openSettingsSurface}
           onCapabilities={openCapabilitiesSurface}
+          onOpenRuntimeHealthFocus={openRuntimeHealthActionFocus}
           onRunEvent={recordRunEvent}
           onCopy={copyMessage}
           onRetry={retryLast}
