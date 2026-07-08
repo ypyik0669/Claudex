@@ -9971,6 +9971,13 @@ function ToolsPanel({
   const mcpPanelItems = Array.isArray(claudeStatus?.mcpServers) ? claudeStatus.mcpServers : [];
   const marketplacePanelSources = Array.isArray(claudeStatus?.marketplaces) ? claudeStatus.marketplaces : [];
   const marketplacePanelPlugins = Array.isArray(claudeStatus?.marketplacePlugins) ? claudeStatus.marketplacePlugins : [];
+  const claudePanelTraceAttributes = (kind, action, item = {}, options = {}) => capabilitySurfaceTraceAttributes({
+    kind,
+    action,
+    item,
+    projectPath: activeProject?.path || "",
+    ...options,
+  });
 
   return (
     <aside className="tools-panel">
@@ -10476,7 +10483,11 @@ function ToolsPanel({
                       const pluginEvidenceKey = `plugin:${plugin.id || plugin.name}`;
                       const pluginCopied = copiedClaudePanelEvidence === pluginEvidenceKey;
                       return (
-                        <div className="plugin-status-item" key={plugin.id}>
+                        <div
+                          className="plugin-status-item"
+                          key={plugin.id}
+                          {...claudePanelTraceAttributes("plugin", "open", plugin, { id: plugin.id || plugin.name })}
+                        >
                           <div>
                             <strong>{plugin.id}</strong>
                             <span title={pluginMeta || plugin.installPath || ""}>
@@ -10505,6 +10516,7 @@ function ToolsPanel({
                               type="button"
                               className="plain-action subtle-action"
                               data-claude-panel-plugin-action="copy-evidence"
+                              {...claudePanelTraceAttributes("plugin", "copy", plugin, { id: plugin.id || plugin.name })}
                               onClick={() => copyClaudePanelEvidence(pluginEvidenceKey, pluginEvidenceText(plugin, t))}
                               title={pluginCopied ? t.copied : t.copyEvidence}
                             >
@@ -10515,6 +10527,7 @@ function ToolsPanel({
                               <button
                                 type="button"
                                 className="plain-action"
+                                {...claudePanelTraceAttributes("plugin", "disable", plugin, { id: plugin.id || plugin.name })}
                                 onClick={() => setConfirmingPluginAction(plugin.id)}
                                 disabled={claudeBusy}
                                 title={claudeBusy ? t.workingHint : undefined}
@@ -10525,6 +10538,7 @@ function ToolsPanel({
                               <button
                                 type="button"
                                 className="plain-action"
+                                {...claudePanelTraceAttributes("plugin", "enable", plugin, { id: plugin.id || plugin.name })}
                                 onClick={() => runClaudeAndRefreshPlugins(`plugin enable ${plugin.id}`)}
                                 disabled={claudeBusy}
                                 title={claudeBusy ? t.workingHint : undefined}
@@ -10565,7 +10579,11 @@ function ToolsPanel({
                     const mcpEvidenceKey = `mcp:${rowKey}`;
                     const mcpCopied = copiedClaudePanelEvidence === mcpEvidenceKey;
                     return (
-                      <div className="plugin-status-item claude-panel-mcp-row" key={rowKey}>
+                      <div
+                        className="plugin-status-item claude-panel-mcp-row"
+                        key={rowKey}
+                        {...claudePanelTraceAttributes("mcp", "open", server, { id: display.name, name: display.name })}
+                      >
                         <div>
                           <strong>{display.name}</strong>
                           <span title={server.raw || server.detail || meta}>{meta || server.detail || server.raw || t.mcpServers}</span>
@@ -10590,6 +10608,7 @@ function ToolsPanel({
                             type="button"
                             className="plain-action subtle-action"
                             data-claude-panel-mcp-action="copy-evidence"
+                            {...claudePanelTraceAttributes("mcp", "copy", server, { id: display.name, name: display.name })}
                             onClick={() => copyClaudePanelEvidence(mcpEvidenceKey, mcpServerEvidenceText(server, t))}
                             title={mcpCopied ? t.copied : t.copyEvidence}
                           >
@@ -10617,7 +10636,11 @@ function ToolsPanel({
                     const sourceKey = `marketplace-source:${marketplace.name || marketplace.repo || marketplace.source}`;
                     const sourceCopied = copiedClaudePanelEvidence === sourceKey;
                     return (
-                      <div className="plugin-status-item claude-panel-marketplace-row" key={marketplace.name}>
+                      <div
+                        className="plugin-status-item claude-panel-marketplace-row"
+                        key={marketplace.name}
+                        {...claudePanelTraceAttributes("marketplace-source", "open", marketplace, { id: marketplace.name || marketplace.repo || marketplace.source })}
+                      >
                         <div>
                           <strong>{marketplace.name}</strong>
                           <span title={marketplace.repo || marketplace.installLocation || marketplace.source}>
@@ -10630,6 +10653,7 @@ function ToolsPanel({
                             type="button"
                             className="plain-action subtle-action"
                             data-claude-panel-marketplace-source-action="copy-evidence"
+                            {...claudePanelTraceAttributes("marketplace-source", "copy", marketplace, { id: marketplace.name || marketplace.repo || marketplace.source })}
                             onClick={() => copyClaudePanelEvidence(sourceKey, marketplaceSourceEvidenceText(marketplace, t))}
                             title={sourceCopied ? t.copied : t.copyEvidence}
                           >
@@ -10657,7 +10681,11 @@ function ToolsPanel({
                       summarizePanelPluginField(plugin.permissions),
                     ].filter(Boolean).join(" · ");
                     return (
-                      <div className="plugin-status-item claude-panel-marketplace-plugin" key={plugin.id}>
+                      <div
+                        className="plugin-status-item claude-panel-marketplace-plugin"
+                        key={plugin.id}
+                        {...claudePanelTraceAttributes("marketplace-plugin", "open", plugin, { id: plugin.id || plugin.name })}
+                      >
                         <div>
                           <strong>{plugin.name || plugin.id}</strong>
                           <span title={summarizePanelPluginField(plugin.source || plugin.description || plugin.permissions || plugin.risk)}>
@@ -10684,6 +10712,7 @@ function ToolsPanel({
                             type="button"
                             className="plain-action subtle-action"
                             data-claude-panel-marketplace-plugin-action="copy-evidence"
+                            {...claudePanelTraceAttributes("marketplace-plugin", "copy", plugin, { id: plugin.id || plugin.name })}
                             onClick={() => copyClaudePanelEvidence(pluginKey, marketplacePluginEvidenceText(plugin, t))}
                             title={pluginCopied ? t.copied : t.copyEvidence}
                           >
