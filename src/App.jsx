@@ -8727,6 +8727,7 @@ function ToolRail({
             : "",
         expandEvidence: failedAutomationItems.length > 0 || runningAutomationItems.length > 0,
         expandHistory: failedAutomationItems.length > 0 || runningAutomationItems.length > 0,
+        action: automationRecoveryFocusAction(automationRailItem),
       });
       return;
     }
