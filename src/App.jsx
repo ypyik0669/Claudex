@@ -15830,6 +15830,7 @@ export function App() {
             filter: statusFilter,
             expandEvidence: hasEvidence,
             expandHistory: hasHistory,
+            action: automationRecoveryFocusAction(automation),
           }),
         };
       });
@@ -16121,6 +16122,7 @@ export function App() {
             filter: statusFilter,
             expandEvidence: true,
             expandArtifacts: Array.isArray(run.artifacts) && run.artifacts.length > 0,
+            action: subagentRecoveryFocusAction(run),
           }),
         };
       });
