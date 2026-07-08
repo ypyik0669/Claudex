@@ -2681,9 +2681,14 @@ function noticeLevelLabel(level, t) {
 
 function noticeActionTargetKind(notice = {}) {
   const action = String(notice?.action || "");
-  if (action.startsWith("runtime-health:")) return "surface";
   if (action.startsWith("git-run:")) return "changes";
-  if (String(notice?.runEventId || "").trim() || action.startsWith("run:") || action.startsWith("capability-recovery:")) return "timeline";
+  if (
+    String(notice?.runEventId || "").trim()
+    || action.startsWith("run:")
+    || action.startsWith("command-run:")
+    || action.startsWith("capability-recovery:")
+  ) return "timeline";
+  if (action.startsWith("runtime-health:")) return "surface";
   return "surface";
 }
 
@@ -5795,14 +5800,6 @@ function Conversation({
   function handleNoticeAction(notice) {
     const noticeRunEventId = String(notice?.runEventId || "").trim();
     const action = String(notice?.action || "");
-    if (action.startsWith("runtime-health:")) {
-      const target = action.split(":")[1] || "";
-      const focus = runtimeHealthNoticeFocusForTarget(target);
-      if (focus) {
-        onOpenRuntimeHealthFocus?.(focus, ["plugins", "skills", "mcp", "marketplace"].includes(target) ? target : "plugins");
-        return;
-      }
-    }
     if (action.startsWith("capability-recovery:")) {
       const eventId = decodeActionSuffix(action, "capability-recovery:") || noticeRunEventId;
       onOpenRunTimeline?.(eventId, { action: "retry-capability" });
@@ -5823,8 +5820,22 @@ function Conversation({
       onOpenRunTimeline?.(noticeRunEventId, { action: commandRunRecoveryFocusAction(run) });
       return;
     }
+    if (action.startsWith("runtime-health:")) {
+      const target = action.split(":")[1] || "";
+      const focus = runtimeHealthNoticeFocusForTarget(target);
+      if (focus) {
+        onOpenRuntimeHealthFocus?.(focus, ["plugins", "skills", "mcp", "marketplace"].includes(target) ? target : "plugins");
+        return;
+      }
+    }
     if (action.startsWith("run:")) {
       const eventId = decodeActionSuffix(action, "run:");
+      const run = findCommandRunForEvent({ id: eventId }, commandRuns);
+      onOpenRunTimeline?.(eventId, { action: commandRunRecoveryFocusAction(run) });
+      return;
+    }
+    if (action.startsWith("command-run:")) {
+      const eventId = decodeActionSuffix(action, "command-run:");
       const run = findCommandRunForEvent({ id: eventId }, commandRuns);
       onOpenRunTimeline?.(eventId, { action: commandRunRecoveryFocusAction(run) });
       return;
@@ -17912,14 +17923,6 @@ export function App() {
   function openNoticeTarget(notice = {}) {
     const noticeRunEventId = String(notice?.runEventId || "").trim();
     const action = String(notice?.action || "");
-    if (action.startsWith("runtime-health:")) {
-      const target = action.split(":")[1] || "";
-      const focus = runtimeHealthNoticeFocusForTarget(target);
-      if (focus) {
-        openRuntimeHealthActionFocus(focus, ["plugins", "skills", "mcp", "marketplace"].includes(target) ? target : "plugins");
-        return;
-      }
-    }
     if (action.startsWith("capability-recovery:")) {
       openRunTimeline(decodeActionSuffix(action, "capability-recovery:") || noticeRunEventId, { action: "retry-capability" });
       return;
@@ -17934,8 +17937,22 @@ export function App() {
       openRunTimeline(noticeRunEventId, { action: commandRunRecoveryFocusAction(run) });
       return;
     }
+    if (action.startsWith("runtime-health:")) {
+      const target = action.split(":")[1] || "";
+      const focus = runtimeHealthNoticeFocusForTarget(target);
+      if (focus) {
+        openRuntimeHealthActionFocus(focus, ["plugins", "skills", "mcp", "marketplace"].includes(target) ? target : "plugins");
+        return;
+      }
+    }
     if (action.startsWith("run:")) {
       const eventId = decodeActionSuffix(action, "run:");
+      const run = findCommandRunForEvent({ id: eventId }, state.commandRuns);
+      openRunTimeline(eventId, { action: commandRunRecoveryFocusAction(run) });
+      return;
+    }
+    if (action.startsWith("command-run:")) {
+      const eventId = decodeActionSuffix(action, "command-run:");
       const run = findCommandRunForEvent({ id: eventId }, state.commandRuns);
       openRunTimeline(eventId, { action: commandRunRecoveryFocusAction(run) });
       return;
