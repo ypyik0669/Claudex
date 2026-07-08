@@ -3451,6 +3451,111 @@ function subagentPrompt(task, nickname) {
   ].join("\n");
 }
 
+const SUBAGENT_WORKSPACE_ARTIFACT_SCAN_LIMIT = 800;
+const SUBAGENT_WORKSPACE_FILE_ARTIFACT_LIMIT = 6;
+const SUBAGENT_WORKSPACE_FILE_ARTIFACT_MAX_BYTES = 64 * 1024;
+
+function isSensitiveWorkspaceArtifact(relativePath = "") {
+  const normalized = slashPath(relativePath).toLowerCase();
+  const base = path.basename(normalized);
+  return base === ".env"
+    || base.startsWith(".env.")
+    || /\.(?:pem|key|p12|pfx|crt|cer|der|kdbx|sqlite|db)$/i.test(base);
+}
+
+function shouldIgnoreWorkspaceArtifactDir(name = "") {
+  return isIgnoredWorkspaceDir(name) || name === ".cache" || name === ".tmp";
+}
+
+function workspaceArtifactSnapshot(root) {
+  if (!root || !fs.existsSync(root)) return new Map();
+  let rootStat;
+  try {
+    rootStat = fs.statSync(root);
+  } catch {
+    return new Map();
+  }
+  if (!rootStat.isDirectory()) return new Map();
+  const snapshot = new Map();
+  const queue = [root];
+  while (queue.length && snapshot.size < SUBAGENT_WORKSPACE_ARTIFACT_SCAN_LIMIT) {
+    const dir = queue.shift();
+    let entries = [];
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      if (snapshot.size >= SUBAGENT_WORKSPACE_ARTIFACT_SCAN_LIMIT) break;
+      if (entry.isDirectory()) {
+        if (!shouldIgnoreWorkspaceArtifactDir(entry.name)) queue.push(path.join(dir, entry.name));
+        continue;
+      }
+      if (!entry.isFile()) continue;
+      const fullPath = path.join(dir, entry.name);
+      const relativePath = slashPath(path.relative(root, fullPath));
+      if (!relativePath || isSensitiveWorkspaceArtifact(relativePath)) continue;
+      try {
+        const stat = fs.statSync(fullPath);
+        snapshot.set(relativePath, {
+          path: relativePath,
+          size: stat.size,
+          mtimeMs: stat.mtimeMs,
+          updatedAt: stat.mtime.toISOString(),
+        });
+      } catch {
+        // ignore files that disappeared while scanning
+      }
+    }
+  }
+  return snapshot;
+}
+
+function readWorkspaceArtifactContent(root, relativePath) {
+  const fullPath = path.resolve(root, relativePath);
+  const relative = path.relative(root, fullPath);
+  if (relative.startsWith("..") || path.isAbsolute(relative)) return "";
+  let stat;
+  try {
+    stat = fs.statSync(fullPath);
+  } catch {
+    return "";
+  }
+  if (!stat.isFile() || stat.size > SUBAGENT_WORKSPACE_FILE_ARTIFACT_MAX_BYTES) return "";
+  try {
+    const content = fs.readFileSync(fullPath, "utf8");
+    if (content.includes("\u0000")) return "";
+    return trimOutput(content, 6000);
+  } catch {
+    return "";
+  }
+}
+
+function subagentWorkspaceFileArtifacts({ before, after, root, project } = {}) {
+  if (!(before instanceof Map) || !(after instanceof Map) || !root) return [];
+  return [...after.values()]
+    .filter((entry) => {
+      const previous = before.get(entry.path);
+      return !previous || previous.size !== entry.size || Math.round(previous.mtimeMs) !== Math.round(entry.mtimeMs);
+    })
+    .sort((a, b) => b.mtimeMs - a.mtimeMs || a.path.localeCompare(b.path))
+    .slice(0, SUBAGENT_WORKSPACE_FILE_ARTIFACT_LIMIT)
+    .map((entry) => {
+      const content = readWorkspaceArtifactContent(root, entry.path);
+      return {
+        type: "file",
+        label: entry.path,
+        path: entry.path,
+        projectPath: root,
+        projectLabel: project?.name || project?.path || "",
+        size: entry.size,
+        updatedAt: entry.updatedAt,
+        content,
+      };
+    });
+}
+
 function subagentArtifactsFromResult({ summary = "", stdout = "", stderr = "" } = {}) {
   const artifacts = [];
   if (String(summary || "").trim()) {
@@ -3488,6 +3593,9 @@ async function runSubagent(payload = {}, sender) {
   const store = readStore();
   const project = subagentProjectFromPayload(store, payload);
   const cwd = project?.path && fs.existsSync(project.path) ? project.path : app.getPath("home");
+  const workspaceArtifactBefore = project?.path && path.resolve(cwd) === path.resolve(project.path)
+    ? workspaceArtifactSnapshot(cwd)
+    : new Map();
   const runId = id("subagent");
   const requestId = payload.requestId || id("subagent_request");
   const startedAt = now();
@@ -3547,6 +3655,15 @@ async function runSubagent(payload = {}, sender) {
   const cleanStdout = stripAnsi(result.stdout || stdout);
   const cleanStderr = stripAnsi(result.stderr || stderr);
   const cleanSummary = stripAnsi(summary);
+  const workspaceArtifactAfter = project?.path && path.resolve(cwd) === path.resolve(project.path)
+    ? workspaceArtifactSnapshot(cwd)
+    : new Map();
+  const workspaceFileArtifacts = subagentWorkspaceFileArtifacts({
+    before: workspaceArtifactBefore,
+    after: workspaceArtifactAfter,
+    root: cwd,
+    project,
+  });
   const nextStore = readStore();
   const existing = (nextStore.subagentRuns || []).find((item) => item.id === runId) || run;
   const finalRun = normalizeSubagentRun({
@@ -3558,11 +3675,14 @@ async function runSubagent(payload = {}, sender) {
     code: wasCancelled ? 130 : result.code,
     durationMs: result.durationMs,
     endedAt: now(),
-    artifacts: subagentArtifactsFromResult({
-      summary: cleanSummary,
-      stdout: cleanStdout,
-      stderr: cleanStderr,
-    }),
+    artifacts: [
+      ...subagentArtifactsFromResult({
+        summary: cleanSummary,
+        stdout: cleanStdout,
+        stderr: cleanStderr,
+      }),
+      ...workspaceFileArtifacts,
+    ].slice(0, 12),
   }, nextStore);
   upsertSubagentRun(nextStore, finalRun);
   upsertSubagentRunEvent(
