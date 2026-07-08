@@ -15142,6 +15142,51 @@ export function App() {
           action: () => openNoticeTarget(notice),
         };
       });
+    const noticeRecoveryCommands = noticeRecoveryBuckets(state.notices || [], t)
+      .map((bucket) => ({
+        id: `notice-recovery:${commandIdSegment(bucket.target)}`,
+        title: `${t.noticeCenter}: ${bucket.title}`,
+        subtitle: [
+          bucket.detail,
+          t.noticeRecoverySummaryTitle,
+          noticeActionLabel(bucket.first, t),
+          bucket.first?.source || t.noticeSource,
+          projectLabel(bucket.first?.project, t),
+        ].filter(Boolean).join(" · "),
+        group: t.notices,
+        target: bucket.target,
+        priority: 76,
+        dataAttributes: {
+          "data-notice-recovery-target": bucket.target,
+          "data-notice-recovery-count": String(bucket.count),
+          "data-notice-recovery-first-id": bucket.first?.id || "",
+        },
+        keywords: [
+          "notice recovery summary error warning failure command palette deep link",
+          t.noticeRecoverySummaryTitle,
+          bucket.title,
+          bucket.detail,
+          bucket.target,
+          bucket.first?.id,
+          bucket.first?.key,
+          bucket.first?.level,
+          bucket.first?.source,
+          bucket.first?.title,
+          bucket.first?.detail,
+          bucket.first?.action,
+          bucket.first?.runEventId,
+          bucket.first?.project?.name,
+          bucket.first?.project?.path,
+          ...bucket.items.flatMap((notice) => [
+            notice.id,
+            notice.key,
+            notice.title,
+            notice.detail,
+            notice.action,
+          ]),
+        ].filter(Boolean).join(" "),
+        action: () => openNoticeTarget(bucket.first),
+      }));
 
     const gitActionCommandEvents = (commandPaletteTimelineEvents || [])
       .filter((event) => event?.id && event.type === "git-command" && event.status !== "running");
@@ -17353,6 +17398,7 @@ export function App() {
       ...commandRunCommands,
       ...capabilityRecoveryCommands,
       ...noticeCommands,
+      ...noticeRecoveryCommands,
       ...latestGitActionCommands,
       ...latestGitActionControlCommands,
       ...gitSummaryBucketCommands,
