@@ -4509,6 +4509,7 @@ function fallbackState() {
     sourceRefs: [],
     browserVisits: [],
     notices: [],
+    capabilityStatus: null,
   };
 }
 function Sidebar({
@@ -8799,7 +8800,7 @@ function ToolRail({
   onSettings,
   onCapabilities,
   busy,
-  capabilityStatus,
+  capabilityStatus = null,
   commandRuns = [],
   automations = [],
   subagentRuns = [],
@@ -9090,6 +9091,7 @@ function ToolRail({
 function ToolsPanel({
   activeProject,
   settings,
+  capabilityStatus = null,
   environment,
   onRefreshEnvironment,
   ideOptions,
@@ -9144,7 +9146,7 @@ function ToolsPanel({
   const [commandRequestId, setCommandRequestId] = useState("");
   const commandRequestRef = useRef("");
   const workspaceOutputRef = useRef(null);
-  const [claudeStatus, setClaudeStatus] = useState(null);
+  const [claudeStatus, setClaudeStatus] = useState(() => capabilityStatus || null);
   const [statusBusy, setStatusBusy] = useState(false);
   const [statusError, setStatusError] = useState("");
   const [claudeArgs, setClaudeArgs] = useState("");
@@ -9165,6 +9167,10 @@ function ToolsPanel({
   const [copiedClaudePanelEvidence, setCopiedClaudePanelEvidence] = useState("");
   const selectedToolDetailRef = useRef(null);
   const toolAutoScrollReadyRef = useRef(false);
+
+  useEffect(() => {
+    if (capabilityStatus?.refreshedAt) setClaudeStatus(capabilityStatus);
+  }, [capabilityStatus?.refreshedAt]);
 
   useEffect(() => {
     setCommandHistory(commandRunsToHistory(commandRuns, "workspace"));
@@ -9933,9 +9939,10 @@ function ToolsPanel({
   const statusBaseUrl = cliBaseUrl(settings);
   const statusReady = Boolean(claudeStatus?.available);
   const statusHeadline = statusBusy ? `${t.loading}...` : statusReady ? t.uxReady : statusText;
+  const statusRefreshLabel = claudeStatus?.refreshedAt ? `${t.refreshStatus}: ${formatDate(claudeStatus.refreshedAt)}` : "";
   const compactRuntimeStatus = statusBusy
     ? `${t.loading}...`
-    : [statusText, displayModelLabel(settings?.model), projectLabel(activeProject, t)].filter(Boolean).join(" · ");
+    : [statusText, displayModelLabel(settings?.model), projectLabel(activeProject, t), statusRefreshLabel].filter(Boolean).join(" · ");
   const quickClaudeCommands = [
     { label: t.help, args: "--help" },
     { label: t.auth, args: "auth status" },
@@ -10894,7 +10901,7 @@ function SettingsModal({
   const [confirmingClose, setConfirmingClose] = useState(false);
   const [settingsQuery, setSettingsQuery] = useState("");
   const [settingsEnvironment, setSettingsEnvironment] = useState(null);
-  const [settingsClaudeStatus, setSettingsClaudeStatus] = useState(null);
+  const [settingsClaudeStatus, setSettingsClaudeStatus] = useState(() => state.capabilityStatus || null);
   const [settingsStatusBusy, setSettingsStatusBusy] = useState(false);
   const [settingsStatusError, setSettingsStatusError] = useState("");
   const activeProvider = providerDefaults(form.provider);
@@ -10989,6 +10996,9 @@ function SettingsModal({
     refreshSettingsStatus();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [state.activeProject?.path]);
+  useEffect(() => {
+    if (state.capabilityStatus?.refreshedAt) setSettingsClaudeStatus(state.capabilityStatus);
+  }, [state.capabilityStatus?.refreshedAt]);
   useEffect(() => {
     setActiveSection(normalizedInitialSection);
   }, [normalizedInitialSection]);
@@ -11548,7 +11558,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
   const [activeTab, setActiveTab] = useState(initialTab || "plugins");
   const [query, setQuery] = useState("");
   const [filter, setFilter] = useState("all");
-  const [cliStatus, setCliStatus] = useState(null);
+  const [cliStatus, setCliStatus] = useState(() => state.capabilityStatus || null);
   const [cliBusy, setCliBusy] = useState(false);
   const [cliError, setCliError] = useState("");
   const [cliAction, setCliAction] = useState("");
@@ -11568,6 +11578,11 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
   const [capabilityActionFocus, setCapabilityActionFocus] = useState({ tab: "", kind: "", id: "", query: "", nonce: 0 });
   const manualCapabilityTabSwitchRef = useRef(0);
   const activeProject = state.activeProject || { name: t.localWorkspace, path: "" };
+
+  useEffect(() => {
+    if (state.capabilityStatus?.refreshedAt) setCliStatus(state.capabilityStatus);
+  }, [state.capabilityStatus?.refreshedAt]);
+
   const customMarketplaces = Array.isArray(state.settings.customMarketplaces) ? state.settings.customMarketplaces : [];
   const capabilityRows = capabilityCatalog.map((item) => ({
     ...item,
@@ -14163,7 +14178,7 @@ export function App() {
   const [capabilityFocus, setCapabilityFocus] = useState({ tab: "plugins", kind: "", id: "", query: "", filter: "", marketplaceFilter: "", nonce: 0 });
   const [runtimeHealthFocus, setRuntimeHealthFocus] = useState({ action: "", target: "", command: "", nonce: 0 });
   const [settingsRuntimeHealthFocus, setSettingsRuntimeHealthFocus] = useState({ action: "", target: "", command: "", nonce: 0 });
-  const [capabilityCommandStatus, setCapabilityCommandStatus] = useState(null);
+  const [capabilityCommandStatus, setCapabilityCommandStatus] = useState(() => state.capabilityStatus || null);
   const [projectsOpen, setProjectsOpen] = useState(false);
   const [commandsOpen, setCommandsOpen] = useState(false);
   const [scheduledOpen, setScheduledOpen] = useState(false);
@@ -14190,6 +14205,10 @@ export function App() {
     if (!Array.isArray(state.runEvents)) return;
     setRunEvents((current) => mergeRunEvents(current, state.runEvents));
   }, [state.runEvents]);
+
+  useEffect(() => {
+    if (state.capabilityStatus?.refreshedAt) setCapabilityCommandStatus(state.capabilityStatus);
+  }, [state.capabilityStatus?.refreshedAt]);
 
   useEffect(() => {
     let cancelled = false;
@@ -18796,7 +18815,7 @@ export function App() {
             onSettings={openSettingsSurface}
             onCapabilities={openCapabilitiesSurface}
             busy={busy}
-            capabilityStatus={capabilityCommandStatus}
+            capabilityStatus={capabilityCommandStatus || state.capabilityStatus}
             commandRuns={state.commandRuns}
             automations={state.automations}
             subagentRuns={state.subagentRuns}
@@ -18809,6 +18828,7 @@ export function App() {
         <ToolsPanel
           activeProject={activeProject}
           settings={state.settings}
+          capabilityStatus={state.capabilityStatus}
           environment={environment}
           onRefreshEnvironment={refreshEnvironment}
           ideOptions={ideOptions}

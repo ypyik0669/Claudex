@@ -1003,7 +1003,78 @@ function defaultStore() {
     sourceRefs: [],
     browserVisits: [],
     notices: [],
+    capabilityStatus: null,
   };
+}
+
+function normalizeCapabilityStatus(status, store = {}) {
+  if (!status || typeof status !== "object") return null;
+  const project = status.project || store.activeProject || localWorkspaceProject();
+  return {
+    refreshedAt: isoOrEmpty(status.refreshedAt) || now(),
+    project: {
+      name: String(project?.name || project?.path || ""),
+      path: String(project?.path || ""),
+    },
+    available: Boolean(status.available),
+    version: String(status.version || ""),
+    versionCommand: status.versionCommand || null,
+    auth: status.auth || null,
+    authCommand: status.authCommand || null,
+    plugins: String(status.plugins || ""),
+    pluginItems: Array.isArray(status.pluginItems) ? status.pluginItems : [],
+    pluginCommand: status.pluginCommand || null,
+    skills: Array.isArray(status.skills) ? status.skills : [],
+    skillItems: Array.isArray(status.skillItems) ? status.skillItems : [],
+    skillRoots: Array.isArray(status.skillRoots) ? status.skillRoots.filter(Boolean) : [],
+    skillsTruncated: Boolean(status.skillsTruncated),
+    mcp: String(status.mcp || ""),
+    mcpServers: Array.isArray(status.mcpServers) ? status.mcpServers : [],
+    mcpCommand: status.mcpCommand || null,
+    marketplaces: Array.isArray(status.marketplaces) ? status.marketplaces : [],
+    marketplacePlugins: Array.isArray(status.marketplacePlugins) ? status.marketplacePlugins : [],
+    marketplaceOutput: String(status.marketplaceOutput || ""),
+    marketplaceCommand: status.marketplaceCommand || null,
+    lastError: String(status.lastError || ""),
+  };
+}
+
+function statusCommandOk(commandState) {
+  if (!commandState) return false;
+  if (typeof commandState.jsonCode === "number") return commandState.jsonCode === 0 || commandState.code === 0;
+  return commandState.code === 0;
+}
+
+function statusCommandErrorText(commandState) {
+  if (!commandState || statusCommandOk(commandState)) return "";
+  return String(commandState.error || commandState.stderr || commandState.jsonStderr || "").trim();
+}
+
+function mergeCapabilityStatusSnapshot(status, previousStatus, store = {}) {
+  const next = normalizeCapabilityStatus(status, store);
+  const previous = normalizeCapabilityStatus(previousStatus, store);
+  if (!next || !previous) return next;
+  if (!statusCommandOk(next.pluginCommand) && previous.pluginItems.length) {
+    next.plugins = previous.plugins;
+    next.pluginItems = previous.pluginItems;
+  }
+  if (!statusCommandOk(next.mcpCommand) && previous.mcpServers.length) {
+    next.mcp = previous.mcp;
+    next.mcpServers = previous.mcpServers;
+  }
+  if (!statusCommandOk(next.marketplaceCommand) && (previous.marketplaces.length || previous.marketplacePlugins.length)) {
+    next.marketplaces = previous.marketplaces;
+    next.marketplacePlugins = previous.marketplacePlugins;
+    next.marketplaceOutput = previous.marketplaceOutput;
+  }
+  next.lastError = [
+    statusCommandErrorText(next.versionCommand),
+    statusCommandErrorText(next.authCommand),
+    statusCommandErrorText(next.pluginCommand),
+    statusCommandErrorText(next.mcpCommand),
+    statusCommandErrorText(next.marketplaceCommand),
+  ].filter(Boolean).join("\n");
+  return next;
 }
 
 function effectiveStoredModel(storedModel, fallbackModel) {
@@ -1111,6 +1182,7 @@ function normalizeStore(store) {
           .filter((notice) => notice.title)
           .slice(0, NOTICE_LIMIT)
       : [],
+    capabilityStatus: normalizeCapabilityStatus(store.capabilityStatus, { ...store, activeProject }),
   };
 }
 
@@ -4186,7 +4258,9 @@ ipcMain.handle("claude:status", async (_event, { projectPath } = {}) => {
   const mcpJsonItems = mcpJson.code === 0 ? parseJsonListOutput(mcpJson.stdout, ["mcpServers", "servers"]) : [];
   const mcpJsonOutput = mcpJsonItems.length ? mcpJson.stdout : "";
   const mcpJsonStatus = mcpJsonItems.length ? mcpJson : null;
-  return {
+  const status = {
+    refreshedAt: now(),
+    project: projectFromPath(cwd),
     available: version.code === 0,
     version: stripAnsi(version.stdout || version.stderr).trim(),
     versionCommand: statusCommandState(version),
@@ -4207,6 +4281,11 @@ ipcMain.handle("claude:status", async (_event, { projectPath } = {}) => {
     marketplaceOutput: stripAnsi(marketplaces.stdout || marketplaces.stderr).trim(),
     marketplaceCommand: statusCommandState(marketplaces, marketplacesJson),
   };
+  const store = readStore();
+  store.capabilityStatus = mergeCapabilityStatusSnapshot(status, store.capabilityStatus, { ...store, activeProject: projectFromPath(cwd) });
+  writeStore(store);
+  broadcastStoreUpdate(store);
+  return store.capabilityStatus;
 });
 
 ipcMain.handle("claude:run", async (_event, { projectPath, args, requestId, persistCommandRun = false, commandRunKind = "claude" } = {}) => {
