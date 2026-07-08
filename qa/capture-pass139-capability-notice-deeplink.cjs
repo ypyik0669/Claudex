@@ -229,16 +229,69 @@ async function backToApp(win) {
   `);
 }
 
-async function assertFocusedPlugin(win, stepName) {
+async function assertCapabilityEvidenceFocused(win, stepName) {
   assertStep(stepName, await waitFor(win, `
-    Boolean(
-      document.querySelector('.plugin-manager-modal') &&
-      /插件/.test(document.querySelector('.plugin-manager-tabs button.active')?.textContent || '') &&
-      document.querySelector('.structured-plugin-row.focused-capability-row[data-plugin-id="${PLUGIN_ID}"]') &&
-      /pass139-tool/.test(document.querySelector('.structured-plugin-row.focused-capability-row')?.textContent || '') &&
-      /13\.9\.0/.test(document.querySelector('.structured-plugin-row.focused-capability-row')?.textContent || '')
-    )
+    (function() {
+      const active = document.querySelector('.bottom-panel-tabs button[data-bottom-tab="outputs"].active') ||
+        document.querySelector('.workspace-context-button.active');
+      const panel = document.querySelector('.selected-run-evidence-panel.error');
+      const retry = panel?.querySelector('[data-run-recovery-action="retry-capability"]');
+      const text = panel?.textContent || '';
+      return Boolean(active &&
+        /\\u8f93\\u51fa|Outputs/i.test(active.textContent || '') &&
+        panel &&
+        retry &&
+        retry.getAttribute('data-run-recovery-action-focused') === 'true' &&
+        document.activeElement === retry &&
+        panel.querySelector('[data-run-event-type="capability-cli"]') &&
+        /plugin disable ${PLUGIN_ID}/.test(text) &&
+        /pass139 disable failed/.test(text));
+    })()
   `, 12000));
+}
+
+async function clickFocusedCapabilityRetry(win) {
+  return win.webContents.executeJavaScript(`
+    (function() {
+      const button = document.querySelector('.selected-run-evidence-panel [data-run-recovery-action="retry-capability"][data-run-recovery-action-focused="true"]');
+      if (!button || button.disabled) return false;
+      button.click();
+      return true;
+    })();
+  `);
+}
+
+async function assertCapabilityRetryConfirmation(win, stepName) {
+  assertStep(stepName, await waitFor(win, `
+    (function() {
+      const row = document.querySelector('.structured-plugin-row.focused-capability-row[data-plugin-id="${PLUGIN_ID}"]');
+      const disable = row?.querySelector('[data-plugin-action="disable"]');
+      const confirm = document.querySelector('.plugin-cli-confirm');
+      return Boolean(
+        document.querySelector('.plugin-manager-modal') &&
+        /插件/.test(document.querySelector('.plugin-manager-tabs button.active')?.textContent || '') &&
+        row &&
+        disable &&
+        disable.getAttribute('data-capability-action-focused') === 'true' &&
+        /pass139-tool/.test(row.textContent || '') &&
+        /13\\.9\\.0/.test(row.textContent || '') &&
+        confirm &&
+        /plugin disable ${PLUGIN_ID}/.test(confirm.textContent || '') &&
+        !confirm.querySelector('.danger-action')?.disabled
+      );
+    })()
+  `, 12000));
+}
+
+async function dismissCapabilityConfirmation(win) {
+  return win.webContents.executeJavaScript(`
+    (function() {
+      const button = document.querySelector('.plugin-cli-confirm .plain-action');
+      if (!button) return false;
+      button.click();
+      return true;
+    })();
+  `);
 }
 
 async function runTest() {
@@ -253,11 +306,17 @@ async function runTest() {
   assertStep("PASS139_PLUGIN_ROW_READY", await waitFor(win, `
     Boolean(document.querySelector('.plugin-manager-modal') && /${PLUGIN_ID}/.test(document.querySelector('.plugin-manager-list')?.textContent || ''))
   `, 15000));
+  assertStep("PASS139_DISABLE_READY", await waitFor(win, `
+    (function() {
+      const row = document.querySelector('.structured-plugin-row[data-plugin-id="${PLUGIN_ID}"]');
+      const button = row?.querySelector('[data-plugin-action="disable"]');
+      return Boolean(button && !button.disabled);
+    })();
+  `, 15000));
   assertStep("PASS139_CLICK_DISABLE", await win.webContents.executeJavaScript(`
     (function() {
       const row = document.querySelector('.structured-plugin-row[data-plugin-id="${PLUGIN_ID}"]');
-      const button = [...(row?.querySelectorAll('.structured-row-actions button') || [])]
-        .find((candidate) => /禁用/.test(candidate.textContent || '') || /Disable/i.test(candidate.textContent || ''));
+      const button = row?.querySelector('[data-plugin-action="disable"]');
       if (!button) return false;
       button.click();
       return true;
@@ -278,11 +337,17 @@ async function runTest() {
       const state = await window.claudexDesktop.getState();
       const notice = (state.notices || []).find((item) => /pass139 disable failed/.test((item.title || '') + (item.detail || '')));
       const run = (state.commandRuns || []).find((item) => /plugin disable ${PLUGIN_ID}/.test(item.command || '') && item.code === 19);
+      const event = notice?.runEventId ? (state.runEvents || []).find((item) => item.id === notice.runEventId) : null;
+      window.__PASS139_NOTICE_ID__ = notice?.id || '';
+      window.__PASS139_RUN_ID__ = notice?.runEventId || '';
       return Boolean(
         notice &&
         notice.source === 'plugin/mcp' &&
-        /^capability:plugins:plugin:/.test(notice.action || '') &&
-        decodeURIComponent(notice.action).includes('${PLUGIN_ID}') &&
+        notice.action === 'capability-recovery:' + encodeURIComponent(notice.runEventId) &&
+        notice.runEventId &&
+        event?.type === 'capability-cli' &&
+        event?.status === 'error' &&
+        /plugin disable ${PLUGIN_ID}/.test(event.commandLine || '') &&
         run && /pass139 disable failed/.test(run.stderr || '')
       );
     })();
@@ -292,13 +357,17 @@ async function runTest() {
   assertStep("PASS139_OPEN_PALETTE_QUERY_NOTICE", await openPaletteAndQuery(win, "pass139 disable failed"));
   assertStep("PASS139_NOTICE_COMMAND_VISIBLE", await waitFor(win, `
     Boolean([...document.querySelectorAll('.command-modal .command-list button')].some((button) =>
-      (button.getAttribute('data-command-id') || '').startsWith('notice:') &&
+      (button.getAttribute('data-command-id') || '') === 'notice:' + (window.__PASS139_NOTICE_ID__ || '') &&
+      button.getAttribute('data-command-target') === 'timeline' &&
       /pass139 disable failed/.test(button.textContent || '') &&
       (button.textContent || '').includes('plugin/mcp')
     ))
   `, 5000));
   assertStep("PASS139_CLICK_NOTICE_COMMAND", await clickNoticeCommand(win));
-  await assertFocusedPlugin(win, "PASS139_NOTICE_COMMAND_FOCUSES_PLUGIN_ROW");
+  await assertCapabilityEvidenceFocused(win, "PASS139_NOTICE_COMMAND_FOCUSES_CAPABILITY_EVIDENCE");
+  assertStep("PASS139_CLICK_PALETTE_RETRY_CAPABILITY", await clickFocusedCapabilityRetry(win));
+  await assertCapabilityRetryConfirmation(win, "PASS139_PALETTE_RETRY_OPENS_PLUGIN_CONFIRMATION");
+  assertStep("PASS139_DISMISS_PALETTE_RETRY_CONFIRMATION", await dismissCapabilityConfirmation(win));
 
   assertStep("PASS139_BACK_TO_APP_FOR_NOTICE_PANEL", await backToApp(win));
   assertStep("PASS139_OPEN_NOTICES", await openNoticesPanel(win));
@@ -317,7 +386,9 @@ async function runTest() {
       return true;
     })();
   `));
-  await assertFocusedPlugin(win, "PASS139_NOTICE_CENTER_FOCUSES_PLUGIN_ROW");
+  await assertCapabilityEvidenceFocused(win, "PASS139_NOTICE_CENTER_FOCUSES_CAPABILITY_EVIDENCE");
+  assertStep("PASS139_CLICK_NOTICE_CENTER_RETRY_CAPABILITY", await clickFocusedCapabilityRetry(win));
+  await assertCapabilityRetryConfirmation(win, "PASS139_NOTICE_CENTER_RETRY_OPENS_PLUGIN_CONFIRMATION");
 
   console.log("PASS139_CAPABILITY_NOTICE_DEEPLINK_DONE");
   cleanup();
