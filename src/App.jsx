@@ -2980,6 +2980,16 @@ function automationRunOutput(entry = {}) {
 function automationEvidenceText(automation, entry, t, sessions = []) {
   const run = entry || automation?.lastRun || {};
   const projectPath = automation?.project?.path || run?.project?.path || "";
+  const artifacts = Array.isArray(run.artifacts) ? run.artifacts : [];
+  const artifactLines = artifacts.flatMap((artifact, index) => {
+    const label = subagentArtifactLabel(artifact, index, t);
+    const content = subagentArtifactContent(artifact);
+    return [
+      `${t.subagentArtifacts}: ${label}`,
+      artifact?.path ? `${t.path}: ${artifact.path}` : "",
+      content ? `${content}` : "",
+    ].filter(Boolean);
+  });
   const lines = [
     `${t.automationTasks}: ${automation?.prompt || ""}`,
     `${t.automationTaskId || "Automation ID"}: ${automation?.id || "-"}`,
@@ -2999,6 +3009,7 @@ function automationEvidenceText(automation, entry, t, sessions = []) {
     run.error || run.detail || run.summary || "",
     run.stdout ? `${t.automationStdout}\n${run.stdout}` : "",
     run.stderr ? `${t.automationStderr}\n${run.stderr}` : "",
+    ...artifactLines,
   ];
   return lines.filter((line, index) => index < 14 || String(line || "").trim()).join("\n");
 }
@@ -3749,6 +3760,7 @@ function runTimelineEvidenceForEvent(event, { commandRuns = [], automations = []
       stdout: entry.stdout || "",
       stderr: entry.stderr || "",
       summary: entry.error || entry.detail || entry.summary || "",
+      artifacts: Array.isArray(entry.artifacts) ? entry.artifacts : [],
     };
   }
 

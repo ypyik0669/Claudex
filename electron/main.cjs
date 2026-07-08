@@ -325,6 +325,7 @@ function normalizeAutomationHistoryEntry(entry, item, createdAt) {
     stdout: trimOutput(entry?.stdout || "", MAX_COMMAND_OUTPUT_CHARS),
     stderr: trimOutput(entry?.stderr || "", MAX_COMMAND_OUTPUT_CHARS),
     code: typeof entry?.code === "number" ? entry.code : null,
+    artifacts: Array.isArray(entry?.artifacts) ? entry.artifacts.slice(0, 12) : [],
   };
 }
 
@@ -3278,6 +3279,12 @@ async function runAutomationById(automationId, { requestId = "", trigger = "manu
     throw new Error("自动化提示词为空。");
   }
   const session = ensureAutomationSession(store, automation);
+  const automationArtifactRoot = automation.project?.path && fs.existsSync(automation.project.path)
+    ? automation.project.path
+    : "";
+  const automationArtifactBefore = automationArtifactRoot
+    ? workspaceArtifactSnapshot(automationArtifactRoot)
+    : new Map();
   const runningEntry = {
     id: runId,
     trigger,
@@ -3323,6 +3330,7 @@ async function runAutomationById(automationId, { requestId = "", trigger = "manu
     const stdout = typeof assistantResult === "object" ? assistantResult.stdout || "" : "";
     const stderr = typeof assistantResult === "object" ? assistantResult.stderr || "" : "";
     const code = typeof assistantResult === "object" && typeof assistantResult.code === "number" ? assistantResult.code : 0;
+    const workspaceFileArtifacts = workspaceFileArtifactsSince(automationArtifactBefore, automationArtifactRoot, automation.project);
     session.messages.push({
       role: "assistant",
       content: assistantText || "自动化任务已完成。",
@@ -3342,6 +3350,7 @@ async function runAutomationById(automationId, { requestId = "", trigger = "manu
       stdout,
       stderr,
       code,
+      artifacts: workspaceFileArtifacts,
     };
     prependAutomationHistory(automation, finalEntry);
     if (trigger === "scheduled" && automation.schedule?.type === "once") automation.enabled = false;
@@ -3375,6 +3384,7 @@ async function runAutomationById(automationId, { requestId = "", trigger = "manu
       stdout: error.stdout || "",
       stderr: error.stderr || "",
       code: typeof error.code === "number" ? error.code : 1,
+      artifacts: workspaceFileArtifactsSince(automationArtifactBefore, automationArtifactRoot, automation.project),
     };
     prependAutomationHistory(automation, finalEntry);
     if (trigger === "scheduled" && automation.schedule?.type === "once") automation.enabled = false;
@@ -3532,7 +3542,7 @@ function readWorkspaceArtifactContent(root, relativePath) {
   }
 }
 
-function subagentWorkspaceFileArtifacts({ before, after, root, project } = {}) {
+function workspaceFileArtifactsFromSnapshots({ before, after, root, project } = {}) {
   if (!(before instanceof Map) || !(after instanceof Map) || !root) return [];
   return [...after.values()]
     .filter((entry) => {
@@ -3554,6 +3564,19 @@ function subagentWorkspaceFileArtifacts({ before, after, root, project } = {}) {
         content,
       };
     });
+}
+
+function subagentWorkspaceFileArtifacts(options = {}) {
+  return workspaceFileArtifactsFromSnapshots(options);
+}
+
+function workspaceFileArtifactsSince(before, root, project) {
+  return workspaceFileArtifactsFromSnapshots({
+    before,
+    after: root ? workspaceArtifactSnapshot(root) : new Map(),
+    root,
+    project,
+  });
 }
 
 function subagentArtifactsFromResult({ summary = "", stdout = "", stderr = "" } = {}) {
