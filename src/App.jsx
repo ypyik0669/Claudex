@@ -1237,6 +1237,48 @@ function runEvidenceRecoveryFocusAction(event, evidence, run) {
   return commandRunRecoveryFocusAction(run);
 }
 
+function findRunEventById(runEvents = [], eventId = "") {
+  const focusedId = String(eventId || "").trim();
+  if (!focusedId) return null;
+  return (runEvents || []).find((event) => (
+    event?.id === focusedId
+    || event?.requestId === focusedId
+  )) || null;
+}
+
+function runEvidenceFocusActionForEventId(eventId, {
+  runEvents = [],
+  commandRuns = [],
+  automations = [],
+  subagentRuns = [],
+  browserVisits = [],
+  sessions = [],
+  t,
+  fallbackAction = "",
+  fallbackPath = "",
+  fallbackProject = null,
+} = {}) {
+  const focusedId = String(eventId || "").trim();
+  if (!focusedId) return "";
+  const event = findRunEventById(runEvents, focusedId) || {
+    id: focusedId,
+    action: fallbackAction,
+    path: fallbackPath,
+    cwd: fallbackProject?.path || "",
+    project: fallbackProject,
+  };
+  const run = findCommandRunForEvent(event, commandRuns);
+  const evidence = runTimelineEvidenceForEvent(event, {
+    commandRuns,
+    automations,
+    subagentRuns,
+    browserVisits,
+    sessions,
+    t,
+  });
+  return runEvidenceRecoveryFocusAction(event, evidence, run);
+}
+
 function capabilityRetryFocusForArgs(args) {
   const actionFocus = capabilityActionFocusForCommand(args);
   if (actionFocus) return actionFocus;
@@ -5951,8 +5993,19 @@ function Conversation({
       return;
     }
     if (noticeRunEventId) {
-      const run = findCommandRunForEvent({ id: noticeRunEventId }, commandRuns);
-      onOpenRunTimeline?.(noticeRunEventId, { action: commandRunRecoveryFocusAction(run) });
+      onOpenRunTimeline?.(noticeRunEventId, {
+        action: runEvidenceFocusActionForEventId(noticeRunEventId, {
+          runEvents,
+          commandRuns,
+          automations,
+          subagentRuns,
+          browserVisits,
+          sessions,
+          t,
+          fallbackAction: action,
+          fallbackProject: notice?.project,
+        }),
+      });
       return;
     }
     if (action.startsWith("runtime-health:")) {
@@ -5965,14 +6018,34 @@ function Conversation({
     }
     if (action.startsWith("run:")) {
       const eventId = decodeActionSuffix(action, "run:");
-      const run = findCommandRunForEvent({ id: eventId }, commandRuns);
-      onOpenRunTimeline?.(eventId, { action: commandRunRecoveryFocusAction(run) });
+      onOpenRunTimeline?.(eventId, {
+        action: runEvidenceFocusActionForEventId(eventId, {
+          runEvents,
+          commandRuns,
+          automations,
+          subagentRuns,
+          browserVisits,
+          sessions,
+          t,
+          fallbackProject: notice?.project,
+        }),
+      });
       return;
     }
     if (action.startsWith("command-run:")) {
       const eventId = decodeActionSuffix(action, "command-run:");
-      const run = findCommandRunForEvent({ id: eventId }, commandRuns);
-      onOpenRunTimeline?.(eventId, { action: commandRunRecoveryFocusAction(run) });
+      onOpenRunTimeline?.(eventId, {
+        action: runEvidenceFocusActionForEventId(eventId, {
+          runEvents,
+          commandRuns,
+          automations,
+          subagentRuns,
+          browserVisits,
+          sessions,
+          t,
+          fallbackProject: notice?.project,
+        }),
+      });
       return;
     }
     if (action.startsWith("capability:")) {
@@ -18348,8 +18421,19 @@ export function App() {
       return;
     }
     if (noticeRunEventId) {
-      const run = findCommandRunForEvent({ id: noticeRunEventId }, state.commandRuns);
-      openRunTimeline(noticeRunEventId, { action: commandRunRecoveryFocusAction(run) });
+      openRunTimeline(noticeRunEventId, {
+        action: runEvidenceFocusActionForEventId(noticeRunEventId, {
+          runEvents,
+          commandRuns: state.commandRuns,
+          automations: state.automations,
+          subagentRuns: state.subagentRuns,
+          browserVisits: state.browserVisits,
+          sessions: state.sessions,
+          t,
+          fallbackAction: action,
+          fallbackProject: notice?.project,
+        }),
+      });
       return;
     }
     if (action.startsWith("runtime-health:")) {
@@ -18362,14 +18446,34 @@ export function App() {
     }
     if (action.startsWith("run:")) {
       const eventId = decodeActionSuffix(action, "run:");
-      const run = findCommandRunForEvent({ id: eventId }, state.commandRuns);
-      openRunTimeline(eventId, { action: commandRunRecoveryFocusAction(run) });
+      openRunTimeline(eventId, {
+        action: runEvidenceFocusActionForEventId(eventId, {
+          runEvents,
+          commandRuns: state.commandRuns,
+          automations: state.automations,
+          subagentRuns: state.subagentRuns,
+          browserVisits: state.browserVisits,
+          sessions: state.sessions,
+          t,
+          fallbackProject: notice?.project,
+        }),
+      });
       return;
     }
     if (action.startsWith("command-run:")) {
       const eventId = decodeActionSuffix(action, "command-run:");
-      const run = findCommandRunForEvent({ id: eventId }, state.commandRuns);
-      openRunTimeline(eventId, { action: commandRunRecoveryFocusAction(run) });
+      openRunTimeline(eventId, {
+        action: runEvidenceFocusActionForEventId(eventId, {
+          runEvents,
+          commandRuns: state.commandRuns,
+          automations: state.automations,
+          subagentRuns: state.subagentRuns,
+          browserVisits: state.browserVisits,
+          sessions: state.sessions,
+          t,
+          fallbackProject: notice?.project,
+        }),
+      });
       return;
     }
     if (action.startsWith("workspace:file:")) {

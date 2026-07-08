@@ -267,6 +267,14 @@ async function runTest() {
         document.querySelector('.selected-run-evidence-panel.error [data-run-recovery-action="open-workspace-file"]'));
     })();
   `, 12000));
+  assertStep("PASS212_NOTICE_WORKSPACE_ACTION_FOCUSED", await waitFor(win, `
+    (function() {
+      const action = document.querySelector('.selected-run-evidence-panel.error [data-run-recovery-action="open-workspace-file"]');
+      return Boolean(action &&
+        action.getAttribute('data-run-recovery-action-focused') === 'true' &&
+        document.activeElement === action);
+    })();
+  `, 8000));
   assertStep("PASS212_CLICK_OPEN_WORKSPACE", await win.webContents.executeJavaScript(`
     (function() {
       const button = document.querySelector('.selected-run-evidence-panel.error [data-run-recovery-action="open-workspace-file"]');

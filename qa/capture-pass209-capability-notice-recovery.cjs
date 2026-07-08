@@ -173,11 +173,19 @@ async function openCapabilities(win) {
 
 async function runDisableFailure(win) {
   const beforeDisable = readCommandLog();
+  assertStep("PASS209_DISABLE_READY", await waitFor(win, `
+    (function() {
+      const row = [...document.querySelectorAll('.structured-plugin-row')]
+        .find((item) => /pass209-notice-plugin@qa-market/.test(item.textContent || ''));
+      const button = row?.querySelector('[data-plugin-action="disable"]');
+      return Boolean(button && !button.disabled);
+    })();
+  `, 15000));
   assertStep("PASS209_CLICK_DISABLE", await win.webContents.executeJavaScript(`
     (function() {
       const row = [...document.querySelectorAll('.structured-plugin-row')]
         .find((item) => /pass209-notice-plugin@qa-market/.test(item.textContent || ''));
-      const button = row?.querySelector('.structured-row-actions button');
+      const button = row?.querySelector('[data-plugin-action="disable"]');
       if (!button) return false;
       button.click();
       return true;
@@ -315,7 +323,7 @@ app.whenReady().then(runTest).catch((error) => {
       const win = BrowserWindow.getAllWindows()[0];
       if (!win) return;
       const debug = await win.webContents.executeJavaScript(`
-        (function() {
+        (async function() {
           return {
             noticeId: window.__PASS209_NOTICE_ID__ || '',
             runId: window.__PASS209_RUN_ID__ || '',
