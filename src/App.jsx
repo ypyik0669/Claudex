@@ -1881,6 +1881,26 @@ function marketplaceSourceEvidenceText(source = {}, t) {
   return rows.map(([label, value]) => `${label}: ${value}`).join("\n");
 }
 
+function marketplaceSourceUpdateReviewRows(source = {}, t, activeProject = null) {
+  const sourceLine = [
+    source.name,
+    source.status,
+    source.source,
+    source.repo || source.installLocation,
+  ].filter(Boolean).join(" · ") || source.name || t.marketplaceSources;
+  return [
+    [t.commandCwd, activeProject?.path || t.localWorkspace],
+    [t.marketplaceSources, sourceLine],
+    source.version ? [t.version, source.version] : null,
+    source.repo ? [t.repository, summarizePanelPluginField(source.repo)] : null,
+    source.installLocation ? [t.installPath, source.installLocation] : null,
+    source.permissions ? [t.allowedTools, summarizePanelPluginField(source.permissions)] : null,
+    source.tools ? [t.tools, summarizePanelPluginField(source.tools)] : null,
+    source.error ? [t.mcpError, summarizePanelPluginField(source.error)] : null,
+    [t.marketplaceRisk, t.marketplaceUpdateRisk],
+  ].filter(Boolean);
+}
+
 function toolDetailLines(item = {}, t) {
   const details = Array.isArray(item?.toolDetails) ? item.toolDetails : [];
   return details
@@ -12754,6 +12774,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                 {marketplaceRows.map((item) => {
                   const sourceFocused = capabilityFocusMatches("marketplace-source", item.name);
                   const sourceCopyFocused = capabilityActionFocusMatches("marketplace-source", "copy", item.name);
+                  const sourceUpdateFocused = capabilityActionFocusMatches("marketplace-source", "update", item.name);
                   const sourceRetryFocused = capabilityActionFocusMatches("marketplace-source", "retry", item.name);
                   const sourceRetry = sourceFocused && recentMarketplaceActionRun && recentMarketplaceActionRun.code !== 0
                     ? () => requestCapabilityClaude("plugin marketplace update", `${t.updatePlugin}: ${t.marketplace}`, marketplaceUpdateReviewRows())
@@ -12790,6 +12811,19 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                       </div>
                       <div className="marketplace-source-actions">
                         <em>{item.status || item.source || t.source}</em>
+                        <button
+                          type="button"
+                          className="plain-action subtle-action"
+                          data-marketplace-source-action="update"
+                          {...capabilityActionFocusAttributes(sourceUpdateFocused)}
+                          {...surfaceTraceAttributes("marketplace-source", "update", item, { id: item.name, name: item.name })}
+                          onClick={() => requestCapabilityClaude("plugin marketplace update", `${t.updatePlugin}: ${t.marketplaceSources} / ${item.name}`, marketplaceSourceUpdateReviewRows(item, t, activeProject))}
+                          disabled={cliWorking}
+                          title={cliWorking ? t.workingHint : t.marketplaceUpdateRisk}
+                        >
+                          <RefreshCw size={13} className={cliAction === "plugin marketplace update" && sourceFocused ? "spin" : undefined} />
+                          {t.updatePlugin}
+                        </button>
                         <button
                           type="button"
                           className="plain-action subtle-action"
@@ -17501,39 +17535,51 @@ export function App() {
 
     const marketplaceSourceActionCommands = (Array.isArray(capabilityCommandStatus?.marketplaces) ? capabilityCommandStatus.marketplaces : [])
       .filter((marketplace) => marketplace?.name)
-      .map((marketplace) => ({
-        id: `capability-marketplace-source-action:copy:${commandIdSegment(marketplace.name)}`,
-        title: `${t.copyEvidence}: ${t.marketplaceSources} / ${marketplace.name}`,
-        subtitle: [
-          marketplace.status,
-          marketplace.version && `${t.version}: ${marketplace.version}`,
-          marketplace.repo || marketplace.source || marketplace.installLocation,
-        ].filter(Boolean).join(" · "),
-        group: t.capabilities,
-        target: "marketplace-source-action",
-        dataAttributes: capabilityTraceAttributes("marketplace-source", "copy", marketplace, { id: marketplace.name, name: marketplace.name }),
-        priority: 16,
-        keywords: [
-          "focus copy evidence marketplace source plugin catalog capability command palette action button",
-          t.copyEvidence,
-          t.marketplaceSources,
-          marketplace.name,
-          marketplace.status,
-          marketplace.version,
-          marketplace.source,
-          marketplace.repo,
-          marketplace.installLocation,
-          marketplace.tools,
-          marketplace.permissions,
-          marketplace.error,
-        ].filter(Boolean).join(" "),
-        action: () => openCapabilitiesSurface("marketplace", {
-          kind: "marketplace-source",
-          id: marketplace.name,
-          query: marketplace.name,
-          action: "copy",
-        }),
-      }));
+      .flatMap((marketplace) => {
+        const specs = [
+          { action: "update", label: t.updatePlugin, keywords: "update refresh marketplace source plugin catalog claude code review confirmation 更新 市场 来源", priority: 17 },
+          { action: "copy", label: t.copyEvidence, keywords: "focus copy evidence marketplace source plugin catalog capability command palette action button", priority: 16 },
+        ];
+        return specs.map((spec) => ({
+          id: `capability-marketplace-source-action:${spec.action}:${commandIdSegment(marketplace.name)}`,
+          title: `${spec.label}: ${t.marketplaceSources} / ${marketplace.name}`,
+          subtitle: [
+            marketplace.status,
+            marketplace.version && `${t.version}: ${marketplace.version}`,
+            marketplace.repo || marketplace.source || marketplace.installLocation,
+          ].filter(Boolean).join(" · "),
+          group: t.capabilities,
+          target: "marketplace-source-action",
+          dataAttributes: capabilityTraceAttributes("marketplace-source", spec.action, marketplace, { id: marketplace.name, name: marketplace.name }),
+          priority: spec.priority,
+          keywords: [
+            "marketplace source plugin catalog capability command palette focus action button",
+            spec.keywords,
+            spec.label,
+            t.marketplaceSources,
+            marketplace.name,
+            marketplace.status,
+            marketplace.version,
+            marketplace.source,
+            marketplace.repo,
+            marketplace.installLocation,
+            marketplace.tools,
+            marketplace.permissions,
+            marketplace.error,
+          ].filter(Boolean).join(" "),
+          action: () => openCapabilitiesSurface("marketplace", {
+            kind: "marketplace-source",
+            id: marketplace.name,
+            query: marketplace.name,
+            action: spec.action,
+            confirmCommand: spec.action === "update" ? {
+              args: "plugin marketplace update",
+              label: `${t.updatePlugin}: ${t.marketplaceSources} / ${marketplace.name}`,
+              reviewRows: marketplaceSourceUpdateReviewRows(marketplace, t, activeProject),
+            } : undefined,
+          }),
+        }));
+      });
 
     const customMarketplaceCommands = (Array.isArray(state.settings?.customMarketplaces) ? state.settings.customMarketplaces : [])
       .filter(Boolean)

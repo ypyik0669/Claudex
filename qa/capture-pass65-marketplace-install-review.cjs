@@ -189,12 +189,20 @@ async function runTest() {
   `));
 
   const beforeInstall = readCommandLog();
+  assertStep("PASS65_INSTALL_ACTION_READY", await waitFor(win, `
+    (function() {
+      const card = [...document.querySelectorAll('.marketplace-plugin-card')]
+        .find((item) => /pass65-audited-plugin/.test(item.textContent || ''));
+      const button = card?.querySelector('.marketplace-card-actions button');
+      return Boolean(button && !button.disabled);
+    })();
+  `, 10000));
   assertStep("PASS65_CLICK_INSTALL", await win.webContents.executeJavaScript(`
     (function() {
       const card = [...document.querySelectorAll('.marketplace-plugin-card')]
         .find((item) => /pass65-audited-plugin/.test(item.textContent || ''));
       const button = card?.querySelector('.marketplace-card-actions button');
-      if (!button) return false;
+      if (!button || button.disabled) return false;
       button.click();
       return true;
     })();

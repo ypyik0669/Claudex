@@ -252,10 +252,16 @@ app.whenReady().then(async () => {
       })();
     `, 15000));
     assertStep("PASS173_INSTALL_NOT_RUN_BEFORE_CONFIRM", !fs.existsSync(INSTALL_MARKER));
+    assertStep("PASS173_INSTALL_ACTION_READY", await waitFor(win, `
+      (function() {
+        const action = document.querySelector('[data-marketplace-plugin-id="pass173-risk-plugin@pass173-market"] [data-marketplace-plugin-action="install"]');
+        return Boolean(action && !action.disabled);
+      })();
+    `, 10000));
     assertStep("PASS173_CLICK_INSTALL_ACTION", await win.webContents.executeJavaScript(`
       (function() {
         const action = document.querySelector('[data-marketplace-plugin-id="pass173-risk-plugin@pass173-market"] [data-marketplace-plugin-action="install"]');
-        if (!action) return false;
+        if (!action || action.disabled) return false;
         action.click();
         return true;
       })();

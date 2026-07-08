@@ -352,12 +352,18 @@ async function runTest() {
     extraCheck: `
       (async function() {
         const installCommand = ${JSON.stringify(`plugin install ${MARKET_PLUGIN_ID}`)};
-        const action = document.querySelector(${JSON.stringify(`.capability-modal [data-marketplace-plugin-id="${MARKET_PLUGIN_ID}"] [data-marketplace-plugin-action="install"]`)});
         const hasInstallRun = async () => {
           const state = await window.claudexDesktop.getState();
           return Boolean((state.commandRuns || []).some((run) => String(run.command || run.commandLine || "").includes(installCommand)));
         };
-        if (!action || document.querySelector('.plugin-cli-confirm') || await hasInstallRun()) return false;
+        const actionSelector = ${JSON.stringify(`.capability-modal [data-marketplace-plugin-id="${MARKET_PLUGIN_ID}"] [data-marketplace-plugin-action="install"]`)};
+        let action = document.querySelector(actionSelector);
+        const readyStartedAt = Date.now();
+        while (action?.disabled && Date.now() - readyStartedAt < 5000) {
+          await new Promise((resolve) => setTimeout(resolve, 100));
+          action = document.querySelector(actionSelector);
+        }
+        if (!action || action.disabled || document.querySelector('.plugin-cli-confirm') || await hasInstallRun()) return false;
         action.click();
         const startedAt = Date.now();
         while (Date.now() - startedAt < 5000) {

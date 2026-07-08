@@ -261,10 +261,16 @@ async function runTest() {
       );
     })();
   `, 15000));
+  assertStep("PASS216_DEEP_MARKETPLACE_INSTALL_ACTION_READY", await waitFor(win, `
+    (function() {
+      const action = document.querySelector('[data-marketplace-plugin-id=${JSON.stringify(TARGET_ID)}] [data-marketplace-plugin-action="install"]');
+      return Boolean(action && !action.disabled);
+    })();
+  `, 10000));
   assertStep("PASS216_CLICK_DEEP_MARKETPLACE_INSTALL_ACTION", await win.webContents.executeJavaScript(`
     (function() {
       const action = document.querySelector('[data-marketplace-plugin-id=${JSON.stringify(TARGET_ID)}] [data-marketplace-plugin-action="install"]');
-      if (!action) return false;
+      if (!action || action.disabled) return false;
       action.click();
       return true;
     })();
