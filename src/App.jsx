@@ -1209,9 +1209,10 @@ function capabilityRetryArgsFromRun(run) {
 }
 
 function commandRunRecoveryFocusAction(run) {
-  if (!run || run.cancelled || run.code === 0) return "";
+  if (!run || run.code === 0) return "";
   const kind = String(run.kind || "").trim();
   if (kind === "workspace" && workspaceCommandFromRun(run)) return "retry-workspace";
+  if (run.cancelled) return "";
   if (kind === "claude" && claudeArgsFromRun(run)) return "retry-claude";
   if (kind === "capability" && capabilityRetryArgsFromRun(run)) return "retry-capability";
   return "";
@@ -5553,7 +5554,7 @@ function Conversation({
     const commandKind = selectedRunCommand.kind || selectedRunEvidence?.commandKind || "";
     const canRetryCommand = selectedRunCommand.code !== 0 && !selectedRunCommand.cancelled;
     if (commandKind === "workspace") {
-      if (canRetryCommand) {
+      if (selectedRunCommand.code !== 0 && workspaceCommandFromRun(selectedRunCommand)) {
         selectedRunRecoveryActions.push({
           key: "retry-workspace",
           label: bottomWorkspaceRetryingId ? t.commandRunning : t.retry,
@@ -14860,6 +14861,7 @@ export function App() {
             subagentArtifactContent(artifact),
           ].filter(Boolean).join(" "))
           : [];
+        const recoveryRun = findCommandRunForEvent(event, state.commandRuns);
         return {
           id: `run:${commandIdSegment(event.id)}`,
           title: `${t.openRunTimeline}: ${event.title || t.outputs}`,
@@ -14893,7 +14895,9 @@ export function App() {
             evidence?.sessionId,
             ...artifactSearchParts,
           ].filter(Boolean).join(" "),
-          action: () => openRunTimeline(event.id),
+          action: () => openRunTimeline(event.id, {
+            action: commandRunRecoveryFocusAction(recoveryRun),
+          }),
         };
       });
 
@@ -14932,7 +14936,9 @@ export function App() {
             run.project?.name,
             run.project?.path,
           ].filter(Boolean).join(" "),
-          action: () => openRunTimeline(event.id),
+          action: () => openRunTimeline(event.id, {
+            action: commandRunRecoveryFocusAction(run),
+          }),
         };
       });
     const capabilityRecoveryCommands = (Array.isArray(state.commandRuns) ? state.commandRuns : [])

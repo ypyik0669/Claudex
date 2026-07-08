@@ -304,9 +304,13 @@ async function runTest() {
   assertStep("PASS213_SELECTED_EVIDENCE_RECOVERED", await waitFor(win, `
     (function() {
       const panel = document.querySelector('.selected-run-evidence-panel.cancelled');
+      const retry = panel?.querySelector('[data-run-recovery-action="retry-workspace"]');
       const text = panel?.textContent || '';
       return Boolean(panel &&
         panel.querySelector('[data-run-event-type="workspace-command"]') &&
+        retry &&
+        retry.getAttribute('data-run-recovery-action-focused') === 'true' &&
+        document.activeElement === retry &&
         /pass213 cancel recovery start/.test(text) &&
         /workspace_pass213_cancel_recovery/.test(text) &&
         /130/.test(text) &&
