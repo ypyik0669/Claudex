@@ -69,6 +69,8 @@ const PROJECT_MARKERS = [
   "build.gradle",
 ];
 const MAX_TEXT_FILE_BYTES = 2 * 1024 * 1024;
+const WORKSPACE_SEARCH_LIMIT = 40;
+const WORKSPACE_SEARCH_SCAN_LIMIT = 6000;
 const MAX_COMMAND_OUTPUT_CHARS = 30000;
 const MAX_GIT_DIFF_CHARS = 80000;
 const CLAUDE_TIMEOUT_MS = 10 * 60 * 1000;
@@ -4484,6 +4486,58 @@ ipcMain.handle("claude:run", async (_event, { projectPath, args, requestId, pers
     ...sanitizedResult,
     commandRun: persisted,
     commandRuns: sanitizeStore(store).commandRuns,
+  };
+});
+
+ipcMain.handle("workspace:search-files", (_event, { projectPath, query = "", limit = WORKSPACE_SEARCH_LIMIT } = {}) => {
+  const root = resolveProjectRoot(projectPath);
+  const needle = String(query || "").trim().toLowerCase();
+  if (!needle) return { root, query: "", files: [] };
+  const maxResults = Math.max(1, Math.min(Number(limit || WORKSPACE_SEARCH_LIMIT), WORKSPACE_SEARCH_LIMIT));
+  const files = [];
+  let scanned = 0;
+  const queue = [root];
+  while (queue.length && files.length < maxResults && scanned < WORKSPACE_SEARCH_SCAN_LIMIT) {
+    const folder = queue.shift();
+    let entries = [];
+    try {
+      entries = fs.readdirSync(folder, { withFileTypes: true })
+        .filter((entry) => !entry.name.startsWith(".") || entry.name === ".env")
+        .sort((a, b) => Number(b.isDirectory()) - Number(a.isDirectory()) || a.name.localeCompare(b.name));
+    } catch {
+      continue;
+    }
+    for (const entry of entries) {
+      if (files.length >= maxResults || scanned >= WORKSPACE_SEARCH_SCAN_LIMIT) break;
+      if (entry.isDirectory()) {
+        if (!isIgnoredWorkspaceDir(entry.name)) queue.push(path.join(folder, entry.name));
+        continue;
+      }
+      if (!entry.isFile()) continue;
+      scanned += 1;
+      const fullPath = path.join(folder, entry.name);
+      const relative = slashPath(path.relative(root, fullPath));
+      if (!relative.toLowerCase().includes(needle)) continue;
+      try {
+        const stat = fs.statSync(fullPath);
+        files.push({
+          name: entry.name,
+          path: relative,
+          type: "file",
+          size: stat.size,
+          updatedAt: stat.mtime.toISOString(),
+        });
+      } catch {
+        // Ignore files that changed while scanning.
+      }
+    }
+  }
+  return {
+    root,
+    query: needle,
+    scanned,
+    truncated: scanned >= WORKSPACE_SEARCH_SCAN_LIMIT,
+    files,
   };
 });
 

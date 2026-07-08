@@ -890,6 +890,12 @@ const copy = {
     opensExternalTerminal: "会打开系统终端，并把当前项目作为工作目录。",
     path: "路径",
     workspaceHelp: "浏览源码、安全编辑；只有你输入命令后才会运行。",
+    workspaceFindFiles: "查找文件",
+    workspaceSearchPlaceholder: "按文件名或路径搜索当前项目",
+    workspaceSearchResults: "搜索结果",
+    workspaceSearchNoResults: "没有匹配的文件。",
+    workspaceRecentFiles: "最近文件",
+    workspaceRecentEmpty: "打开 Workspace 文件后会在这里保留最近记录。",
     refresh: "刷新",
     saveFile: "保存文件",
     saveChanges: "保存改动",
@@ -9140,6 +9146,10 @@ function ToolsPanel({
   const browserVisitIdRef = useRef("");
   const browserFailedRef = useRef(false);
   const [tree, setTree] = useState([]);
+  const [workspaceSearchQuery, setWorkspaceSearchQuery] = useState("");
+  const [workspaceSearchResults, setWorkspaceSearchResults] = useState([]);
+  const [workspaceSearchBusy, setWorkspaceSearchBusy] = useState(false);
+  const [workspaceSearchError, setWorkspaceSearchError] = useState("");
   const fileCacheRef = useRef(new Map());
   const [expandedDirs, setExpandedDirs] = useState(() => new Set());
   const [lazyChildren, setLazyChildren] = useState({});
@@ -9226,6 +9236,18 @@ function ToolsPanel({
     : reviewBeforeSaveRequired
       ? t.reviewRequiredHint
       : changeSummary;
+  const recentWorkspaceFiles = useMemo(() => {
+    const activePath = String(activeProject?.path || "").trim().toLowerCase();
+    return (Array.isArray(sourceRefs) ? sourceRefs : [])
+      .filter((source) => {
+        if (!source?.path) return false;
+        const sourceProjectPath = String(source?.project?.path || "").trim().toLowerCase();
+        if (activePath && sourceProjectPath && sourceProjectPath !== activePath) return false;
+        return !activePath || !sourceProjectPath || sourceProjectPath === activePath;
+      })
+      .sort((a, b) => new Date(b.lastOpenedAt || b.updatedAt || 0).getTime() - new Date(a.lastOpenedAt || a.updatedAt || 0).getTime())
+      .slice(0, 6);
+  }, [activeProject?.path, sourceRefs]);
 
   useEffect(() => {
     if (!desktopApi?.onWorkspaceCommandStream) return undefined;
@@ -9423,6 +9445,58 @@ function ToolsPanel({
     }
   }
 
+  useEffect(() => {
+    setWorkspaceSearchQuery("");
+    setWorkspaceSearchResults([]);
+    setWorkspaceSearchError("");
+  }, [activeProject?.path]);
+
+  useEffect(() => {
+    const query = workspaceSearchQuery.trim();
+    if (selectedTool !== "workspace" || !query) {
+      setWorkspaceSearchResults([]);
+      setWorkspaceSearchError("");
+      setWorkspaceSearchBusy(false);
+      return undefined;
+    }
+    if (!desktopApi?.searchWorkspaceFiles) {
+      setWorkspaceSearchResults([]);
+      setWorkspaceSearchError(t.desktopOnly);
+      setWorkspaceSearchBusy(false);
+      return undefined;
+    }
+    if (!activeProject?.path) {
+      setWorkspaceSearchResults([]);
+      setWorkspaceSearchError(t.noProjectSelected);
+      setWorkspaceSearchBusy(false);
+      return undefined;
+    }
+    let cancelled = false;
+    const timer = window.setTimeout(async () => {
+      setWorkspaceSearchBusy(true);
+      setWorkspaceSearchError("");
+      try {
+        const result = await desktopApi.searchWorkspaceFiles({
+          projectPath: activeProject.path,
+          query,
+          limit: 40,
+        });
+        if (!cancelled) setWorkspaceSearchResults(Array.isArray(result.files) ? result.files : []);
+      } catch (error) {
+        if (!cancelled) {
+          setWorkspaceSearchResults([]);
+          setWorkspaceSearchError(error.message || String(error));
+        }
+      } finally {
+        if (!cancelled) setWorkspaceSearchBusy(false);
+      }
+    }, 220);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [activeProject?.path, selectedTool, t.desktopOnly, t.noProjectSelected, workspaceSearchQuery]);
+
   function toggleDir(item) {
     setExpandedDirs((prev) => {
       const next = new Set(prev);
@@ -9490,6 +9564,18 @@ function ToolsPanel({
       setWorkspaceBusy(false);
       setOpeningPath("");
     }
+  }
+
+  function openWorkspaceListedFile(item) {
+    if (!item?.path) return;
+    openFile({
+      ...item,
+      type: "file",
+      projectPath: item.projectPath || item.project?.path || activeProject?.path || "",
+      projectLabel: item.projectLabel || item.project?.name || projectLabel(activeProject, t),
+    }, {
+      projectPath: item.projectPath || item.project?.path || activeProject?.path || "",
+    });
   }
 
   async function saveFile() {
@@ -10114,6 +10200,87 @@ function ToolsPanel({
                 )}
               </div>
             )}
+            <section className="workspace-find-panel" aria-label={t.workspaceFindFiles}>
+              <label className="workspace-search-box">
+                <span>{t.workspaceFindFiles}</span>
+                <div>
+                  <Search size={14} />
+                  <input
+                    value={workspaceSearchQuery}
+                    onChange={(event) => setWorkspaceSearchQuery(event.target.value)}
+                    placeholder={t.workspaceSearchPlaceholder}
+                    disabled={!activeProject?.path}
+                    data-workspace-search-input
+                  />
+                  {workspaceSearchQuery && (
+                    <button
+                      type="button"
+                      className="icon-only mini-icon"
+                      onClick={() => setWorkspaceSearchQuery("")}
+                      title={t.close}
+                      aria-label={t.close}
+                    >
+                      <X size={13} />
+                    </button>
+                  )}
+                </div>
+              </label>
+              {workspaceSearchQuery.trim() ? (
+                <div className="workspace-result-strip" data-workspace-search-results>
+                  <div className="workspace-result-head">
+                    <span>{t.workspaceSearchResults}</span>
+                    <em>{workspaceSearchBusy ? t.loading : workspaceSearchResults.length}</em>
+                  </div>
+                  {workspaceSearchError && <p className="tool-error">{workspaceSearchError}</p>}
+                  {!workspaceSearchError && !workspaceSearchBusy && !workspaceSearchResults.length && (
+                    <p className="empty-list" data-workspace-search-empty>{t.workspaceSearchNoResults}</p>
+                  )}
+                  <div className="workspace-file-pills">
+                    {workspaceSearchResults.map((item) => (
+                      <button
+                        type="button"
+                        className={cx("workspace-file-pill", file?.path === item.path && "active")}
+                        key={item.path}
+                        data-workspace-search-result={item.path}
+                        onClick={() => openWorkspaceListedFile(item)}
+                        title={item.path}
+                      >
+                        <FileText size={13} />
+                        <span>{item.path}</span>
+                        <em>{formatBytes(item.size)}</em>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <div className="workspace-result-strip" data-workspace-recent-files>
+                  <div className="workspace-result-head">
+                    <span>{t.workspaceRecentFiles}</span>
+                    <em>{recentWorkspaceFiles.length}</em>
+                  </div>
+                  {recentWorkspaceFiles.length ? (
+                    <div className="workspace-file-pills">
+                      {recentWorkspaceFiles.map((source) => (
+                        <button
+                          type="button"
+                          className={cx("workspace-file-pill", file?.path === source.path && "active")}
+                          key={`${source.project?.path || ""}:${source.path}`}
+                          data-workspace-recent-file={source.path}
+                          onClick={() => openWorkspaceListedFile(source)}
+                          title={`${source.path} · ${source.project?.path || activeProject?.path || ""}`}
+                        >
+                          <History size={13} />
+                          <span>{source.path}</span>
+                          <em>{source.lastOpenedAt ? formatDate(source.lastOpenedAt) : formatBytes(source.size)}</em>
+                        </button>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="empty-list">{t.workspaceRecentEmpty}</p>
+                  )}
+                </div>
+              )}
+            </section>
             <div className="workspace-grid">
               <div className="file-tree" aria-label={t.files}>
                 {workspaceBusy && !tree.length && (

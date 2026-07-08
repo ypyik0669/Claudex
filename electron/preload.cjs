@@ -56,6 +56,7 @@ const desktopApi = {
     return () => ipcRenderer.removeListener("claude:run-stream-event", listener);
   },
   listWorkspaceFiles: (payload) => ipcRenderer.invoke("workspace:list-files", payload),
+  searchWorkspaceFiles: (payload) => ipcRenderer.invoke("workspace:search-files", payload),
   readWorkspaceFile: (payload) => ipcRenderer.invoke("workspace:read-file", payload),
   saveWorkspaceFile: (payload) => ipcRenderer.invoke("workspace:save-file", payload),
   runWorkspaceCommand: (payload) => ipcRenderer.invoke("workspace:run-command", payload),

@@ -2784,6 +2784,114 @@ select:focus-visible,
   white-space: nowrap;
 }
 
+.workspace-find-panel {
+  display: grid;
+  gap: 8px;
+  border: 1px solid #252525;
+  border-radius: var(--radius);
+  background: #0b0b0b;
+  padding: 9px;
+}
+
+.workspace-search-box {
+  gap: 6px !important;
+}
+
+.workspace-search-box > div {
+  display: grid;
+  grid-template-columns: 15px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 7px;
+  border: 1px solid #303030;
+  border-radius: var(--radius-sm);
+  background: #101010;
+  padding: 0 7px;
+}
+
+.workspace-search-box svg {
+  color: var(--muted);
+}
+
+.workspace-search-box input {
+  border: 0;
+  background: transparent;
+  padding: 8px 0;
+}
+
+.workspace-search-box input:disabled {
+  opacity: 0.55;
+}
+
+.workspace-result-strip {
+  min-width: 0;
+  display: grid;
+  gap: 7px;
+}
+
+.workspace-result-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 11px;
+}
+
+.workspace-result-head span {
+  color: #d8d8d2;
+  font-weight: 500;
+}
+
+.workspace-result-head em {
+  color: var(--faint);
+  font-style: normal;
+}
+
+.workspace-file-pills {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  max-height: 96px;
+  overflow: auto;
+}
+
+.workspace-file-pill {
+  max-width: 100%;
+  min-width: 0;
+  display: inline-grid;
+  grid-template-columns: 14px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid #2a2a2a;
+  border-radius: 999px;
+  background: #131313;
+  color: #dcdcd8;
+  padding: 5px 8px;
+  text-align: left;
+}
+
+.workspace-file-pill:hover,
+.workspace-file-pill.active {
+  border-color: #3b3b3b;
+  background: #1b1b1b;
+}
+
+.workspace-file-pill span {
+  min-width: 0;
+  overflow: hidden;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-file-pill em {
+  color: var(--faint);
+  font-size: 10px;
+  font-style: normal;
+  white-space: nowrap;
+}
+
 .workspace-grid {
   min-height: 330px;
   height: clamp(330px, 43vh, 440px);
