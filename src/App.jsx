@@ -506,6 +506,12 @@ const copy = {
     noticeOpenAction: "打开对应工作台",
     noticeOpenEvidence: "查看证据",
     noticeOpenChangesEvidence: "查看变更证据",
+    noticeRecoverySummaryTitle: "恢复入口",
+    noticeRecoverySummaryHint: "按真实 action target 汇总未处理通知；点击只执行第一条本地通知动作。",
+    noticeRecoveryEvidence: "证据 {count}",
+    noticeRecoveryChanges: "变更 {count}",
+    noticeRecoverySurface: "工作台 {count}",
+    noticeRecoveryBucketDetail: "错误 {errors} · 警告 {warnings} · 第一条：{title}",
     noticeSource: "来源",
     noticeLevelError: "错误",
     noticeBadgeDetail: "未处理 {total} · 错误 {errors} · 警告 {warnings}",
@@ -2697,6 +2703,44 @@ function noticeActionLabel(notice = {}, t) {
   if (target === "changes") return t.noticeOpenChangesEvidence || t.noticeOpenEvidence || t.noticeOpenAction || t.runtimeHealthOpenTarget;
   if (target === "timeline") return t.noticeOpenEvidence || t.noticeOpenAction || t.runtimeHealthOpenTarget;
   return t.noticeOpenAction || t.runtimeHealthOpenTarget;
+}
+
+function noticeRecoveryBucketTitle(target, count, t) {
+  const key = target === "changes"
+    ? "noticeRecoveryChanges"
+    : target === "surface"
+      ? "noticeRecoverySurface"
+      : "noticeRecoveryEvidence";
+  return String(t[key] || t.noticeOpenEvidence || target).replace("{count}", count);
+}
+
+function noticeRecoveryBuckets(notices = [], t = {}) {
+  const buckets = new Map();
+  for (const notice of notices || []) {
+    if (!notice?.id || notice.dismissedAt || !notice.action) continue;
+    const target = noticeActionTargetKind(notice);
+    if (!buckets.has(target)) buckets.set(target, []);
+    buckets.get(target).push(notice);
+  }
+  return ["timeline", "changes", "surface"]
+    .map((target) => {
+      const items = buckets.get(target) || [];
+      const first = items[0] || null;
+      const errors = items.filter((notice) => notice?.level === "error").length;
+      const warnings = items.filter((notice) => notice?.level === "warning").length;
+      return {
+        target,
+        items,
+        first,
+        count: items.length,
+        title: noticeRecoveryBucketTitle(target, items.length, t),
+        detail: String(t.noticeRecoveryBucketDetail || "{title}")
+          .replace("{errors}", errors)
+          .replace("{warnings}", warnings)
+          .replace("{title}", first?.title || ""),
+      };
+    })
+    .filter((bucket) => bucket.count > 0 && bucket.first);
 }
 
 function decodeActionSuffix(action, prefix) {
@@ -8124,6 +8168,7 @@ function BrowserEvidenceList({ visits = [], focusedVisitKey = "", onOpenVisit, o
 function NoticeCenter({ notices = [], onDismiss, onClear, onAction, t }) {
   const active = notices.filter((notice) => !notice.dismissedAt);
   const visible = notices.slice(0, 18);
+  const recoveryBuckets = noticeRecoveryBuckets(active, t);
   return (
     <div className="bottom-panel-stack notice-center">
       <div className="bottom-panel-grid">
@@ -8139,6 +8184,32 @@ function NoticeCenter({ notices = [], onDismiss, onClear, onAction, t }) {
           </button>
         </div>
       </div>
+      {recoveryBuckets.length > 0 && (
+        <section className="notice-recovery-summary" aria-label={t.noticeRecoverySummaryTitle}>
+          <div className="notice-recovery-copy">
+            <span>{t.noticeRecoverySummaryTitle}</span>
+            <strong>{active.length ? t.noticeCount.replace("{count}", active.length) : t.noticeNoActive}</strong>
+            <p>{t.noticeRecoverySummaryHint}</p>
+          </div>
+          <div className="notice-recovery-actions">
+            {recoveryBuckets.map((bucket) => (
+              <button
+                type="button"
+                className="plain-action subtle-action"
+                data-notice-recovery-target={bucket.target}
+                data-notice-recovery-count={bucket.count}
+                data-notice-recovery-first-id={bucket.first?.id || ""}
+                key={bucket.target}
+                title={bucket.detail}
+                onClick={() => onAction?.(bucket.first)}
+              >
+                <PanelRight size={13} />
+                {bucket.title}
+              </button>
+            ))}
+          </div>
+        </section>
+      )}
       {visible.length ? (
         <div className="notice-list" aria-label={t.noticeCenter}>
           {visible.map((notice) => (
