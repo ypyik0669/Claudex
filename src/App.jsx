@@ -8775,6 +8775,7 @@ function ToolRail({
         filter: failedSubagentRuns.length ? "failed" : "active",
         expandEvidence: failedSubagentRuns.length > 0,
         expandArtifacts: Boolean(subagentRailRun?.artifacts?.length),
+        action: subagentRecoveryFocusAction(subagentRailRun),
       });
       return;
     }
