@@ -5456,8 +5456,10 @@ function Conversation({
       label: t.taskCenter,
       icon: FileText,
       onClick: () => onOpenTaskCenterFocus?.("automation", selectedRunAutomation.id, {
+        filter: taskCenterFilterForAutomation(selectedRunAutomation),
         expandEvidence: true,
         expandHistory: true,
+        action: automationRecoveryFocusAction(selectedRunAutomation),
       }),
     });
     selectedRunRecoveryActions.push({
@@ -5474,8 +5476,10 @@ function Conversation({
       label: t.taskCenter,
       icon: FileText,
       onClick: () => onOpenTaskCenterFocus?.("subagent", selectedRunSubagent.id || selectedRunSubagent.requestId, {
+        filter: taskCenterFilterForSubagent(selectedRunSubagent),
         expandEvidence: true,
         expandArtifacts: Array.isArray(selectedRunSubagent.artifacts) && selectedRunSubagent.artifacts.length > 0,
+        action: subagentRecoveryFocusAction(selectedRunSubagent),
       }),
     });
     if (selectedRunSubagent.status !== "running") {
