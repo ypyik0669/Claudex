@@ -1230,6 +1230,13 @@ function commandRunRecoveryFocusAction(run) {
   return "";
 }
 
+function runEvidenceRecoveryFocusAction(event, evidence, run) {
+  const action = String(evidence?.action || event?.action || "").trim();
+  if (parseWorkspaceFileAction(action)) return "open-workspace-file";
+  if (String(evidence?.path || event?.path || "").trim()) return "open-workspace-file";
+  return commandRunRecoveryFocusAction(run);
+}
+
 function capabilityRetryFocusForArgs(args) {
   const actionFocus = capabilityActionFocusForCommand(args);
   if (actionFocus) return actionFocus;
@@ -15268,7 +15275,7 @@ export function App() {
             ...artifactSearchParts,
           ].filter(Boolean).join(" "),
           action: () => openRunTimeline(event.id, {
-            action: commandRunRecoveryFocusAction(recoveryRun),
+            action: runEvidenceRecoveryFocusAction(event, evidence, recoveryRun),
           }),
         };
       });
