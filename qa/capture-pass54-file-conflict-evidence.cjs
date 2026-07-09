@@ -1,6 +1,7 @@
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
+const crypto = require("crypto");
 const { app, BrowserWindow } = require("electron");
 
 function findRepoDir() {
@@ -35,6 +36,16 @@ const FILE_PATH = path.join(PROJECT_DIR, FILE_NAME);
 const ORIGINAL_CONTENT = "pass54 original\n";
 const DRAFT_CONTENT = "pass54 original\nrenderer draft\n";
 const EXTERNAL_CONTENT = "pass54 external edit\n";
+
+function sha256Text(value) {
+  return crypto.createHash("sha256").update(String(value), "utf8").digest("hex");
+}
+
+const ORIGINAL_SHA256 = sha256Text(ORIGINAL_CONTENT);
+const DRAFT_SHA256 = sha256Text(DRAFT_CONTENT);
+const EXTERNAL_SHA256 = sha256Text(EXTERNAL_CONTENT);
+const DRAFT_BYTES = Buffer.byteLength(DRAFT_CONTENT, "utf8");
+const EXTERNAL_BYTES = Buffer.byteLength(EXTERNAL_CONTENT, "utf8");
 
 function cleanup() {
   for (const dir of [USER_DATA_DIR, PROJECT_DIR]) {
@@ -232,6 +243,22 @@ async function runTest() {
     )
   `, 10000));
   assertStep("PASS54_DISK_NOT_OVERWRITTEN", fs.readFileSync(FILE_PATH, "utf8") === EXTERNAL_CONTENT);
+  assertStep("PASS54_DRAFT_STILL_RECOVERABLE_AFTER_CONFLICT", await waitFor(win, `
+    (function() {
+      const editButton = Array.from(document.querySelectorAll('.editor-change-bar button')).find((item) =>
+        /^(Edit|编辑)$/.test((item.textContent || '').trim()) && !item.disabled
+      );
+      if (editButton) editButton.click();
+      const textarea = document.querySelector('.file-editor textarea');
+      const barText = document.querySelector('.editor-change-bar')?.textContent || '';
+      return Boolean(
+        textarea &&
+        textarea.value === ${JSON.stringify(DRAFT_CONTENT)} &&
+        !textarea.value.includes(${JSON.stringify(EXTERNAL_CONTENT.trim())}) &&
+        /Save|保存|Review|审查|改动|未保存/.test(barText)
+      );
+    })()
+  `, 8000));
   assertStep("PASS54_OPEN_OUTPUTS_PANEL", await openOutputsPanel(win));
   assertStep("PASS54_TIMELINE_CONFLICT_VISIBLE", await waitFor(win, `
     (() => {
@@ -243,9 +270,19 @@ async function runTest() {
   `, 8000));
   assertStep("PASS54_CONFLICT_EVENT_PERSISTED", await waitForStore((parsed) => {
     const events = parsed.runEvents?.filter((event) => event.type === "file-save" && /conflict\.txt/.test(event.title || "")) || [];
+    const event = events[0] || {};
+    const stdout = String(event.stdout || "");
     return events.length === 1 &&
-      events[0].status === "error" &&
-      /外部修改/.test(events[0].detail || "");
+      event.status === "error" &&
+      event.cwd === PROJECT_DIR &&
+      event.action?.startsWith("workspace:file:") &&
+      /外部修改/.test(event.detail || "") &&
+      stdout.includes(FILE_NAME) &&
+      stdout.includes(ORIGINAL_SHA256) &&
+      stdout.includes(EXTERNAL_SHA256) &&
+      stdout.includes(DRAFT_SHA256) &&
+      stdout.includes(String(DRAFT_BYTES)) &&
+      stdout.includes(String(EXTERNAL_BYTES));
   }));
   assertStep("PASS54_RELOAD_AFTER_CONFLICT", await win.webContents.executeJavaScript(`
     (function() {
