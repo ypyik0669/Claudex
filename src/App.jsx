@@ -13046,8 +13046,32 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                   const pluginRetryFocused = capabilityActionFocusMatches("marketplace-plugin", "retry", item.id, item.name);
                   const installedPlugin = findPluginByIdentifiers(allInstalledPluginRows, [item.id, item.name]);
                   const toolDetails = Array.isArray(item.toolDetails) ? item.toolDetails : [];
-                  const pluginRetry = pluginFocused && recentRun && recentRun.code !== 0
-                    ? () => requestCapabilityClaude(`plugin install ${item.id}`, `${t.installFromMarketplace}: ${item.name || item.id}`, marketplaceInstallReviewRows(item))
+                  const marketplacePluginActionContext = (action) => ({
+                    tab: "marketplace",
+                    kind: "marketplace-plugin",
+                    id: item.id,
+                    query: item.id,
+                    action,
+                  });
+                  const pluginRetryArgs = recentRun && recentRun.code !== 0
+                    ? pluginActionArgsFromRun(recentRun, item.id)
+                    : "";
+                  const pluginRetryAction = String(pluginRetryArgs.match(/(?:^|\s)plugin\s+(install|update)\s+/i)?.[1] || "").toLowerCase();
+                  const pluginRetryBaseContext = capabilityContextFromRun(recentRun);
+                  const pluginRetryContext = pluginRetryArgs
+                    ? normalizeCapabilityContext({
+                        tab: "marketplace",
+                        kind: "marketplace-plugin",
+                        id: pluginRetryBaseContext?.id || item.id,
+                        query: pluginRetryBaseContext?.query || item.id,
+                        action: pluginRetryAction || pluginRetryBaseContext?.action || "install",
+                      })
+                    : null;
+                  const pluginRetryLabel = pluginRetryAction === "update"
+                    ? `${t.updatePlugin}: ${item.name || item.id}`
+                    : `${t.installFromMarketplace}: ${item.name || item.id}`;
+                  const pluginRetry = pluginFocused && pluginRetryArgs
+                    ? () => requestCapabilityClaude(pluginRetryArgs, pluginRetryLabel, marketplaceInstallReviewRows(item), pluginRetryContext)
                     : null;
                   return (
                     <article
@@ -13095,7 +13119,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                         data-marketplace-plugin-action="install"
                         {...capabilityActionFocusAttributes(pluginInstallFocused)}
                         {...surfaceTraceAttributes("marketplace-plugin", "install", item, { id: item.id || item.name })}
-                        onClick={() => requestCapabilityClaude(`plugin install ${item.id}`, `${t.installFromMarketplace}: ${item.name || item.id}`, marketplaceInstallReviewRows(item))}
+                        onClick={() => requestCapabilityClaude(`plugin install ${item.id}`, `${t.installFromMarketplace}: ${item.name || item.id}`, marketplaceInstallReviewRows(item), marketplacePluginActionContext("install"))}
                         disabled={cliWorking || item.installed}
                         title={item.installed ? t.installedLocal : cliWorking ? t.workingHint : t.installFromMarketplace}
                       >

@@ -39,7 +39,10 @@ const FAKE_CLAUDE = path.join(FAKE_BIN_DIR, "claude.cmd");
 const SAFE_RUN_ID = "pass208-safe-mcp-failure";
 const MUTATING_RUN_ID = "pass208-mutating-plugin-failure";
 const MARKETPLACE_RUN_ID = "pass208-marketplace-update-failure";
+const MARKETPLACE_PLUGIN_RUN_ID = "pass208-marketplace-plugin-install-failure";
 const PLUGIN_ID = "pass208-plugin@qa-market";
+const MARKETPLACE_PLUGIN_NAME = "pass208-catalog-plugin";
+const MARKETPLACE_PLUGIN_ID = `${MARKETPLACE_PLUGIN_NAME}@pass208-market`;
 const MCP_SERVER_NAME = "pass208-mcp";
 const OTHER_MARKETPLACE_NAME = "pass208-alpha";
 const MARKETPLACE_NAME = "pass208-market";
@@ -141,6 +144,7 @@ else if (args[0] === 'plugin' && args[1] === 'marketplace' && args[2] === 'updat
 else if (args[0] === 'mcp' && args[1] === 'list' && args.includes('--json')) out([{ name: '${MCP_SERVER_NAME}', status: 'connected', transport: 'stdio', source: 'pass208 fixture', tools: 1, toolNames: ['pass208-tool'] }]);
 else if (args[0] === 'mcp' && args[1] === 'list') out('pass208 mcp list recovered');
 else if (args[0] === 'plugin' && args[1] === 'disable' && args[2] === '${PLUGIN_ID}') out('ok plugin disable ${PLUGIN_ID}');
+else if (args[0] === 'plugin' && args[1] === 'install' && args[2] === '${MARKETPLACE_PLUGIN_ID}') out('ok plugin install ${MARKETPLACE_PLUGIN_ID}');
 else out('pass208 fake claude command: ' + args.join(' '));
 `;
   fs.mkdirSync(FAKE_BIN_DIR, { recursive: true });
@@ -165,7 +169,18 @@ function writeInitialStore() {
     name: MARKETPLACE_NAME,
     description: "PASS208 marketplace recovery fixture",
     owner: { name: "PASS208 Owner" },
-    plugins: [],
+    plugins: [
+      {
+        name: MARKETPLACE_PLUGIN_NAME,
+        version: "20.8.0",
+        description: "PASS208 marketplace plugin recovery fixture",
+        category: "qa",
+        author: { name: "PASS208 Catalog Owner" },
+        source: { source: "git-subdir", url: "https://example.invalid/pass208.git", path: "plugins/catalog", ref: "v20.8.0" },
+        permissions: ["Read", "Bash"],
+        risk: "PASS208 install requires confirmation",
+      },
+    ],
   });
   const project = { name: "pass208-project", path: PROJECT_DIR };
   writeJson(DATA_FILE, {
@@ -267,6 +282,28 @@ function writeInitialStore() {
           id: MARKETPLACE_NAME,
           query: MARKETPLACE_NAME,
           action: "update",
+        },
+      },
+      {
+        id: MARKETPLACE_PLUGIN_RUN_ID,
+        requestId: MARKETPLACE_PLUGIN_RUN_ID,
+        kind: "capability",
+        command: `plugin install ${MARKETPLACE_PLUGIN_ID}`,
+        commandLine: `plugin install ${MARKETPLACE_PLUGIN_ID}`,
+        cwd: PROJECT_DIR,
+        project,
+        code: 45,
+        durationMs: 141,
+        stdout: "pass208 marketplace plugin stdout before failure",
+        stderr: "pass208 marketplace plugin install failed before retry",
+        startedAt: "2026-07-08T02:08:07.000Z",
+        endedAt: "2026-07-08T02:08:08.000Z",
+        capabilityContext: {
+          tab: "marketplace",
+          kind: "marketplace-plugin",
+          id: MARKETPLACE_PLUGIN_ID,
+          query: MARKETPLACE_PLUGIN_ID,
+          action: "install",
         },
       },
     ],
@@ -499,6 +536,58 @@ async function runTest() {
     (async function() {
       const state = await window.claudexDesktop.getState();
       return (state.commandRuns || []).length === ${JSON.stringify(beforePluginContextRuns)};
+    })();
+  `, 5000));
+
+  assertStep("PASS208_OPEN_PALETTE_MARKETPLACE_PLUGIN_TIMELINE", await openPaletteAndQuery(win, "timeline pass208 catalog plugin install"));
+  assertStep("PASS208_MARKETPLACE_PLUGIN_TIMELINE_COMMAND_VISIBLE", await commandVisible(win, `capability-recovery:timeline:${MARKETPLACE_PLUGIN_RUN_ID}`, /timeline|时间线|输出/i, "outputs"));
+  assertStep("PASS208_CLICK_MARKETPLACE_PLUGIN_TIMELINE", await clickCommandById(win, `capability-recovery:timeline:${MARKETPLACE_PLUGIN_RUN_ID}`));
+  assertStep("PASS208_MARKETPLACE_PLUGIN_TIMELINE_FOCUSED", await waitFor(win, `
+    Boolean(document.querySelector('.selected-run-evidence-panel') &&
+      /plugin install ${MARKETPLACE_PLUGIN_ID}/.test(document.querySelector('.selected-run-evidence-panel')?.textContent || '') &&
+      /pass208 marketplace plugin install failed before retry/.test(document.querySelector('.selected-run-evidence-panel')?.textContent || ''))
+  `, 10000));
+  const beforeMarketplacePluginContextRuns = await win.webContents.executeJavaScript(`
+    window.claudexDesktop.getState().then((state) => (state.commandRuns || []).length)
+  `);
+  assertStep("PASS208_OPEN_MARKETPLACE_PLUGIN_EVIDENCE_CONTEXT", await win.webContents.executeJavaScript(`
+    (function() {
+      const open = document.querySelector('.selected-run-evidence-panel [data-run-recovery-action="open-capability-context"]');
+      if (!open || open.disabled) return false;
+      open.click();
+      return true;
+    })();
+  `));
+  assertStep("PASS208_MARKETPLACE_PLUGIN_CONTEXT_FOCUSES_SAFE_COPY_ACTION", await waitFor(win, `
+    (function() {
+      const row = document.querySelector('.plugin-manager-modal [data-marketplace-plugin-id="${MARKETPLACE_PLUGIN_ID}"]');
+      const copy = row?.querySelector('[data-marketplace-plugin-action="copy-evidence"]');
+      const install = row?.querySelector('[data-marketplace-plugin-action="install"]');
+      const retry = row?.querySelector('[data-marketplace-plugin-action="retry"]');
+      const text = row?.textContent || '';
+      return Boolean(
+        row &&
+        row.classList.contains('focused-capability-row') &&
+        row.getAttribute('data-capability-kind') === 'marketplace-plugin' &&
+        row.getAttribute('data-capability-id') === '${MARKETPLACE_PLUGIN_ID}' &&
+        row.getAttribute('data-capability-focused') === 'true' &&
+        /${MARKETPLACE_PLUGIN_NAME}/.test(text) &&
+        /pass208 marketplace plugin install failed before retry/.test(text) &&
+        copy &&
+        copy.getAttribute('data-capability-action-focused') === 'true' &&
+        copy.getAttribute('data-capability-action') === 'copy' &&
+        copy.getAttribute('data-capability-kind') === 'marketplace-plugin' &&
+        copy.getAttribute('data-capability-id') === '${MARKETPLACE_PLUGIN_ID}' &&
+        (!install || install.getAttribute('data-capability-action-focused') !== 'true') &&
+        (!retry || retry.getAttribute('data-capability-action-focused') !== 'true') &&
+        !document.querySelector('.plugin-cli-confirm')
+      );
+    })();
+  `, 12000));
+  assertStep("PASS208_MARKETPLACE_PLUGIN_CONTEXT_DID_NOT_PERSIST_RUN", await waitFor(win, `
+    (async function() {
+      const state = await window.claudexDesktop.getState();
+      return (state.commandRuns || []).length === ${JSON.stringify(beforeMarketplacePluginContextRuns)};
     })();
   `, 5000));
 

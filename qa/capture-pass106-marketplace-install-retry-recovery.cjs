@@ -190,11 +190,17 @@ async function runTest() {
       .find((item) => /pass106-retry-plugin/.test(item.textContent || '')))
   `, 15000));
   assertStep("PASS106_CLICK_INSTALL", await win.webContents.executeJavaScript(`
-    (function() {
-      const card = [...document.querySelectorAll('.marketplace-plugin-card')]
-        .find((item) => /pass106-retry-plugin/.test(item.textContent || ''));
-      const button = card?.querySelector('.marketplace-card-actions button');
-      if (!button) return false;
+    (async function() {
+      let button = null;
+      const startedAt = Date.now();
+      while (Date.now() - startedAt < 5000) {
+        const card = [...document.querySelectorAll('.marketplace-plugin-card')]
+          .find((item) => /pass106-retry-plugin/.test(item.textContent || ''));
+        button = card?.querySelector('[data-marketplace-plugin-action="install"]');
+        if (button && !button.disabled) break;
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      if (!button || button.disabled) return false;
       button.click();
       return true;
     })();
@@ -230,25 +236,39 @@ async function runTest() {
   assertStep("PASS106_FAILURE_PERSISTED", await waitFor(win, `
     (async function() {
       const state = await window.claudexDesktop.getState();
+      const failedRun = state.commandRuns?.find((run) => run.kind === 'capability' &&
+        /plugin install pass106-retry-plugin@pass106-market/.test(run.command || '') &&
+        run.code === 42 &&
+        /pass106 plugin install failed/.test(run.stderr || ''));
+      const notice = state.notices?.find((item) => item.level === 'error' &&
+        /pass106 plugin install failed/.test((item.title || '') + (item.detail || '')));
       return Boolean(
-        state.commandRuns?.some((run) => run.kind === 'capability' &&
-          /plugin install pass106-retry-plugin@pass106-market/.test(run.command || '') &&
-          run.code === 42 &&
-          /pass106 plugin install failed/.test(run.stderr || '')) &&
-        state.notices?.some((notice) => notice.level === 'error' &&
-          /pass106 plugin install failed/.test((notice.title || '') + (notice.detail || '')))
+        failedRun &&
+        failedRun.capabilityContext?.tab === 'marketplace' &&
+        failedRun.capabilityContext?.kind === 'marketplace-plugin' &&
+        failedRun.capabilityContext?.id === 'pass106-retry-plugin@pass106-market' &&
+        failedRun.capabilityContext?.action === 'install' &&
+        notice &&
+        notice.capabilityContext?.kind === 'marketplace-plugin' &&
+        notice.capabilityContext?.id === 'pass106-retry-plugin@pass106-market'
       );
     })();
   `, 10000));
 
   const beforeRetry = readCommandLog();
   assertStep("PASS106_CLICK_RETRY", await win.webContents.executeJavaScript(`
-    (function() {
-      const card = [...document.querySelectorAll('.marketplace-plugin-card')]
-        .find((item) => /pass106-retry-plugin/.test(item.textContent || ''));
-      const retry = [...(card?.querySelectorAll('.row-cli-action-evidence.error button') || [])]
-        .find((button) => /重试/.test(button.textContent || ''));
-      if (!retry) return false;
+    (async function() {
+      let retry = null;
+      const startedAt = Date.now();
+      while (Date.now() - startedAt < 5000) {
+        const card = [...document.querySelectorAll('.marketplace-plugin-card')]
+          .find((item) => /pass106-retry-plugin/.test(item.textContent || ''));
+        retry = [...(card?.querySelectorAll('.row-cli-action-evidence.error button') || [])]
+          .find((button) => /重试/.test(button.textContent || ''));
+        if (retry && !retry.disabled) break;
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      if (!retry || retry.disabled) return false;
       retry.click();
       return true;
     })();
@@ -284,10 +304,18 @@ async function runTest() {
     (async function() {
       const state = await window.claudexDesktop.getState();
       const runs = state.commandRuns?.filter((run) => run.kind === 'capability' && /plugin install pass106-retry-plugin@pass106-market/.test(run.command || '')) || [];
+      const failed = runs.find((run) => run.code === 42 && /pass106 plugin install failed/.test(run.stderr || ''));
+      const recovered = runs.find((run) => run.code === 0 && /ok plugin install pass106-retry-plugin@pass106-market/.test(run.stdout || ''));
       return Boolean(
         runs.length >= 2 &&
-        runs.some((run) => run.code === 42 && /pass106 plugin install failed/.test(run.stderr || '')) &&
-        runs.some((run) => run.code === 0 && /ok plugin install pass106-retry-plugin@pass106-market/.test(run.stdout || ''))
+        failed?.capabilityContext?.tab === 'marketplace' &&
+        failed?.capabilityContext?.kind === 'marketplace-plugin' &&
+        failed?.capabilityContext?.id === 'pass106-retry-plugin@pass106-market' &&
+        failed?.capabilityContext?.action === 'install' &&
+        recovered?.capabilityContext?.tab === 'marketplace' &&
+        recovered?.capabilityContext?.kind === 'marketplace-plugin' &&
+        recovered?.capabilityContext?.id === 'pass106-retry-plugin@pass106-market' &&
+        recovered?.capabilityContext?.action === 'install'
       );
     })();
   `, 10000));
