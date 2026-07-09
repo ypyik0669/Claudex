@@ -19232,6 +19232,16 @@ export function App() {
     "data-command-thread-active-project": activeProject?.name || "",
     "data-command-thread-active-project-path": activeProject?.path || "",
   });
+  const bottomPanelCommand = (id, title, subtitle, keywords, action, panelId = id) => ({
+    id: `panel-${id}`,
+    title,
+    subtitle,
+    group: t.bottomPanel,
+    target: "bottom-panel",
+    dataAttributes: { "data-command-bottom-panel": panelId },
+    keywords,
+    action,
+  });
 
   const commands = [
     { id: "new", title: t.newChat, subtitle: t.chats, group: t.chats, kbd: "Ctrl+N", keywords: "聊天 对话 会话", action: createSession },
@@ -19256,13 +19266,13 @@ export function App() {
     { id: "tool-claude", title: t.claudeCodeTool, subtitle: t.openSidePanel, group: t.tools, keywords: "claude code cli plugin mcp terminal", action: () => activateTool("claude") },
     { id: "tool-browser", title: t.browser, subtitle: t.openSidePanel, group: t.tools, kbd: "Ctrl+T", keywords: "browser preview web 网页 浏览器", action: () => activateTool("browser") },
     { id: "tool-terminal", title: t.terminal, subtitle: t.openSidePanel, group: t.tools, keywords: "terminal shell command powershell 终端 命令", action: () => activateTool("terminal") },
-    { id: "panel-outputs", title: t.outputs, subtitle: t.bottomPanel, group: t.bottomPanel, keywords: "outputs run timeline evidence 输出 证据 时间线", action: () => openBottomPanel("outputs") },
-    { id: "panel-notices", title: t.noticeCenter, subtitle: t.bottomPanel, group: t.bottomPanel, keywords: "notices errors warnings failures 错误 通知 告警", action: () => openBottomPanel("notices") },
-    { id: "panel-environment", title: t.environment, subtitle: t.bottomPanel, group: t.bottomPanel, keywords: "environment cwd git ide 环境 项目", action: () => openBottomPanel("environment") },
-    { id: "panel-changes", title: t.changes, subtitle: t.gitDiffPreview, group: t.bottomPanel, keywords: "changes git diff status 变更 差异", action: () => openGitFileDiff("", "", { all: true }) },
-    { id: "panel-sources", title: t.sources, subtitle: t.bottomPanel, group: t.bottomPanel, keywords: "sources files project 来源 文件", action: () => openBottomPanel("sources") },
-    { id: "panel-subagents", title: t.subagents, subtitle: t.bottomPanel, group: t.bottomPanel, keywords: "subagents agents 子代理 agent", action: () => openBottomPanel("subagents") },
-    { id: "panel-task-center", title: t.taskCenter, subtitle: t.bottomPanel, group: t.bottomPanel, keywords: "task center automations subagents evidence 任务中心 自动化 子代理", action: () => openBottomPanel("subagents") },
+    bottomPanelCommand("outputs", t.outputs, t.bottomPanel, "outputs run timeline evidence 输出 证据 时间线", () => openBottomPanel("outputs")),
+    bottomPanelCommand("notices", t.noticeCenter, t.bottomPanel, "notices errors warnings failures 错误 通知 告警", () => openBottomPanel("notices")),
+    bottomPanelCommand("environment", t.environment, t.bottomPanel, "environment cwd git ide 环境 项目", () => openBottomPanel("environment")),
+    bottomPanelCommand("changes", t.changes, t.gitDiffPreview, "changes git diff status 变更 差异", () => openGitFileDiff("", "", { all: true })),
+    bottomPanelCommand("sources", t.sources, t.bottomPanel, "sources files project 来源 文件", () => openBottomPanel("sources")),
+    bottomPanelCommand("subagents", t.subagents, t.bottomPanel, "subagents agents 子代理 agent", () => openBottomPanel("subagents")),
+    bottomPanelCommand("task-center", t.taskCenter, t.bottomPanel, "task center automations subagents evidence 任务中心 自动化 子代理", () => openBottomPanel("subagents"), "subagents"),
     ...stateDeepLinkCommands,
     { id: "review", title: t.quickReview, subtitle: t.schedulePrompt, group: t.chats, keywords: "审查 代码 风险", action: () => setDraft(t.quickReview) },
     { id: "plan", title: t.quickPlan, subtitle: t.schedulePrompt, group: t.chats, keywords: "计划 实现 验证", action: () => setDraft(t.quickPlan) },

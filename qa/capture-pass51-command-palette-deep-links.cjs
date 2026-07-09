@@ -32,6 +32,7 @@ const PROJECT_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "claudex-pass51-projec
 const PROJECT_B_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "claudex-pass51-project-b-"));
 const FAKE_CLAUDE = path.join(USER_DATA_DIR, "fake-claude.cmd");
 const DATA_FILE = path.join(USER_DATA_DIR, "desktop-data.json");
+const SOURCE_TARGET = "docs/pass51-source-target.md";
 
 function cleanup() {
   for (const dir of [USER_DATA_DIR, PROJECT_DIR, PROJECT_B_DIR]) {
@@ -66,7 +67,9 @@ function writeInitialStore() {
   fs.mkdirSync(USER_DATA_DIR, { recursive: true });
   fs.mkdirSync(PROJECT_DIR, { recursive: true });
   fs.mkdirSync(PROJECT_B_DIR, { recursive: true });
+  fs.mkdirSync(path.join(PROJECT_DIR, "docs"), { recursive: true });
   fs.writeFileSync(path.join(PROJECT_DIR, "package.json"), JSON.stringify({ name: "pass51-project" }), "utf8");
+  fs.writeFileSync(path.join(PROJECT_DIR, SOURCE_TARGET), "pass51 source target evidence\n", "utf8");
   fs.writeFileSync(path.join(PROJECT_B_DIR, "package.json"), JSON.stringify({ name: "pass51-project-b" }), "utf8");
   fs.writeFileSync(
     FAKE_CLAUDE,
@@ -152,12 +155,54 @@ function writeInitialStore() {
             prompt: "pass51",
             enabled: true,
             status: "scheduled",
-            schedule: { runAt: "2026-07-06T00:00:00.000Z" },
+            schedule: { runAt: "2099-07-06T00:00:00.000Z" },
             project: { name: "pass51-project", path: PROJECT_DIR },
             history: [],
           },
         ],
         subagentRuns: [],
+        commandRuns: [],
+        runEvents: [
+          {
+            id: "pass51-run-event",
+            type: "workspace-command",
+            status: "ok",
+            title: "pass51 command output evidence",
+            detail: "pass51 output detail",
+            commandLine: "echo pass51 output",
+            cwd: PROJECT_DIR,
+            project: { name: "pass51-project", path: PROJECT_DIR },
+            sessionId: "pass51-current",
+            stdout: "pass51 command output stdout evidence",
+            stderr: "",
+            code: 0,
+            durationMs: 51,
+            createdAt: "2026-07-05T00:05:00.000Z",
+          },
+        ],
+        notices: [
+          {
+            id: "pass51-notice",
+            key: "pass51:notice",
+            level: "warning",
+            source: "qa",
+            title: "pass51 active notice",
+            detail: "pass51 notice detail evidence",
+            createdAt: "2026-07-05T00:06:00.000Z",
+            lastSeenAt: "2026-07-05T00:06:00.000Z",
+          },
+        ],
+        sourceRefs: [
+          {
+            id: "pass51-source-target",
+            path: SOURCE_TARGET,
+            name: "pass51-source-target.md",
+            type: "file",
+            size: 31,
+            project: { name: "pass51-project", path: PROJECT_DIR },
+            lastOpenedAt: "2026-07-05T00:07:00.000Z",
+          },
+        ],
       },
       null,
       2,
@@ -185,6 +230,32 @@ async function runPaletteCommand(win, query, commandId = "") {
       if (!button) return false;
       button.click();
       return true;
+    })();
+  `);
+}
+
+async function paletteCommandAttrs(win, query, commandId) {
+  return win.webContents.executeJavaScript(`
+    (async function() {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true, bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 200));
+      const input = document.querySelector('.command-modal .command-search input');
+      if (!input) return null;
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+      setter.call(input, ${JSON.stringify(query)});
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 160));
+      const button = [...document.querySelectorAll('.command-modal .command-list button')]
+        .find((candidate) => (candidate.getAttribute('data-command-id') || '') === ${JSON.stringify(commandId)});
+      const result = button ? {
+        id: button.getAttribute('data-command-id') || '',
+        target: button.getAttribute('data-command-target') || '',
+        panel: button.getAttribute('data-command-bottom-panel') || '',
+        text: button.textContent || '',
+      } : null;
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 120));
+      return result;
     })();
   `);
 }
@@ -241,6 +312,55 @@ async function runTest() {
       /\\u5f53\\u524d\\u9879\\u76ee/.test(document.querySelector('.chat-scope-toggle button.active')?.textContent || '') &&
       /pass51 current project thread/.test(document.querySelector('.thread-list')?.textContent || '') &&
       !/pass51 other project thread|pass51 archived thread/.test(document.querySelector('.thread-list')?.textContent || '')
+    )
+  `, 8000));
+
+  const panelCommands = [
+    ["PASS51_OUTPUTS_PANEL_COMMAND_TRACE", "outputs run timeline evidence", "panel-outputs", "outputs"],
+    ["PASS51_NOTICES_PANEL_COMMAND_TRACE", "notices errors warnings", "panel-notices", "notices"],
+    ["PASS51_ENVIRONMENT_PANEL_COMMAND_TRACE", "environment cwd git", "panel-environment", "environment"],
+    ["PASS51_SOURCES_PANEL_COMMAND_TRACE", "sources files project", "panel-sources", "sources"],
+    ["PASS51_TASK_CENTER_PANEL_COMMAND_TRACE", "task center automations subagents", "panel-task-center", "subagents"],
+  ];
+  for (const [step, query, commandId, panel] of panelCommands) {
+    const attrs = await paletteCommandAttrs(win, query, commandId);
+    assertStep(step, Boolean(attrs && attrs.target === "bottom-panel" && attrs.panel === panel));
+  }
+
+  assertStep("PASS51_OPEN_OUTPUTS_PANEL_FROM_PALETTE", await runPaletteCommand(win, "outputs run timeline evidence", "panel-outputs"));
+  assertStep("PASS51_OUTPUTS_PANEL_VISIBLE", await waitFor(win, `
+    Boolean(
+      document.querySelector('.bottom-panel-tabs button[data-bottom-tab="outputs"].active') &&
+      /pass51 command output evidence/.test(document.querySelector('.bottom-work-panel')?.textContent || '') &&
+      /pass51 command output stdout evidence/.test(document.querySelector('.bottom-work-panel')?.textContent || '')
+    )
+  `, 8000));
+
+  assertStep("PASS51_OPEN_NOTICES_PANEL_FROM_PALETTE", await runPaletteCommand(win, "notices errors warnings", "panel-notices"));
+  assertStep("PASS51_NOTICES_PANEL_VISIBLE_AND_RAIL_ACTIVE", await waitFor(win, `
+    Boolean(
+      document.querySelector('.bottom-panel-tabs button[data-bottom-tab="notices"].active') &&
+      document.querySelector('.rail-button[data-tool="notices"]')?.getAttribute('data-tool-active') === 'true' &&
+      /pass51 active notice/.test(document.querySelector('.bottom-work-panel')?.textContent || '') &&
+      /pass51 notice detail evidence/.test(document.querySelector('.bottom-work-panel')?.textContent || '')
+    )
+  `, 8000));
+
+  assertStep("PASS51_OPEN_ENVIRONMENT_PANEL_FROM_PALETTE", await runPaletteCommand(win, "environment cwd git", "panel-environment"));
+  assertStep("PASS51_ENVIRONMENT_PANEL_VISIBLE_AND_RAIL_ACTIVE", await waitFor(win, `
+    Boolean(
+      document.querySelector('.bottom-panel-tabs button[data-bottom-tab="environment"].active') &&
+      document.querySelector('.rail-button[data-tool="environment"]')?.getAttribute('data-tool-active') === 'true' &&
+      /pass51-project/.test(document.querySelector('.bottom-work-panel')?.textContent || '')
+    )
+  `, 8000));
+
+  assertStep("PASS51_OPEN_SOURCES_PANEL_FROM_PALETTE", await runPaletteCommand(win, "sources files project", "panel-sources"));
+  assertStep("PASS51_SOURCES_PANEL_VISIBLE", await waitFor(win, `
+    Boolean(
+      document.querySelector('.bottom-panel-tabs button[data-bottom-tab="sources"].active') &&
+      /pass51-source-target\\.md/.test(document.querySelector('.bottom-work-panel')?.textContent || '') &&
+      /pass51-project/.test(document.querySelector('.bottom-work-panel')?.textContent || '')
     )
   `, 8000));
 
