@@ -15739,6 +15739,22 @@ export function App() {
           capabilityContext?.kind,
           evidenceText,
         ].filter(Boolean).join(" ");
+        const recoveryCapabilityTraceAttributes = capabilityContext
+          ? {
+              ...capabilityCommandTraceAttributes({
+                kind: capabilityContext.kind,
+                action: capabilityContext.action || (mutatingRetryArgs ? "update" : "retry"),
+                id: capabilityContext.id,
+                name: capabilityContext.query || capabilityContext.id,
+                projectPath: run.cwd || run.project?.path || event.cwd || "",
+              }),
+              "data-command-capability-run-event-id": event.id || "",
+              "data-command-capability-retry-args": retryArgs,
+            }
+          : {
+              "data-command-capability-run-event-id": event.id || "",
+              "data-command-capability-retry-args": retryArgs,
+            };
         return [
           {
             id: `capability-recovery:retry:${commandIdSegment(event.id)}`,
@@ -15749,6 +15765,10 @@ export function App() {
             ].filter(Boolean).join(" · "),
             group: t.capabilities,
             target: mutatingRetryArgs ? "capabilities" : "outputs",
+            dataAttributes: {
+              ...recoveryCapabilityTraceAttributes,
+              "data-command-capability-recovery-action": "retry",
+            },
             priority: 78,
             keywords,
             action: () => {
@@ -15765,6 +15785,10 @@ export function App() {
             subtitle,
             group: t.capabilities,
             target: "clipboard",
+            dataAttributes: {
+              ...recoveryCapabilityTraceAttributes,
+              "data-command-capability-recovery-action": "copy",
+            },
             priority: 68,
             keywords,
             action: () => copyMessage(evidenceText),
@@ -15775,6 +15799,10 @@ export function App() {
             subtitle,
             group: t.bottomPanel,
             target: "outputs",
+            dataAttributes: {
+              ...recoveryCapabilityTraceAttributes,
+              "data-command-capability-recovery-action": "timeline",
+            },
             priority: 62,
             keywords,
             action: () => openRunTimeline(event.id),
