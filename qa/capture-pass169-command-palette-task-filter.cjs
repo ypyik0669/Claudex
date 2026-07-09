@@ -144,7 +144,7 @@ function writeInitialStore() {
       {
         id: "pass169-automation-scheduled",
         prompt: "pass169 scheduled automation",
-        schedule: { type: "once", runAt: "2026-07-08T12:00:00.000Z" },
+        schedule: { type: "once", runAt: "2099-07-08T12:00:00.000Z" },
         project,
         threadId: "pass169-session",
         enabled: true,
@@ -305,8 +305,21 @@ app.whenReady().then(async () => {
         await new Promise((resolve) => setTimeout(resolve, 200));
         const button = document.querySelector('.command-modal .command-list button[data-command-id="task-filter:failed"]');
         const text = button?.textContent || '';
+        const target = button?.getAttribute('data-command-target') || '';
+        const kind = button?.getAttribute('data-command-task-kind') || '';
+        const action = button?.getAttribute('data-command-task-action') || '';
+        const filter = button?.getAttribute('data-command-task-filter') || '';
+        const surface = button?.getAttribute('data-command-task-surface') || '';
         window.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-        return Boolean(button && /\\u4efb\\u52a1\\u4e2d\\u5fc3/.test(text) && /\\u5931\\u8d25/.test(text));
+        return Boolean(button &&
+          target === 'task-filter' &&
+          kind === 'task-center' &&
+          action === 'filter' &&
+          filter === 'failed' &&
+          surface === 'command-palette' &&
+          /\\u4efb\\u52a1\\u4e2d\\u5fc3/.test(text) &&
+          /\\u5931\\u8d25/.test(text)
+        );
       })();
     `));
 
@@ -342,6 +355,12 @@ app.whenReady().then(async () => {
         );
       })();
     `, 5000));
+    assertStep("PASS169_GENERIC_FILTER_ACTIVATES_SUBAGENT_RAIL", await waitFor(win, `
+      (function() {
+        return document.querySelector('.rail-button[data-tool="subagents"]')?.getAttribute('data-tool-active') === 'true' &&
+          document.querySelector('.rail-button[data-tool="automations"]')?.getAttribute('data-tool-active') === 'false';
+      })();
+    `, 4000));
 
     assertStep("PASS169_OPEN_FAILED_FILTER_FROM_PALETTE", await runPaletteCommand(win, "task-filter:failed", "task filter failed"));
     assertStep("PASS169_FAILED_FILTER_VISIBLE", await waitFor(win, `

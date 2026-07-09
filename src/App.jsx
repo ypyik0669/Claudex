@@ -16587,6 +16587,8 @@ export function App() {
           .replace("{total}", item.id === "archived" ? taskFilterCommandCounts.archived : activeTaskFilterCommandTotal),
       ].filter(Boolean).join(" · "),
       group: t.taskCenter,
+      target: "task-filter",
+      dataAttributes: taskCommandTraceAttributes({ kind: "task-center", action: "filter", filter: item.id }),
       keywords: [
         "task center filter automation subagent command palette deep link",
         item.keywords,

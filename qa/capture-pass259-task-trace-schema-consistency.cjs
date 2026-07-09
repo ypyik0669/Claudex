@@ -157,8 +157,8 @@ function writeInitialStore() {
       {
         id: AUTOMATION_ID,
         prompt: "PASS259 failed automation schema prompt",
-        schedule: { type: "once", runAt: "2026-07-08T03:59:00.000Z" },
-        nextRun: "2026-07-08T03:59:00.000Z",
+        schedule: { type: "once", runAt: "2099-07-08T03:59:00.000Z" },
+        nextRun: "2099-07-08T03:59:00.000Z",
         project,
         threadId: SESSION_ID,
         enabled: true,
