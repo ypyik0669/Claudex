@@ -368,6 +368,23 @@ async function runTest() {
   `));
   await assertSelectedRetryFailureEvidence(win, "PASS307_NOTICE_CENTER_OPENS_RETRY_FAILURE_EVIDENCE");
 
+  assertStep("PASS307_OPEN_PALETTE_NOTICE_BUCKET", await openPaletteAndQuery(win, "notice recovery pass307 retry failed"));
+  assertStep("PASS307_NOTICE_BUCKET_COMMAND_TARGETS_RETRY_RUN", await waitFor(win, `
+    (function() {
+      const runId = window.__PASS307_RETRY_RUN_ID__ || '';
+      const button = [...document.querySelectorAll('.command-modal .command-list button')]
+        .find((candidate) => (candidate.getAttribute('data-command-id') || '') === 'notice-recovery:timeline');
+      const text = button?.textContent || '';
+      return Boolean(button &&
+        button.getAttribute('data-command-target') === 'timeline' &&
+        button.getAttribute('data-command-notice-recovery-first-run-event-id') === runId &&
+        /^capability-recovery:/.test(button.getAttribute('data-command-notice-recovery-first-action') || '') &&
+        /pass307 retry mcp list failed for notice recovery/.test(text));
+    })();
+  `, 10000));
+  assertStep("PASS307_CLICK_NOTICE_BUCKET_COMMAND", await clickCommandById(win, "notice-recovery:timeline"));
+  await assertSelectedRetryFailureEvidence(win, "PASS307_NOTICE_BUCKET_COMMAND_OPENS_RETRY_FAILURE_EVIDENCE");
+
   assertStep("PASS307_OPEN_PALETTE_NOTICE", await openPaletteAndQuery(win, "pass307 retry failed notice recovery"));
   assertStep("PASS307_NOTICE_COMMAND_TARGET_TIMELINE", await waitFor(win, `
     (function() {

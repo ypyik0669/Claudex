@@ -15816,6 +15816,7 @@ export function App() {
           t.noticeRecoverySummaryTitle,
           noticeActionLabel(bucket.first, t),
           bucket.first?.source || t.noticeSource,
+          bucket.first?.detail ? messageExcerpt(bucket.first.detail, 96) : "",
           projectLabel(bucket.first?.project, t),
         ].filter(Boolean).join(" · "),
         group: t.notices,
