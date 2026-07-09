@@ -3,7 +3,30 @@ const os = require("os");
 const path = require("path");
 const { app, BrowserWindow } = require("electron");
 
-const REPO_DIR = path.join(__dirname, "..");
+function findRepoDir() {
+  const candidates = [
+    process.env.CLAUDEX_REPO_DIR,
+    process.cwd(),
+    __dirname,
+    path.join(__dirname, ".."),
+  ].filter(Boolean);
+  for (const candidate of candidates) {
+    let current = path.resolve(candidate);
+    while (current && current !== path.dirname(current)) {
+      if (
+        fs.existsSync(path.join(current, "package.json")) &&
+        fs.existsSync(path.join(current, "electron", "main.cjs"))
+      ) {
+        return current;
+      }
+      current = path.dirname(current);
+    }
+  }
+  throw new Error("Unable to locate Claudex repo root");
+}
+
+const REPO_DIR = findRepoDir();
+process.chdir(REPO_DIR);
 const USER_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "claudex-pass104-data-"));
 const FAKE_BIN_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "claudex-pass104-bin-"));
 const MARKETPLACE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "claudex-pass104-market-"));
@@ -56,6 +79,36 @@ async function waitForLog(pattern, timeoutMs = 10000) {
     await wait(150);
   }
   return false;
+}
+
+async function openPaletteAndQuery(win, query) {
+  return win.webContents.executeJavaScript(`
+    (async function() {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true, bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 220));
+      const input = document.querySelector('.command-modal .command-search input');
+      if (!input) return false;
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+      setter.call(input, ${JSON.stringify(query)});
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 260));
+      return true;
+    })();
+  `);
+}
+
+async function clickNoticeCommand(win) {
+  return win.webContents.executeJavaScript(`
+    (function() {
+      const noticeId = window.__PASS104_NOTICE_ID__ || '';
+      const expectedId = 'notice:' + encodeURIComponent(noticeId).slice(0, 120);
+      const button = [...document.querySelectorAll('.command-modal .command-list button')]
+        .find((candidate) => (candidate.getAttribute('data-command-id') || '') === expectedId);
+      if (!button) return false;
+      button.click();
+      return true;
+    })();
+  `);
 }
 
 function assertStep(name, ok) {
@@ -230,16 +283,90 @@ async function runTest() {
   assertStep("PASS104_FAILURE_PERSISTED", await waitFor(win, `
     (async function() {
       const state = await window.claudexDesktop.getState();
+      const notice = (state.notices || []).find((item) => item.level === 'error' &&
+        /pass104 marketplace update failed/.test((item.title || '') + (item.detail || '')));
+      const run = (state.commandRuns || []).find((item) => item.kind === 'capability' &&
+          /plugin marketplace update/.test(item.command || item.commandLine || '') &&
+          item.code === 31 &&
+          /pass104 marketplace update failed/.test(item.stderr || ''));
+      window.__PASS104_NOTICE_ID__ = notice?.id || '';
+      window.__PASS104_RUN_ID__ = notice?.runEventId || run?.requestId || run?.id || '';
       return Boolean(
-        state.commandRuns?.some((run) => run.kind === 'capability' &&
-          /plugin marketplace update/.test(run.command || '') &&
-          run.code === 31 &&
-          /pass104 marketplace update failed/.test(run.stderr || '')) &&
-        state.notices?.some((notice) => notice.level === 'error' &&
-          /pass104 marketplace update failed/.test((notice.title || '') + (notice.detail || '')))
+        run &&
+        notice &&
+        notice.action === 'capability-recovery:' + encodeURIComponent(notice.runEventId) &&
+        notice.runEventId
       );
     })();
   `, 10000));
+
+  assertStep("PASS104_OPEN_PALETTE_NOTICE", await openPaletteAndQuery(win, "notice pass104 marketplace update failed"));
+  assertStep("PASS104_NOTICE_COMMAND_VISIBLE", await waitFor(win, `
+    (function() {
+      const noticeId = window.__PASS104_NOTICE_ID__ || '';
+      const expectedId = 'notice:' + encodeURIComponent(noticeId).slice(0, 120);
+      const button = [...document.querySelectorAll('.command-modal .command-list button')]
+        .find((candidate) => (candidate.getAttribute('data-command-id') || '') === expectedId);
+      const text = button?.textContent || '';
+      return Boolean(
+        button &&
+        button.getAttribute('data-command-target') === 'timeline' &&
+        /pass104 marketplace update failed/.test(text) &&
+        /\\u67e5\\u770b\\u8bc1\\u636e/.test(text)
+      );
+    })();
+  `, 10000));
+  assertStep("PASS104_CLICK_NOTICE_COMMAND", await clickNoticeCommand(win));
+  assertStep("PASS104_NOTICE_OPENS_EVIDENCE_RETRY", await waitFor(win, `
+    (function() {
+      const runId = window.__PASS104_RUN_ID__ || '';
+      const active = document.querySelector('.bottom-panel-tabs button[data-bottom-tab="outputs"].active') ||
+        document.querySelector('.workspace-context-button.active');
+      const panel = document.querySelector('.selected-run-evidence-panel.error');
+      const retry = panel?.querySelector('[data-run-recovery-action="retry-capability"]');
+      const text = panel?.textContent || '';
+      return Boolean(
+        active &&
+        panel &&
+        retry &&
+        retry.getAttribute('data-run-recovery-action-focused') === 'true' &&
+        document.activeElement === retry &&
+        /plugin marketplace update/.test(text) &&
+        /pass104 marketplace update failed/.test(text) &&
+        (!runId || /plugin marketplace update/.test(text))
+      );
+    })();
+  `, 12000));
+  const beforeNoticeRetry = readCommandLog();
+  assertStep("PASS104_CLICK_NOTICE_EVIDENCE_RETRY", await win.webContents.executeJavaScript(`
+    (function() {
+      const retry = document.querySelector('.selected-run-evidence-panel [data-run-recovery-action="retry-capability"]');
+      if (!retry || retry.disabled) return false;
+      retry.click();
+      return true;
+    })();
+  `));
+  assertStep("PASS104_NOTICE_RETRY_SOURCE_CONFIRM", await waitFor(win, `
+    (function() {
+      const row = document.querySelector('.plugin-manager-modal [data-marketplace-source-id="pass104-market"]');
+      const update = row?.querySelector('[data-marketplace-source-action="update"]');
+      const confirm = document.querySelector('.plugin-cli-confirm');
+      const confirmText = confirm?.textContent || '';
+      return Boolean(
+        row &&
+        update &&
+        row.classList.contains('focused-capability-row') &&
+        update.getAttribute('data-capability-action-focused') === 'true' &&
+        update.getAttribute('data-capability-kind') === 'marketplace-source' &&
+        update.getAttribute('data-capability-action') === 'update' &&
+        update.getAttribute('data-capability-id') === 'pass104-market' &&
+        confirm &&
+        /plugin marketplace update/.test(confirmText) &&
+        /pass104-market/.test(confirmText)
+      );
+    })();
+  `, 12000));
+  assertStep("PASS104_NOTICE_RETRY_NOT_RUN_BEFORE_CONFIRM", !/plugin marketplace update/.test(readCommandLog().slice(beforeNoticeRetry.length)));
 
   console.log("PASS104_MARKETPLACE_UPDATE_FAILURE_RECOVERY_DONE");
   cleanup();
@@ -252,8 +379,37 @@ writeInitialStore();
 require(path.join(REPO_DIR, "electron", "main.cjs"));
 app.whenReady().then(runTest).catch((error) => {
   console.error("PASS104_FAILED", error?.stack || error);
-  cleanup();
-  app.exit(1);
+  Promise.resolve()
+    .then(async () => {
+      const win = BrowserWindow.getAllWindows()[0];
+      if (!win) return;
+      const debug = await win.webContents.executeJavaScript(`
+        (async function() {
+          return {
+            noticeId: window.__PASS104_NOTICE_ID__ || '',
+            runId: window.__PASS104_RUN_ID__ || '',
+            commands: [...document.querySelectorAll('.command-modal .command-list button')].map((button) => ({
+              id: button.getAttribute('data-command-id'),
+              target: button.getAttribute('data-command-target'),
+              text: button.textContent,
+            })),
+            actions: [...document.querySelectorAll('.plugin-manager-modal [data-marketplace-source-action], .plugin-manager-modal [data-capability-action-focused]')].map((item) => ({
+              text: item.textContent,
+              attrs: Object.fromEntries([...item.attributes].map((attr) => [attr.name, attr.value])),
+            })),
+            confirm: document.querySelector('.plugin-cli-confirm')?.textContent || '',
+            body: document.body?.textContent?.slice(0, 6000) || '',
+            state: await window.claudexDesktop.getState().catch((stateError) => ({ error: String(stateError?.message || stateError) })),
+          };
+        })();
+      `).catch((debugError) => ({ error: String(debugError?.message || debugError) }));
+      console.error("PASS104_DEBUG", JSON.stringify(debug, null, 2).slice(0, 14000));
+      console.error("PASS104_COMMAND_LOG", readCommandLog());
+    })
+    .finally(() => {
+      cleanup();
+      app.exit(1);
+    });
 });
 
 setTimeout(() => {

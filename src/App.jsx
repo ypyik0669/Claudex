@@ -5088,6 +5088,7 @@ function Conversation({
   onRetryCapabilityCommand,
   onConfirmCapabilityCommand,
   onOpenRunTimeline,
+  onOpenCapabilityRecoveryEvidence,
   onClearRunTimelineFocus,
   onOpenWorkspaceFile,
   runTimelineFocus,
@@ -5999,7 +6000,14 @@ function Conversation({
     const action = String(notice?.action || "");
     if (action.startsWith("capability-recovery:")) {
       const eventId = decodeActionSuffix(action, "capability-recovery:") || noticeRunEventId;
-      onOpenRunTimeline?.(eventId, { action: "retry-capability" });
+      if (onOpenCapabilityRecoveryEvidence) {
+        onOpenCapabilityRecoveryEvidence(eventId, {
+          fallbackAction: action,
+          fallbackProject: notice?.project,
+        });
+      } else {
+        onOpenRunTimeline?.(eventId, { action: "retry-capability" });
+      }
       return;
     }
     if (action.startsWith("git-run:")) {
@@ -14931,15 +14939,22 @@ export function App() {
     const focus = capabilityRetrySurfaceFocus(nextArgs);
     if (!focus) return;
     const nextTab = focus.tab || "plugins";
+    const marketplaceSources = Array.isArray(capabilityCommandStatus?.marketplaces) ? capabilityCommandStatus.marketplaces : [];
+    const marketplaceSource = /^plugin\s+marketplace\s+update$/i.test(nextArgs)
+      ? marketplaceSources.find((item) => item?.name && item.name === focus.id) || marketplaceSources.find((item) => item?.name) || null
+      : null;
+    const retryReviewRows = marketplaceSource
+      ? marketplaceSourceUpdateReviewRows(marketplaceSource, t, activeProject)
+      : [
+        [t.commandLine, `claude ${nextArgs}`],
+        [t.commandCwd, activeProject?.path || t.localWorkspace],
+      ];
     openCapabilitiesSurface(nextTab, {
       ...focus,
       confirmCommand: {
         args: nextArgs,
-        label: `${t.retry}: claude ${nextArgs}`,
-        reviewRows: [
-          [t.commandLine, `claude ${nextArgs}`],
-          [t.commandCwd, activeProject?.path || t.localWorkspace],
-        ],
+        label: marketplaceSource ? `${t.retry}: ${t.marketplaceSources} / ${marketplaceSource.name}` : `${t.retry}: claude ${nextArgs}`,
+        reviewRows: retryReviewRows,
       },
     });
   }
@@ -18390,6 +18405,27 @@ export function App() {
     openBottomPanel("outputs");
   }
 
+  function capabilityRecoveryEvidenceAction(eventId = "", options = {}) {
+    return runEvidenceFocusActionForEventId(eventId, {
+      runEvents,
+      commandRuns: state.commandRuns,
+      automations: state.automations,
+      subagentRuns: state.subagentRuns,
+      browserVisits: state.browserVisits,
+      sessions: state.sessions,
+      t,
+      fallbackAction: options.fallbackAction,
+      fallbackPath: options.fallbackPath,
+      fallbackProject: options.fallbackProject,
+    }) || "retry-capability";
+  }
+
+  function openCapabilityRecoveryEvidence(eventId = "", options = {}) {
+    openRunTimeline(eventId, {
+      action: capabilityRecoveryEvidenceAction(eventId, options),
+    });
+  }
+
   function openGitRunEvidence(eventId = "", options = {}) {
     const focusedId = String(eventId || "").trim();
     setRunTimelineFocus({
@@ -18458,7 +18494,10 @@ export function App() {
     const noticeRunEventId = String(notice?.runEventId || "").trim();
     const action = String(notice?.action || "");
     if (action.startsWith("capability-recovery:")) {
-      openRunTimeline(decodeActionSuffix(action, "capability-recovery:") || noticeRunEventId, { action: "retry-capability" });
+      openCapabilityRecoveryEvidence(decodeActionSuffix(action, "capability-recovery:") || noticeRunEventId, {
+        fallbackAction: action,
+        fallbackProject: notice?.project,
+      });
       return;
     }
     if (action.startsWith("git-run:")) {
@@ -19117,6 +19156,7 @@ export function App() {
           onRetryCapabilityCommand={runPersistedCapabilityCommand}
           onConfirmCapabilityCommand={openCapabilityRetryConfirmation}
           onOpenRunTimeline={openRunTimeline}
+          onOpenCapabilityRecoveryEvidence={openCapabilityRecoveryEvidence}
           onClearRunTimelineFocus={() => setRunTimelineFocus({ id: "", nonce: Date.now() })}
           onOpenWorkspaceFile={openWorkspaceFile}
           runTimelineFocus={runTimelineFocus}
