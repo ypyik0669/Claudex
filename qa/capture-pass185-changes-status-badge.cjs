@@ -286,13 +286,19 @@ async function runTest() {
         env.git?.available === true &&
         env.git?.changes === 1 &&
         env.git?.summary?.conflicted === 1 &&
-        (env.git?.files || []).some((file) => file.path === 'pass185-conflict.txt' && file.conflict === true) &&
+        env.git?.summary?.staged === 0 &&
+        env.git?.summary?.unstaged === 0 &&
+        (env.git?.files || []).some((file) => file.path === 'pass185-conflict.txt' && file.conflict === true && file.staged === false && file.unstaged === false) &&
         button &&
         badge &&
         badge.textContent.trim() === '1' &&
         /\\u53d8\\u66f4 1/.test(aria) &&
         /\\u51b2\\u7a81 1/.test(aria) &&
+        !/\\u5df2\\u6682\\u5b58 1/.test(aria) &&
+        !/\\u672a\\u6682\\u5b58 1/.test(aria) &&
         /\\u51b2\\u7a81 1/.test(title) &&
+        !/\\u5df2\\u6682\\u5b58 1/.test(title) &&
+        !/\\u672a\\u6682\\u5b58 1/.test(title) &&
         button.getBoundingClientRect().width <= 40
       );
     })();
@@ -311,6 +317,8 @@ async function runTest() {
         bottomBadge.textContent.trim() === '1' &&
         /pass185-conflict\.txt/.test(text) &&
         /\\u51b2\\u7a81\\s*1/.test(text) &&
+        !/\\u5df2\\u6682\\u5b58\\s*1/.test(text) &&
+        !/\\u672a\\u6682\\u5b58\\s*1/.test(text) &&
         /UU/.test(text)
       );
     })();

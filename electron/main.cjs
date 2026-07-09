@@ -2426,9 +2426,9 @@ function parseGitStatusFiles(lines) {
     const pathPart = line.slice(3).trim();
     const [from, to] = pathPart.split(/\s+->\s+/);
     const isUntracked = code === "??";
-    const staged = Boolean(code[0] && code[0] !== " " && code[0] !== "?");
-    const unstaged = Boolean(code[1] && code[1] !== " " && code[1] !== "?");
     const conflict = /U|AA|DD/.test(code);
+    const staged = !conflict && Boolean(code[0] && code[0] !== " " && code[0] !== "?");
+    const unstaged = !conflict && Boolean(code[1] && code[1] !== " " && code[1] !== "?");
     const renamed = /R/.test(code) || Boolean(to);
     const deleted = /D/.test(code);
     const kind = conflict
@@ -2460,14 +2460,15 @@ function parseGitStatusFiles(lines) {
 }
 
 function gitStatusSummary(files = []) {
+  const nonConflicted = files.filter((file) => !file.conflict);
   return {
     total: files.length,
-    staged: files.filter((file) => file.staged).length,
-    unstaged: files.filter((file) => file.unstaged).length,
-    untracked: files.filter((file) => file.untracked).length,
-    mixed: files.filter((file) => file.kind === "mixed").length,
-    renamed: files.filter((file) => /R/.test(file.status || "") || file.previousPath).length,
-    deleted: files.filter((file) => /D/.test(file.status || "")).length,
+    staged: nonConflicted.filter((file) => file.staged).length,
+    unstaged: nonConflicted.filter((file) => file.unstaged).length,
+    untracked: nonConflicted.filter((file) => file.untracked).length,
+    mixed: nonConflicted.filter((file) => file.kind === "mixed").length,
+    renamed: nonConflicted.filter((file) => /R/.test(file.status || "") || file.previousPath).length,
+    deleted: nonConflicted.filter((file) => /D/.test(file.status || "")).length,
     conflicted: files.filter((file) => file.conflict).length,
   };
 }

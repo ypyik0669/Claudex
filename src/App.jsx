@@ -4232,6 +4232,7 @@ function gitFileMatchesSummaryKind(file, kind) {
   if (kind === "unstaged") return Boolean(file.unstaged || file.kind === "unstaged" || file.kind === "mixed");
   if (kind === "untracked") return Boolean(file.untracked || file.kind === "untracked");
   if (kind === "conflicted" || kind === "conflict") return Boolean(file.conflict || file.kind === "conflict");
+  if (file.conflict || file.kind === "conflict") return false;
   if (kind === "renamed") return Boolean(/R/.test(file.status || "") || file.previousPath || file.kind === "renamed");
   if (kind === "deleted") return Boolean(/D/.test(file.status || "") || file.kind === "deleted");
   return file.kind === kind;
