@@ -196,26 +196,64 @@ async function runTest() {
     })();
   `));
 
-  assertStep("PASS237_RESTORE_SWITCHES_PROJECT_AND_THREAD", await waitFor(win, `
+  assertStep("PASS237_PALETTE_RESTORE_FOCUSES_REAL_BUTTON_ONLY", await waitFor(win, `
     (async function() {
       const state = await window.claudexDesktop.getState();
-      const restoredA = state.sessions?.find((session) => session.id === 'pass237-thread-a');
+      const archivedA = state.sessions?.find((session) => session.id === 'pass237-thread-a');
       const activeThread = document.querySelector('.thread-item.active');
+      const restoreButton = document.querySelector('.thread-item[data-thread-id="pass237-thread-a"] [data-thread-action="restore"]');
       const body = document.body.textContent || '';
       return Boolean(
         state.activeProject?.path === ${JSON.stringify(PROJECT_A_DIR)} &&
-        restoredA?.archived === false &&
-        document.querySelector('[data-thread-scope="current"].active') &&
+        archivedA?.archived === true &&
+        document.querySelector('[data-thread-scope="archived"].active') &&
         activeThread?.getAttribute('data-thread-id') === 'pass237-thread-a' &&
-        document.querySelector('.thread-item[data-thread-id="pass237-thread-a"][data-thread-archived="false"]') &&
+        document.querySelector('.thread-item[data-thread-id="pass237-thread-a"][data-thread-archived="true"]') &&
+        restoreButton?.getAttribute('data-thread-action-focused') === 'true' &&
+        document.activeElement === restoreButton &&
         !document.querySelector('.thread-item[data-thread-id="pass237-thread-b"]') &&
         /PASS237 Project A archived target/.test(body) &&
-        /PASS237 project A archived message/.test(body)
+        /PASS237 project A archived message/.test(body) &&
+        !(state.runEvents || []).some((event) => event.type === 'thread-action') &&
+        !(state.commandRuns || []).length
       );
     })();
   `, 12000));
 
-  console.log("PASS237_COMMAND_PALETTE_RESTORE_CROSS_PROJECT_THREAD_DONE");
+  assertStep("PASS237_REAL_RESTORE_BUTTON_MUTATES_THREAD", await win.webContents.executeJavaScript(`
+    (async function() {
+      const restoreButton = document.querySelector('.thread-item[data-thread-id="pass237-thread-a"] [data-thread-action="restore"]');
+      if (!restoreButton) return false;
+      restoreButton.click();
+      await new Promise((resolve) => setTimeout(resolve, 800));
+      return true;
+    })();
+  `));
+
+  assertStep("PASS237_RESTORE_SWITCHES_TO_CURRENT_PROJECT_THREAD", await waitFor(win, `
+    (async function() {
+      const state = await window.claudexDesktop.getState();
+      const restoredA = state.sessions?.find((session) => session.id === 'pass237-thread-a');
+      const activeThread = document.querySelector('.thread-item.active');
+      const event = state.runEvents?.find((item) =>
+        item.type === 'thread-action' &&
+        item.sessionId === 'pass237-thread-a' &&
+        /action=restore/.test(item.stdout || '')
+      );
+      return Boolean(
+        state.activeProject?.path === ${JSON.stringify(PROJECT_A_DIR)} &&
+        restoredA?.archived === false &&
+        !restoredA?.archivedAt &&
+        document.querySelector('[data-thread-scope="current"].active') &&
+        activeThread?.getAttribute('data-thread-id') === 'pass237-thread-a' &&
+        activeThread?.getAttribute('data-thread-archived') === 'false' &&
+        event &&
+        /PASS237 Project A archived target/.test(document.body.textContent || '')
+      );
+    })();
+  `, 12000));
+
+  console.log("PASS237_COMMAND_PALETTE_RESTORE_CROSS_PROJECT_THREAD_FOCUS_DONE");
   cleanup();
   app.exit(0);
 }

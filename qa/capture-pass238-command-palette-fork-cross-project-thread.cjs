@@ -197,7 +197,42 @@ async function runTest() {
     })();
   `));
 
-  assertStep("PASS238_FORK_SWITCHES_PROJECT_AND_SELECTS_NEW_THREAD", await waitFor(win, `
+  assertStep("PASS238_PALETTE_FORK_FOCUSES_REAL_BUTTON_ONLY", await waitFor(win, `
+    (async function() {
+      const state = await window.claudexDesktop.getState();
+      const activeThread = document.querySelector('.thread-item.active');
+      const forkButton = document.querySelector('.thread-item[data-thread-id="pass238-thread-a"] [data-thread-action="fork"]');
+      const source = state.sessions?.find((session) => session.id === 'pass238-thread-a');
+      const body = document.body.textContent || '';
+      return Boolean(
+        state.activeProject?.path === ${JSON.stringify(PROJECT_A_DIR)} &&
+        source?.claudeSessionId === 'pass238-source-claude-session' &&
+        !state.sessions?.some((session) => session.forkedFromId === 'pass238-thread-a') &&
+        document.querySelector('[data-thread-scope="current"].active') &&
+        activeThread?.getAttribute('data-thread-id') === 'pass238-thread-a' &&
+        activeThread?.getAttribute('data-thread-project-path') === ${JSON.stringify(PROJECT_A_DIR)} &&
+        forkButton?.getAttribute('data-thread-action-focused') === 'true' &&
+        document.activeElement === forkButton &&
+        !document.querySelector('.thread-item[data-thread-id="pass238-thread-b"]') &&
+        /PASS238 project A source message/.test(body) &&
+        /PASS238 project A source answer/.test(body) &&
+        !(state.runEvents || []).some((event) => event.type === 'thread-action') &&
+        !(state.commandRuns || []).length
+      );
+    })();
+  `, 12000));
+
+  assertStep("PASS238_REAL_FORK_BUTTON_MUTATES_THREAD", await win.webContents.executeJavaScript(`
+    (async function() {
+      const forkButton = document.querySelector('.thread-item[data-thread-id="pass238-thread-a"] [data-thread-action="fork"]');
+      if (!forkButton) return false;
+      forkButton.click();
+      await new Promise((resolve) => setTimeout(resolve, 800));
+      return true;
+    })();
+  `));
+
+  assertStep("PASS238_FORK_SELECTS_NEW_PROJECT_THREAD", await waitFor(win, `
     (async function() {
       const state = await window.claudexDesktop.getState();
       const fork = state.sessions?.find((session) =>
@@ -205,6 +240,13 @@ async function runTest() {
         session.projectPath === ${JSON.stringify(PROJECT_A_DIR)}
       );
       const activeThread = document.querySelector('.thread-item.active');
+      const event = state.runEvents?.find((item) =>
+        item.type === 'thread-action' &&
+        item.sessionId === 'pass238-thread-a' &&
+        /action=fork/.test(item.stdout || '') &&
+        fork?.id &&
+        (item.stdout || '').includes(fork.id)
+      );
       const body = document.body.textContent || '';
       return Boolean(
         state.activeProject?.path === ${JSON.stringify(PROJECT_A_DIR)} &&
@@ -221,12 +263,13 @@ async function runTest() {
         !document.querySelector('.thread-item[data-thread-id="pass238-thread-b"]') &&
         /Fork: PASS238 Project A source thread/.test(body) &&
         /PASS238 project A source message/.test(body) &&
-        /PASS238 project A source answer/.test(body)
+        /PASS238 project A source answer/.test(body) &&
+        event
       );
     })();
   `, 12000));
 
-  console.log("PASS238_COMMAND_PALETTE_FORK_CROSS_PROJECT_THREAD_DONE");
+  console.log("PASS238_COMMAND_PALETTE_FORK_CROSS_PROJECT_THREAD_FOCUS_DONE");
   cleanup();
   app.exit(0);
 }
