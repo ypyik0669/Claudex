@@ -18030,6 +18030,18 @@ export function App() {
             query: id,
             marketplaceFilter: "available",
             action: "install",
+            confirmCommand: {
+              args: `plugin install ${id}`,
+              label: `${t.installFromMarketplace}: ${plugin.name || id}`,
+              reviewRows: marketplacePluginInstallReviewRows(plugin, t),
+              capabilityContext: {
+                tab: "marketplace",
+                kind: "marketplace-plugin",
+                id,
+                query: id,
+                action: "install",
+              },
+            },
           }),
         };
       });

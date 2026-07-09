@@ -236,50 +236,26 @@ app.whenReady().then(async () => {
       (command) => command.id === expectedId && /pass173-risk-plugin/.test(command.text || ""),
     ));
     assertStep("PASS173_OPEN_INSTALL_COMMAND", await runPaletteCommand(win, "install pass173 risk", expectedId));
-    assertStep("PASS173_INSTALL_ACTION_FOCUSED", await waitFor(win, `
+    assertStep("PASS173_INSTALL_CONFIRM_FROM_COMMAND", await waitFor(win, `
       (function() {
         const activeTab = document.querySelector('.plugin-manager-tabs button.active')?.textContent || '';
         const card = document.querySelector('[data-marketplace-plugin-id="pass173-risk-plugin@pass173-market"]');
-        const action = card?.querySelector('[data-marketplace-plugin-action="install"]');
+        const confirm = document.querySelector('.plugin-cli-confirm');
+        const confirmText = confirm?.textContent || '';
+        const metaText = confirm?.querySelector('.plugin-cli-confirm-meta')?.textContent || '';
         return Boolean(
           /\\u5e02\\u573a/.test(activeTab) &&
           document.querySelector('.marketplace-filter-control [data-marketplace-filter="available"].active') &&
           card?.classList.contains('focused-capability-row') &&
-          action?.getAttribute('data-capability-action-focused') === 'true' &&
-          action?.getAttribute('data-capability-action') === 'install' &&
-          !document.querySelector('.plugin-cli-confirm')
+          confirm &&
+          /plugin install pass173-risk-plugin@pass173-market/.test(confirmText) &&
+          /runs local plugin code/.test(metaText) &&
+          /network access/.test(metaText) &&
+          /Read/.test(metaText) &&
+          /Bash/.test(metaText)
         );
       })();
     `, 15000));
-    assertStep("PASS173_INSTALL_NOT_RUN_BEFORE_CONFIRM", !fs.existsSync(INSTALL_MARKER));
-    assertStep("PASS173_INSTALL_ACTION_READY", await waitFor(win, `
-      (function() {
-        const action = document.querySelector('[data-marketplace-plugin-id="pass173-risk-plugin@pass173-market"] [data-marketplace-plugin-action="install"]');
-        return Boolean(action && !action.disabled);
-      })();
-    `, 10000));
-    assertStep("PASS173_CLICK_INSTALL_ACTION", await win.webContents.executeJavaScript(`
-      (function() {
-        const action = document.querySelector('[data-marketplace-plugin-id="pass173-risk-plugin@pass173-market"] [data-marketplace-plugin-action="install"]');
-        if (!action || action.disabled) return false;
-        action.click();
-        return true;
-      })();
-    `));
-    assertStep("PASS173_INSTALL_CONFIRM_VISIBLE", await waitFor(win, `
-      (function() {
-        const confirm = document.querySelector('.plugin-cli-confirm');
-        const confirmText = confirm?.textContent || '';
-        return Boolean(
-          confirm &&
-          /plugin install pass173-risk-plugin@pass173-market/.test(confirmText) &&
-          /runs local plugin code/.test(confirmText) &&
-          /network access/.test(confirmText) &&
-          /Read/.test(confirmText) &&
-          /Bash/.test(confirmText)
-        );
-      })();
-    `, 5000));
     assertStep("PASS173_INSTALL_STILL_NOT_RUN_BEFORE_CONFIRM", !fs.existsSync(INSTALL_MARKER));
 
     console.log("PASS173_MARKETPLACE_INSTALL_COMMAND_DONE");

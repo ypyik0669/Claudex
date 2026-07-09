@@ -34,6 +34,7 @@ const PROJECT_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "claudex-pass216-proje
 const MARKETPLACE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "claudex-pass216-market-"));
 const FAKE_CLAUDE = path.join(FAKE_BIN_DIR, "claude.cmd");
 const DATA_FILE = path.join(USER_DATA_DIR, "desktop-data.json");
+const COMMAND_LOG = path.join(USER_DATA_DIR, "claude-command-log.txt");
 const TARGET_ID = "pass216-deep-plugin-31@pass216-market";
 
 function cleanup() {
@@ -70,6 +71,14 @@ function assertStep(name, ok) {
   if (!ok) throw new Error(`${name} failed`);
 }
 
+function readCommandLog() {
+  try {
+    return fs.readFileSync(COMMAND_LOG, "utf8");
+  } catch (_error) {
+    return "";
+  }
+}
+
 function writeMarketplaceFixture() {
   const plugins = Array.from({ length: 31 }, (_value, index) => {
     const number = index + 1;
@@ -97,8 +106,11 @@ function writeMarketplaceFixture() {
 function writeFakeClaude() {
   fs.mkdirSync(FAKE_BIN_DIR, { recursive: true });
   const fakeScript = `
+const fs = require('fs');
 const args = process.argv.slice(2);
 const marketplaceDir = ${JSON.stringify(MARKETPLACE_DIR)};
+const commandLog = ${JSON.stringify(COMMAND_LOG)};
+fs.appendFileSync(commandLog, args.join(' ') + '\\n', 'utf8');
 function out(value) { process.stdout.write(typeof value === 'string' ? value + '\\n' : JSON.stringify(value, null, 2) + '\\n'); }
 if (args[0] === '--version') out('2.10.6 (Claude Code PASS216)');
 else if (args[0] === 'auth' && args[1] === 'status') out({ loggedIn: true, apiProvider: 'qa-provider', authMethod: 'api_key' });
@@ -242,12 +254,14 @@ async function runTest() {
   ));
 
   assertStep("PASS216_OPEN_DEEP_MARKETPLACE_INSTALL_COMMAND", await runPaletteCommand(win, "install pass216 deep 31", expectedInstallCommandId));
-  assertStep("PASS216_DEEP_MARKETPLACE_ACTION_FOCUSED", await waitFor(win, `
+  assertStep("PASS216_DEEP_MARKETPLACE_CONFIRM_FROM_COMMAND", await waitFor(win, `
     (function() {
       const activeTab = document.querySelector('.plugin-manager-tabs button.active')?.textContent || '';
       const card = document.querySelector('[data-marketplace-plugin-id=${JSON.stringify(TARGET_ID)}]');
       const cardText = card?.textContent || '';
-      const action = card?.querySelector('[data-marketplace-plugin-action="install"]');
+      const confirm = document.querySelector('.plugin-cli-confirm');
+      const confirmText = confirm?.textContent || '';
+      const metaText = confirm?.querySelector('.plugin-cli-confirm-meta')?.textContent || '';
       return Boolean(
         /\\u5e02\\u573a/.test(activeTab) &&
         document.querySelector('.marketplace-filter-control [data-marketplace-filter="available"].active') &&
@@ -255,40 +269,16 @@ async function runTest() {
         /pass216-deep-plugin-31/.test(cardText) &&
         /agent-tools/.test(cardText) &&
         /network access/.test(cardText) &&
-        action?.getAttribute('data-capability-action-focused') === 'true' &&
-        action?.getAttribute('data-capability-action') === 'install' &&
-        !document.querySelector('.plugin-cli-confirm')
-      );
-    })();
-  `, 15000));
-  assertStep("PASS216_DEEP_MARKETPLACE_INSTALL_ACTION_READY", await waitFor(win, `
-    (function() {
-      const action = document.querySelector('[data-marketplace-plugin-id=${JSON.stringify(TARGET_ID)}] [data-marketplace-plugin-action="install"]');
-      return Boolean(action && !action.disabled);
-    })();
-  `, 10000));
-  assertStep("PASS216_CLICK_DEEP_MARKETPLACE_INSTALL_ACTION", await win.webContents.executeJavaScript(`
-    (function() {
-      const action = document.querySelector('[data-marketplace-plugin-id=${JSON.stringify(TARGET_ID)}] [data-marketplace-plugin-action="install"]');
-      if (!action || action.disabled) return false;
-      action.click();
-      return true;
-    })();
-  `));
-  assertStep("PASS216_DEEP_MARKETPLACE_CONFIRM_VISIBLE", await waitFor(win, `
-    (function() {
-      const confirm = document.querySelector('.plugin-cli-confirm');
-      const confirmText = confirm?.textContent || '';
-      return Boolean(
         confirm &&
         /plugin install pass216-deep-plugin-31@pass216-market/.test(confirmText) &&
-        /runs local plugin code/.test(confirmText) &&
-        /network access/.test(confirmText) &&
-        /Read/.test(confirmText) &&
-        /Bash/.test(confirmText)
+        /runs local plugin code/.test(metaText) &&
+        /network access/.test(metaText) &&
+        /Read/.test(metaText) &&
+        /Bash/.test(metaText)
       );
     })();
   `, 15000));
+  assertStep("PASS216_INSTALL_NOT_RUN_BEFORE_CONFIRM", !/plugin install pass216-deep-plugin-31@pass216-market/.test(readCommandLog()));
 
   console.log("PASS216_COMMAND_PALETTE_DEEP_MARKETPLACE_PLUGIN_DONE");
   cleanup();
