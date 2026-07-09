@@ -3,52 +3,103 @@ const os = require("os");
 const path = require("path");
 const { app, BrowserWindow } = require("electron");
 
-const PROJECT_PATH = path.join(__dirname, "..");
-const AUDIT_DIR = path.join(PROJECT_PATH, "docs", "uiux-audit-2026-07-04-live");
-const USER_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "claudex-pass21-workspace-"));
+function findRepoDir() {
+  const candidates = [
+    process.env.CLAUDEX_REPO_DIR,
+    process.cwd(),
+    __dirname,
+    path.join(__dirname, ".."),
+  ].filter(Boolean);
+  for (const candidate of candidates) {
+    let current = path.resolve(candidate);
+    while (current && current !== path.dirname(current)) {
+      if (
+        fs.existsSync(path.join(current, "package.json")) &&
+        fs.existsSync(path.join(current, "electron", "main.cjs"))
+      ) {
+        return current;
+      }
+      current = path.dirname(current);
+    }
+  }
+  throw new Error("Unable to locate Claudex repo root");
+}
+
+const REPO_DIR = findRepoDir();
+process.chdir(REPO_DIR);
+const AUDIT_DIR = path.join(REPO_DIR, "docs", "uiux-audit-2026-07-04-live");
+const USER_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "claudex-pass21-data-"));
+const PROJECT_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "claudex-pass21-project-"));
+const DATA_FILE = path.join(USER_DATA_DIR, "desktop-data.json");
 const SCRATCH_NAME = "_qa_pass21_review_gate.txt";
-const SCRATCH_PATH = path.join(PROJECT_PATH, SCRATCH_NAME);
+const SCRATCH_PATH = path.join(PROJECT_DIR, SCRATCH_NAME);
 const ORIGINAL_CONTENT = "pass21 review gate baseline\n";
 const EDITED_CONTENT = `${ORIGINAL_CONTENT}reviewed change\n`;
 
 app.setPath("userData", USER_DATA_DIR);
 
 function cleanup() {
-  try {
-    fs.unlinkSync(SCRATCH_PATH);
-  } catch (_error) {
-    // already gone
+  for (const dir of [USER_DATA_DIR, PROJECT_DIR]) {
+    try {
+      fs.rmSync(dir, { recursive: true, force: true });
+    } catch (_error) {
+      // best-effort cleanup
+    }
   }
 }
 
-fs.writeFileSync(SCRATCH_PATH, ORIGINAL_CONTENT, "utf8");
-fs.mkdirSync(USER_DATA_DIR, { recursive: true });
-fs.writeFileSync(
-  path.join(USER_DATA_DIR, "desktop-data.json"),
-  JSON.stringify(
-    {
-      version: 1,
-      activeProject: { name: "claude-code-app", path: PROJECT_PATH },
-      projects: [{ name: "claude-code-app", path: PROJECT_PATH }],
-      sessions: [
-        {
-          id: "default",
-          title: "New chat",
-          project: "claude-code-app",
-          projectPath: PROJECT_PATH,
-          createdAt: "2026-07-04T05:00:00.000Z",
-          updatedAt: "2026-07-04T05:00:00.000Z",
-          messages: [],
-        },
-      ],
-    },
-    null,
-    2,
-  ),
-  "utf8",
-);
+function writeJson(file, value) {
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, JSON.stringify(value, null, 2), "utf8");
+}
 
-require(path.join(__dirname, "..", "electron", "main.cjs"));
+fs.mkdirSync(PROJECT_DIR, { recursive: true });
+fs.writeFileSync(path.join(PROJECT_DIR, "package.json"), JSON.stringify({ name: "pass21-review-project" }), "utf8");
+fs.writeFileSync(SCRATCH_PATH, ORIGINAL_CONTENT, "utf8");
+writeJson(DATA_FILE, {
+  version: 1,
+  settings: {
+    provider: "anthropic",
+    model: "claude-haiku-4-5-20251001",
+    baseUrl: "https://api.example.invalid",
+    temperature: 0.2,
+    timeoutMs: 600000,
+    language: "zh",
+    appearance: { fontSize: "compact", density: "compact" },
+    claudeCode: { executionMode: "claude-code", claudeCommand: "claude", permissionMode: "default" },
+    capabilities: {
+      "project-context": true,
+      "terminal-helper": true,
+      "mcp-runtime": true,
+      "plugin-router": true,
+      "marketplace-router": true,
+    },
+    customMarketplaces: [],
+    apiKeys: {},
+  },
+  activeProject: { name: "pass21-review-project", path: PROJECT_DIR },
+  projects: [{ name: "pass21-review-project", path: PROJECT_DIR }],
+  sessions: [
+    {
+      id: "default",
+      title: "Pass21 review gate",
+      project: "pass21-review-project",
+      projectPath: PROJECT_DIR,
+      createdAt: "2026-07-04T05:00:00.000Z",
+      updatedAt: "2026-07-04T05:00:00.000Z",
+      messages: [],
+    },
+  ],
+  automations: [],
+  subagentRuns: [],
+  commandRuns: [],
+  runEvents: [],
+  sourceRefs: [],
+  browserVisits: [],
+  notices: [],
+});
+
+require(path.join(REPO_DIR, "electron", "main.cjs"));
 
 function wait(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -94,16 +145,19 @@ app.whenReady().then(async () => {
   win.setBounds({ x: 0, y: 0, width: 1480, height: 960 });
   await wait(500);
 
-  assertStep("PASS21_READY_MODEL", await waitFor(win, `
-    Boolean(document.querySelector(".model-pill strong")?.textContent?.trim()) &&
-    !/claude-sonnet-5|sonnet-5/i.test(document.body.textContent || "")
+  assertStep("PASS21_TEST_MODEL_HAIKU_45", await waitFor(win, `
+    (async function() {
+      const state = await window.claudexDesktop?.getState?.();
+      return state?.settings?.model === "claude-haiku-4-5-20251001" &&
+        /haiku|claude-haiku-4-5-20251001/i.test(document.querySelector(".model-pill")?.textContent || document.body.textContent || "");
+    })();
   `, 15000));
 
   assertStep("PASS21_CONTEXT_STABLE", await waitFor(win, `
     (function() {
       const compact = document.querySelector(".context-summary-compact");
       const text = compact?.textContent || "";
-      return Boolean(compact && /claude-code-app/i.test(text));
+      return Boolean(compact && /pass21-review-project/i.test(text));
     })();
   `, 15000));
 
@@ -162,6 +216,14 @@ app.whenReady().then(async () => {
       );
     })();
   `, 8000));
+
+  assertStep("PASS21_DISK_UNCHANGED_BEFORE_REVIEW", fs.readFileSync(SCRATCH_PATH, "utf8") === ORIGINAL_CONTENT);
+  assertStep("PASS21_NO_FILE_SAVE_EVENT_BEFORE_REVIEW", await win.webContents.executeJavaScript(`
+    (async function() {
+      const state = await window.claudexDesktop.getState();
+      return !(state.runEvents || []).some((event) => event.type === "file-save");
+    })();
+  `));
 
   await shot(win, "41-pass21-workspace-review-gate-source.png");
 
