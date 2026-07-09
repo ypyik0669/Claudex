@@ -132,6 +132,9 @@ app.whenReady().then(async () => {
 
   assertStep("PASS34_CONTEXT_CLICK", await clickByAriaPrefix(win, ".workspace-context-button", "环境"));
   assertStep("PASS34_CONTEXT_PANEL_VISIBLE", await waitFor(win, "Boolean(document.querySelector('.bottom-work-panel') && document.querySelector('.workspace-context-button.active'))", 5000));
+  assertStep("PASS34_ENVIRONMENT_RAIL_ACTIVE", await waitFor(win, `
+    document.querySelector('.rail-button[data-tool="environment"]')?.getAttribute('data-tool-active') === 'true'
+  `, 5000));
   assertStep("PASS34_ACTIVE_CONTEXT_EXPANDS", await waitFor(win, "document.querySelector('.workspace-context-button.active')?.getBoundingClientRect().width > 40", 5000));
   await shot(win, "pass34-bottom-environment.png");
 

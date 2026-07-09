@@ -9056,6 +9056,7 @@ function ToolRail({
   settings,
   environment,
   selectedTool,
+  bottomPanel,
   onActivateTool,
   onOpenBottomPanel,
   onOpenTaskCenterFocus,
@@ -9075,6 +9076,13 @@ function ToolRail({
   const gitChanges = environment?.git?.available ? Number(environment.git.changes || 0) : 0;
   const projectMissing = Boolean(activeProject?.path && environment?.projectMissing);
   const activeNotices = useMemo(() => (notices || []).filter((notice) => !notice.dismissedAt), [notices]);
+  const railItemActive = (id) => {
+    if (["workspace", "claude", "browser", "terminal"].includes(id)) return selectedTool === id;
+    if (id === "environment") return bottomPanel === "environment";
+    if (id === "notices") return bottomPanel === "notices";
+    if (id === "subagents") return bottomPanel === "subagents";
+    return selectedTool === id;
+  };
   const latestWorkspaceRun = useMemo(() => commandRunsToHistory(commandRuns, "workspace")[0], [commandRuns]);
   const latestWorkspaceFailed = latestWorkspaceRun && typeof latestWorkspaceRun.code === "number" && latestWorkspaceRun.code !== 0;
   const latestClaudeRun = useMemo(() => commandRunsToHistory(commandRuns, "claude")[0], [commandRuns]);
@@ -9314,7 +9322,7 @@ function ToolRail({
       </button>
       <div className="tool-rail-stack" role="list" aria-label={t.tools}>
         {items.map(({ id, label, icon: Icon, badge, status, detail, action }) => {
-          const active = selectedTool === id;
+          const active = railItemActive(id);
           const controls = ["workspace", "claude", "browser", "terminal"].includes(id) ? `${id}-tool-detail` : "";
           return (
             <button
@@ -19438,6 +19446,7 @@ export function App() {
             settings={state.settings}
             environment={environment}
             selectedTool={selectedTool}
+            bottomPanel={bottomPanel}
             onActivateTool={activateTool}
             onOpenBottomPanel={openBottomPanel}
             onOpenTaskCenterFocus={openTaskCenterFocus}
