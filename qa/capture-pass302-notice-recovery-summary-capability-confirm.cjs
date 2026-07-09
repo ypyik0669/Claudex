@@ -405,6 +405,49 @@ async function runTest() {
       );
     })();
   `, 12000));
+  assertStep("PASS302_SUMMARY_EVIDENCE_CONTEXT_VISIBLE", await waitFor(win, `
+    (function() {
+      const runId = window.__PASS302_RUN_ID__ || '';
+      const panel = document.querySelector('.selected-run-evidence-panel.error');
+      const row = [...document.querySelectorAll('.run-timeline-row.error')]
+        .find((candidate) => candidate.getAttribute('data-run-event-id') === runId);
+      const context = panel?.querySelector('[data-run-capability-context="true"]');
+      const rowContext = row?.querySelector('[data-run-capability-context="true"]');
+      const contextText = context?.textContent || '';
+      const rowContextText = rowContext?.textContent || '';
+      return Boolean(
+        panel &&
+        row &&
+        panel.getAttribute('data-run-evidence-source') === 'command' &&
+        row.getAttribute('data-run-evidence-source') === 'command' &&
+        panel.getAttribute('data-run-capability-tab') === 'marketplace' &&
+        panel.getAttribute('data-run-capability-kind') === 'marketplace-source' &&
+        panel.getAttribute('data-run-capability-id') === '${TARGET_MARKETPLACE_NAME}' &&
+        panel.getAttribute('data-run-capability-action') === 'update' &&
+        row.getAttribute('data-run-capability-tab') === 'marketplace' &&
+        row.getAttribute('data-run-capability-kind') === 'marketplace-source' &&
+        row.getAttribute('data-run-capability-id') === '${TARGET_MARKETPLACE_NAME}' &&
+        row.getAttribute('data-run-capability-action') === 'update' &&
+        context &&
+        context.getAttribute('data-run-capability-tab') === 'marketplace' &&
+        context.getAttribute('data-run-capability-kind') === 'marketplace-source' &&
+        context.getAttribute('data-run-capability-id') === '${TARGET_MARKETPLACE_NAME}' &&
+        context.getAttribute('data-run-capability-action') === 'update' &&
+        rowContext &&
+        rowContext.getAttribute('data-run-capability-tab') === 'marketplace' &&
+        rowContext.getAttribute('data-run-capability-kind') === 'marketplace-source' &&
+        rowContext.getAttribute('data-run-capability-id') === '${TARGET_MARKETPLACE_NAME}' &&
+        rowContext.getAttribute('data-run-capability-action') === 'update' &&
+        /marketplace-source/.test(contextText) &&
+        /${TARGET_MARKETPLACE_NAME}/.test(contextText) &&
+        /update/.test(contextText) &&
+        /marketplace-source/.test(rowContextText) &&
+        /${TARGET_MARKETPLACE_NAME}/.test(rowContextText) &&
+        /update/.test(rowContextText) &&
+        !/${OTHER_MARKETPLACE_NAME}/.test(contextText + rowContextText)
+      );
+    })();
+  `, 5000));
 
   assertStep("PASS302_OPEN_PALETTE_BUCKET", await openPaletteAndQuery(win, "notice recovery summary pass302 marketplace update failed"));
   assertStep("PASS302_PALETTE_BUCKET_VISIBLE", await waitFor(win, `
@@ -440,6 +483,30 @@ async function runTest() {
       );
     })();
   `, 12000));
+  assertStep("PASS302_PALETTE_EVIDENCE_CONTEXT_VISIBLE", await waitFor(win, `
+    (function() {
+      const panel = document.querySelector('.selected-run-evidence-panel.error');
+      const context = panel?.querySelector('[data-run-capability-context="true"]');
+      const contextText = context?.textContent || '';
+      return Boolean(
+        panel &&
+        panel.getAttribute('data-run-evidence-source') === 'command' &&
+        panel.getAttribute('data-run-capability-tab') === 'marketplace' &&
+        panel.getAttribute('data-run-capability-kind') === 'marketplace-source' &&
+        panel.getAttribute('data-run-capability-id') === '${TARGET_MARKETPLACE_NAME}' &&
+        panel.getAttribute('data-run-capability-action') === 'update' &&
+        context &&
+        context.getAttribute('data-run-capability-tab') === 'marketplace' &&
+        context.getAttribute('data-run-capability-kind') === 'marketplace-source' &&
+        context.getAttribute('data-run-capability-id') === '${TARGET_MARKETPLACE_NAME}' &&
+        context.getAttribute('data-run-capability-action') === 'update' &&
+        /marketplace-source/.test(contextText) &&
+        /${TARGET_MARKETPLACE_NAME}/.test(contextText) &&
+        /update/.test(contextText) &&
+        !/${OTHER_MARKETPLACE_NAME}/.test(contextText)
+      );
+    })();
+  `, 5000));
 
   const beforeRetry = readCommandLog();
   assertStep("PASS302_CLICK_EVIDENCE_RETRY", await win.webContents.executeJavaScript(`

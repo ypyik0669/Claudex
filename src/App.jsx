@@ -3534,6 +3534,7 @@ function commandRunTimelineEvent(run = {}, t) {
   const commandLine = String(run.command || run.commandLine || "").trim();
   if (!eventId || !commandLine) return null;
   const type = commandRunTimelineType(run);
+  const capabilityContext = capabilityContextFromRun(run);
   const titlePrefix = type === "git-command"
     ? "Git"
     : run.kind === "claude"
@@ -3556,6 +3557,7 @@ function commandRunTimelineEvent(run = {}, t) {
     durationMs: typeof run.durationMs === "number" ? run.durationMs : null,
     stdout: run.stdout || "",
     stderr: run.stderr || "",
+    ...(capabilityContext ? { capabilityContext } : {}),
   };
 }
 
@@ -3795,12 +3797,33 @@ function runTimelineProjectPath(event = {}, evidence = {}) {
   return String(event?.project?.path || evidence?.projectPath || evidence?.cwd || event?.cwd || "").trim();
 }
 
+function runTimelineCapabilityContext(event = {}, evidence = {}) {
+  return normalizeCapabilityContext(evidence?.capabilityContext || event?.capabilityContext || null);
+}
+
+function runTimelineCapabilityContextLabel(context = {}) {
+  const normalized = normalizeCapabilityContext(context);
+  if (!normalized) return "";
+  return [
+    normalized.tab,
+    normalized.kind,
+    normalized.id,
+    normalized.action,
+  ].filter(Boolean).join(" · ");
+}
+
 function runTimelineTraceAttributes(event = {}, evidence = {}) {
+  const capabilityContext = runTimelineCapabilityContext(event, evidence);
   return {
     "data-run-event-id": runTimelineEventId(event, evidence),
     "data-run-evidence-source": evidence?.source || "event",
     "data-run-event-session-id": runTimelineSessionId(event, evidence),
     "data-run-event-project-path": runTimelineProjectPath(event, evidence),
+    "data-run-capability-tab": capabilityContext?.tab || "",
+    "data-run-capability-kind": capabilityContext?.kind || "",
+    "data-run-capability-id": capabilityContext?.id || "",
+    "data-run-capability-query": capabilityContext?.query || "",
+    "data-run-capability-action": capabilityContext?.action || "",
   };
 }
 
@@ -3818,6 +3841,7 @@ function runTimelineOutputEvidenceText(evidence = {}, t) {
 function runTimelineEvidenceForEvent(event, { commandRuns = [], automations = [], subagentRuns = [], browserVisits = [], sessions = [], t } = {}) {
   const commandRun = findCommandRunForEvent(event, commandRuns);
   if (commandRun) {
+    const capabilityContext = normalizeCapabilityContext(commandRun?.capabilityContext || event?.capabilityContext || null);
     return {
       source: "command",
       commandRunId: commandRun.id || event?.id || "",
@@ -3835,6 +3859,7 @@ function runTimelineEvidenceForEvent(event, { commandRuns = [], automations = []
       stdout: commandRun.stdout || "",
       stderr: commandRun.stderr || "",
       summary: "",
+      ...(capabilityContext ? { capabilityContext } : {}),
     };
   }
 
@@ -3918,6 +3943,7 @@ function runTimelineEvidenceForEvent(event, { commandRuns = [], automations = []
     };
   }
 
+  const capabilityContext = normalizeCapabilityContext(event?.capabilityContext || null);
   return {
     source: "event",
     title: event?.title || "",
@@ -3935,6 +3961,7 @@ function runTimelineEvidenceForEvent(event, { commandRuns = [], automations = []
     stdout: event?.stdout || "",
     stderr: event?.stderr || "",
     summary: event?.detail || "",
+    ...(capabilityContext ? { capabilityContext } : {}),
   };
 }
 
@@ -3949,6 +3976,8 @@ function runTimelineEvidenceText(event, evidence, t) {
   const eventId = runTimelineEventId(event, evidence);
   const projectPath = runTimelineProjectPath(event, evidence);
   const evidenceSourceLabel = runTimelineEvidenceSourceLabel(evidence, t);
+  const capabilityContext = runTimelineCapabilityContext(event, evidence);
+  const capabilityContextLabel = runTimelineCapabilityContextLabel(capabilityContext);
   const sourceLines = [];
   if (evidence?.source === "automation") {
     sourceLines.push(
@@ -3968,6 +3997,9 @@ function runTimelineEvidenceText(event, evidence, t) {
       `${t.subagents}: ${evidence.subagentNickname || evidence?.title || "Subagent"}`,
       `${t.subagentTask}: ${evidence.subagentTask || "-"}`,
     );
+  }
+  if (capabilityContext) {
+    sourceLines.push(`${t.capabilities || "Capability"}: ${capabilityContextLabel || "-"}`);
   }
   const lines = [
     `${t.outputs}: ${event?.title || evidence?.title || ""}`,
@@ -4005,6 +4037,7 @@ function runTimelineHasEvidence(evidence) {
     || typeof evidence?.durationMs === "number"
     || evidence?.summary
     || evidence?.detail
+    || evidence?.capabilityContext
     || (Array.isArray(evidence?.artifacts) && evidence.artifacts.length > 0)
   );
 }
@@ -8487,6 +8520,8 @@ function RunEvidenceDetails({ event, evidence, onCopy, onOpenWorkspaceFile, t, p
   const projectPath = runTimelineProjectPath(event, evidence);
   const evidenceSourceLabel = runTimelineEvidenceSourceLabel(evidence, t);
   const traceAttributes = runTimelineTraceAttributes(event, evidence);
+  const capabilityContext = runTimelineCapabilityContext(event, evidence);
+  const capabilityContextLabel = runTimelineCapabilityContextLabel(capabilityContext);
   const normalizedFocusedArtifactIndex = String(focusedArtifactIndex ?? "").trim();
   const primaryOutputLabel = evidence?.source === "browser" ? t.browserEvidence : t.commandStdout;
   const secondaryOutputLabel = evidence?.source === "browser" ? t.requestError : t.commandStderr;
@@ -8560,6 +8595,22 @@ function RunEvidenceDetails({ event, evidence, onCopy, onOpenWorkspaceFile, t, p
                 <div><dt>{t.subagentRunId}</dt><dd>{evidence.subagentRunId || "-"}</dd></div>
                 <div><dt>{t.subagentRequestId}</dt><dd>{evidence.subagentRequestId || event?.id || "-"}</dd></div>
               </>
+            )}
+            {capabilityContext && (
+              <div className="wide-evidence-row">
+                <dt>{t.capabilities}</dt>
+                <dd
+                  data-run-capability-context="true"
+                  data-run-capability-tab={capabilityContext.tab || ""}
+                  data-run-capability-kind={capabilityContext.kind || ""}
+                  data-run-capability-id={capabilityContext.id || ""}
+                  data-run-capability-query={capabilityContext.query || ""}
+                  data-run-capability-action={capabilityContext.action || ""}
+                  title={capabilityContextLabel}
+                >
+                  {capabilityContextLabel || "-"}
+                </dd>
+              </div>
             )}
             <div><dt>{t.activeProject}</dt><dd title={evidence.cwd || ""}>{evidence.project || "-"}</dd></div>
             <div><dt>{t.timelineProjectPath}</dt><dd title={projectPath || ""}>{projectPath ? compactPath(projectPath, 72) : "-"}</dd></div>
