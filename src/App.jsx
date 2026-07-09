@@ -9057,6 +9057,7 @@ function ToolRail({
   environment,
   selectedTool,
   bottomPanel,
+  taskCenterFocus,
   onActivateTool,
   onOpenBottomPanel,
   onOpenTaskCenterFocus,
@@ -9080,7 +9081,8 @@ function ToolRail({
     if (["workspace", "claude", "browser", "terminal"].includes(id)) return selectedTool === id;
     if (id === "environment") return bottomPanel === "environment";
     if (id === "notices") return bottomPanel === "notices";
-    if (id === "subagents") return bottomPanel === "subagents";
+    if (id === "automations") return bottomPanel === "subagents" && String(taskCenterFocus?.type || "").trim() === "automation";
+    if (id === "subagents") return bottomPanel === "subagents" && String(taskCenterFocus?.type || "").trim() !== "automation";
     return selectedTool === id;
   };
   const latestWorkspaceRun = useMemo(() => commandRunsToHistory(commandRuns, "workspace")[0], [commandRuns]);
@@ -18232,6 +18234,7 @@ export function App() {
     const requestId = `subagent_${Date.now()}_${Math.random().toString(16).slice(2)}`;
     const projectPath = context?.projectPath || activeProject?.path || "";
     const sessionId = context?.sessionId || activeSession?.id || "";
+    setTaskCenterFocus(taskCenterFocusState("subagent", requestId, { filter: "active" }));
     setBottomPanel("subagents");
     recordRunEvent({
       id: requestId,
@@ -18656,6 +18659,9 @@ export function App() {
     setProjectsOpen(false);
     setScheduledOpen(false);
     setCommandsOpen(false);
+    if (id === "subagents" && options.resetTaskCenterFocus !== false) {
+      setTaskCenterFocus(taskCenterFocusState("", "", { filter: options.filter }));
+    }
     if (id === "changes" && options.resetGitFocus !== false) {
       setGitPanelFocus({ path: "", hunkId: "", action: "", kind: "", all: true, nonce: Date.now() });
     }
@@ -18925,15 +18931,19 @@ export function App() {
   }
 
   function openTaskCenterFocus(type, id = "", options = {}) {
-    const focusedId = String(id || "").trim();
     setSettingsOpen(false);
     setCapabilitiesOpen(false);
     setProjectsOpen(false);
     setScheduledOpen(false);
     setCommandsOpen(false);
-    setTaskCenterFocus({
+    setTaskCenterFocus(taskCenterFocusState(type, id, options));
+    setBottomPanel("subagents");
+  }
+
+  function taskCenterFocusState(type = "", id = "", options = {}) {
+    return {
       type,
-      id: focusedId,
+      id: String(id || "").trim(),
       filter: ["all", "active", "failed", "archived"].includes(options.filter) ? options.filter : "",
       expandEvidence: Boolean(options.expandEvidence),
       expandArtifacts: Boolean(options.expandArtifacts),
@@ -18942,8 +18952,7 @@ export function App() {
       historyRunId: String(options.historyRunId || options.runId || "").trim(),
       artifactIndex: options.artifactIndex === 0 ? "0" : String(options.artifactIndex || "").trim(),
       nonce: Date.now(),
-    });
-    setBottomPanel("subagents");
+    };
   }
 
   function activateTool(tool) {
@@ -19447,6 +19456,7 @@ export function App() {
             environment={environment}
             selectedTool={selectedTool}
             bottomPanel={bottomPanel}
+            taskCenterFocus={taskCenterFocus}
             onActivateTool={activateTool}
             onOpenBottomPanel={openBottomPanel}
             onOpenTaskCenterFocus={openTaskCenterFocus}

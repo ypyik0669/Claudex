@@ -165,8 +165,13 @@ async function openTaskCenter(win) {
   return win.webContents.executeJavaScript(`
     (function() {
       const label = '\\u5b50\\u4ee3\\u7406';
-      const button = Array.from(document.querySelectorAll('.workspace-context-button, .bottom-panel-tabs button'))
-        .find((item) => item.getAttribute('aria-label') === label || (item.textContent || '').includes(label));
+      const rail = document.querySelector('.rail-button[data-tool="subagents"]');
+      if (rail) {
+        rail.click();
+        return true;
+      }
+      const buttons = Array.from(document.querySelectorAll('.bottom-panel-tabs button, .workspace-context-button'));
+      const button = buttons.find((item) => item.getAttribute('aria-label') === label || (item.textContent || '').trim() === label);
       if (!button) return false;
       button.click();
       return true;

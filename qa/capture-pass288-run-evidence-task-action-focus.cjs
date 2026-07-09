@@ -284,6 +284,25 @@ async function runTest() {
       );
     })();
   `, 12000));
+  assertStep("PASS288_AUTOMATION_TASK_CENTER_ACTIVATES_AUTOMATION_RAIL", await waitFor(win, `
+    (function() {
+      const automationRail = document.querySelector('.rail-button[data-tool="automations"]');
+      const subagentRail = document.querySelector('.rail-button[data-tool="subagents"]');
+      return automationRail?.getAttribute('data-tool-active') === 'true' &&
+        subagentRail?.getAttribute('data-tool-active') === 'false';
+    })();
+  `, 4000));
+  assertStep("PASS288_OPEN_GENERIC_TASK_CENTER_FROM_PALETTE", await runPaletteCommand(win, "panel-task-center", "task center"));
+  assertStep("PASS288_GENERIC_TASK_CENTER_ACTIVATES_SUBAGENT_RAIL", await waitFor(win, `
+    (function() {
+      const panel = document.querySelector('.subagent-workbench');
+      const automationRail = document.querySelector('.rail-button[data-tool="automations"]');
+      const subagentRail = document.querySelector('.rail-button[data-tool="subagents"]');
+      return panel &&
+        automationRail?.getAttribute('data-tool-active') === 'false' &&
+        subagentRail?.getAttribute('data-tool-active') === 'true';
+    })();
+  `, 4000));
 
   assertStep(
     "PASS288_OPEN_FAILED_SUBAGENT_RUN_FROM_PALETTE",
@@ -335,6 +354,14 @@ async function runTest() {
       );
     })();
   `, 12000));
+  assertStep("PASS288_SUBAGENT_TASK_CENTER_ACTIVATES_SUBAGENT_RAIL", await waitFor(win, `
+    (function() {
+      const automationRail = document.querySelector('.rail-button[data-tool="automations"]');
+      const subagentRail = document.querySelector('.rail-button[data-tool="subagents"]');
+      return automationRail?.getAttribute('data-tool-active') === 'false' &&
+        subagentRail?.getAttribute('data-tool-active') === 'true';
+    })();
+  `, 4000));
 
   assertStep("PASS288_EVIDENCE_TASK_CENTER_DID_NOT_MUTATE_TASKS", await win.webContents.executeJavaScript(`
     (async function() {
