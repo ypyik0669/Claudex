@@ -1302,15 +1302,21 @@ function capabilityActionFocusForCommand(args, context = {}) {
   const parts = String(args || "").trim().split(/\s+/).filter(Boolean);
   if (parts[0] !== "plugin" || !parts[1]) return null;
   if (parts[1] === "marketplace" && parts[2] === "update") {
-    const source = (context.marketplaces || []).find((item) => item?.name) || null;
-    const idText = String(source?.name || "").trim();
+    const explicitContext = normalizeCapabilityContext(context);
+    const explicitSourceId = explicitContext?.kind === "marketplace-source"
+      ? String(explicitContext.id || "").trim()
+      : "";
+    const source = explicitSourceId
+      ? (context.marketplaces || []).find((item) => item?.name === explicitSourceId) || { name: explicitSourceId }
+      : (context.marketplaces || []).find((item) => item?.name) || null;
+    const idText = String(source?.name || explicitSourceId || "").trim();
     if (!idText) return null;
     return {
       tab: "marketplace",
       kind: "marketplace-source",
       id: idText,
       query: idText,
-      action: "update",
+      action: explicitContext?.action || "update",
     };
   }
   const action = parts[1].toLowerCase();
@@ -2941,6 +2947,28 @@ function capabilityActionFromFocus(focus = {}) {
   const parts = [tab];
   if (kind || idValue || query) parts.push(kind, idValue, query);
   return `capability:${parts.map(encodeActionPart).join(":")}`;
+}
+
+function normalizeCapabilityContext(context = {}) {
+  const source = context?.capabilityContext && typeof context.capabilityContext === "object"
+    ? context.capabilityContext
+    : context;
+  const tab = String(source?.tab || "").trim();
+  const kind = String(source?.kind || "").trim();
+  const idValue = String(source?.id || "").trim();
+  const query = String(source?.query || idValue || "").trim();
+  const action = String(source?.action || "").trim();
+  const normalized = {};
+  if (["plugins", "mcp", "skills", "marketplace"].includes(tab)) normalized.tab = tab;
+  if (kind) normalized.kind = kind.slice(0, 80);
+  if (idValue) normalized.id = idValue.slice(0, 240);
+  if (query) normalized.query = query.slice(0, 240);
+  if (action) normalized.action = action.slice(0, 80);
+  return Object.keys(normalized).length ? normalized : null;
+}
+
+function capabilityContextFromRun(run = {}) {
+  return normalizeCapabilityContext(run?.capabilityContext || run?.capabilityFocus || null);
 }
 
 function capabilityFocusFromAction(action) {
@@ -5957,10 +5985,11 @@ function Conversation({
   }
   async function retryBottomCapabilityEntry(entry) {
     const safeArgs = safeCapabilityRetryArgsFromRun(entry);
+    const capabilityContext = capabilityContextFromRun(entry);
     if (safeArgs && onRetryCapabilityCommand && !bottomCapabilityRetryingId) {
       setBottomCapabilityRetryingId(entry.id || safeArgs);
       try {
-        await onRetryCapabilityCommand(safeArgs);
+        await onRetryCapabilityCommand(safeArgs, capabilityContext ? { capabilityContext } : {});
       } finally {
         setBottomCapabilityRetryingId("");
       }
@@ -5968,7 +5997,7 @@ function Conversation({
     }
     const mutatingArgs = mutatingCapabilityRetryArgsFromRun(entry);
     if (!mutatingArgs || !onConfirmCapabilityCommand) return;
-    onConfirmCapabilityCommand(mutatingArgs);
+    onConfirmCapabilityCommand(mutatingArgs, capabilityContext ? { capabilityContext } : {});
   }
 
   function openFirstConversationTaskFailure(automationFailures = [], subagentFailures = []) {
@@ -12052,6 +12081,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
   }
 
   function recordCapabilityNotice(title, detail, key = "", focus = null, options = {}) {
+    const capabilityContext = normalizeCapabilityContext(options.capabilityContext || focus);
     onNotice?.({
       level: "error",
       source: "plugin/mcp",
@@ -12061,6 +12091,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
       action: options.action || capabilityActionFromFocus(focus),
       runEventId: String(options.runEventId || "").trim(),
       projectPath: activeProject?.path || "",
+      ...(capabilityContext ? { capabilityContext } : {}),
     });
   }
 
@@ -12167,11 +12198,13 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
     }
   }
 
-  async function runCapabilityClaude(args) {
+  async function runCapabilityClaude(args, options = {}) {
     const nextArgs = String(args || "").trim();
     if (!desktopApi?.runClaudeCommand || !nextArgs) return;
     const requestId = `capability_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+    const nextCapabilityContext = normalizeCapabilityContext(options.capabilityContext);
     const nextActionFocus = capabilityActionFocusForCommand(nextArgs, {
+      ...(nextCapabilityContext ? { capabilityContext: nextCapabilityContext } : {}),
       marketplaces: Array.isArray(cliStatus?.marketplaces) ? cliStatus.marketplaces : marketplaceRows,
     });
     const actionTabSwitchGeneration = manualCapabilityTabSwitchRef.current;
@@ -12185,6 +12218,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
       detail: projectLabel(activeProject, t),
       commandLine: `claude ${nextArgs}`,
       cwd: activeProject?.path || "",
+      ...(nextCapabilityContext ? { capabilityContext: nextCapabilityContext } : {}),
     });
     let result = null;
     try {
@@ -12194,6 +12228,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
         requestId,
         persistCommandRun: true,
         commandRunKind: "capability",
+        ...(nextCapabilityContext ? { capabilityContext: nextCapabilityContext } : {}),
       });
       if (Array.isArray(result.commandRuns)) onCommandRuns?.(result.commandRuns);
       const evidence = cliActionEvidenceFromResult(nextArgs, result);
@@ -12211,6 +12246,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
         code: evidence.code,
         durationMs: evidence.durationMs,
         suppressNotice: true,
+        ...(nextCapabilityContext ? { capabilityContext: nextCapabilityContext } : {}),
       });
       onOpenBottomPanel?.("outputs");
       if (result.code !== 0) throw new Error(result.stderr || result.stdout || t.pluginsLoadError);
@@ -12239,6 +12275,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
           code: evidence.code,
           durationMs: evidence.durationMs,
           suppressNotice: true,
+          ...(nextCapabilityContext ? { capabilityContext: nextCapabilityContext } : {}),
         });
         onOpenBottomPanel?.("outputs");
       }
@@ -12246,6 +12283,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
       recordCapabilityNotice(`${t.pluginActions}: ${nextArgs}`, message, `capability:action:${nextArgs}`, nextActionFocus, {
         action: `capability-recovery:${encodeActionPart(requestId)}`,
         runEventId: requestId,
+        capabilityContext: nextCapabilityContext,
       });
       if (nextActionFocus && manualCapabilityTabSwitchRef.current === actionTabSwitchGeneration) {
         setActiveTab(nextActionFocus.tab);
@@ -12304,16 +12342,23 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
     ].filter(Boolean);
   }
 
-  function requestCapabilityClaude(args, label = "", reviewRows = []) {
+  function requestCapabilityClaude(args, label = "", reviewRows = [], capabilityContext = null) {
     const nextArgs = String(args || "").trim();
     if (!nextArgs || cliWorking) return;
-    setConfirmingCliCommand({ args: nextArgs, label: label || nextArgs, reviewRows });
+    const normalizedContext = normalizeCapabilityContext(capabilityContext);
+    setConfirmingCliCommand({
+      args: nextArgs,
+      label: label || nextArgs,
+      reviewRows,
+      ...(normalizedContext ? { capabilityContext: normalizedContext } : {}),
+    });
   }
 
   async function confirmCapabilityClaude() {
     const command = confirmingCliCommand?.args;
+    const capabilityContext = normalizeCapabilityContext(confirmingCliCommand?.capabilityContext);
     setConfirmingCliCommand(null);
-    await runCapabilityClaude(command);
+    await runCapabilityClaude(command, { capabilityContext });
   }
 
   function mcpServerKey(server) {
@@ -12559,10 +12604,12 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
     setQuery(String(focus.query || focus.id || "").trim());
     setCapabilityActionFocus({ tab: "", kind: "", id: "", query: "", nonce: 0 });
     if (focus.confirmCommand?.args) {
+      const capabilityContext = normalizeCapabilityContext(focus.confirmCommand.capabilityContext || focus);
       setConfirmingCliCommand({
         args: String(focus.confirmCommand.args || "").trim(),
         label: String(focus.confirmCommand.label || focus.confirmCommand.args || "").trim(),
         reviewRows: Array.isArray(focus.confirmCommand.reviewRows) ? focus.confirmCommand.reviewRows : [],
+        ...(capabilityContext ? { capabilityContext } : {}),
       });
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -12785,8 +12832,9 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                   const sourceCopyFocused = capabilityActionFocusMatches("marketplace-source", "copy", item.name);
                   const sourceUpdateFocused = capabilityActionFocusMatches("marketplace-source", "update", item.name);
                   const sourceRetryFocused = capabilityActionFocusMatches("marketplace-source", "retry", item.name);
+                  const sourceContext = { tab: "marketplace", kind: "marketplace-source", id: item.name, query: item.name, action: "update" };
                   const sourceRetry = sourceFocused && recentMarketplaceActionRun && recentMarketplaceActionRun.code !== 0
-                    ? () => requestCapabilityClaude("plugin marketplace update", `${t.updatePlugin}: ${t.marketplace}`, marketplaceUpdateReviewRows())
+                    ? () => requestCapabilityClaude("plugin marketplace update", `${t.updatePlugin}: ${t.marketplaceSources} / ${item.name}`, marketplaceSourceUpdateReviewRows(item, t, activeProject), sourceContext)
                     : null;
                   const sourceMeta = [
                     item.version ? [t.version, item.version] : null,
@@ -12826,7 +12874,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                           data-marketplace-source-action="update"
                           {...capabilityActionFocusAttributes(sourceUpdateFocused)}
                           {...surfaceTraceAttributes("marketplace-source", "update", item, { id: item.name, name: item.name })}
-                          onClick={() => requestCapabilityClaude("plugin marketplace update", `${t.updatePlugin}: ${t.marketplaceSources} / ${item.name}`, marketplaceSourceUpdateReviewRows(item, t, activeProject))}
+                          onClick={() => requestCapabilityClaude("plugin marketplace update", `${t.updatePlugin}: ${t.marketplaceSources} / ${item.name}`, marketplaceSourceUpdateReviewRows(item, t, activeProject), sourceContext)}
                           disabled={cliWorking}
                           title={cliWorking ? t.workingHint : t.marketplaceUpdateRisk}
                         >
@@ -14870,11 +14918,12 @@ export function App() {
     }
   }
 
-  async function runPersistedCapabilityCommand(args) {
+  async function runPersistedCapabilityCommand(args, options = {}) {
     const nextArgs = String(args || "").trim();
     if (!nextArgs || !desktopApi?.runClaudeCommand) return null;
     const requestId = `capability_${Date.now()}_${Math.random().toString(16).slice(2)}`;
     const commandLine = `claude ${nextArgs}`;
+    const capabilityContext = normalizeCapabilityContext(options.capabilityContext);
     setBottomPanel("outputs");
     recordRunEvent({
       id: requestId,
@@ -14884,6 +14933,7 @@ export function App() {
       detail: projectLabel(activeProject, t),
       commandLine,
       cwd: activeProject?.path || "",
+      ...(capabilityContext ? { capabilityContext } : {}),
     });
     try {
       const result = await desktopApi.runClaudeCommand({
@@ -14892,6 +14942,7 @@ export function App() {
         requestId,
         persistCommandRun: true,
         commandRunKind: "capability",
+        ...(capabilityContext ? { capabilityContext } : {}),
       });
       if (Array.isArray(result.commandRuns)) {
         setState((current) => ({ ...current, commandRuns: result.commandRuns }));
@@ -14910,6 +14961,7 @@ export function App() {
         code: result.code,
         durationMs: result.durationMs,
         suppressNotice: true,
+        ...(capabilityContext ? { capabilityContext } : {}),
       });
       return result;
     } catch (error) {
@@ -14922,22 +14974,25 @@ export function App() {
         commandLine,
         cwd: activeProject?.path || "",
         suppressNotice: true,
+        ...(capabilityContext ? { capabilityContext } : {}),
       });
       throw error;
     }
   }
 
-  function capabilityRetrySurfaceFocus(args) {
+  function capabilityRetrySurfaceFocus(args, context = {}) {
     const nextArgs = String(args || "").trim();
     if (!mutatingCapabilityRetryArgsFromRun({ commandLine: `claude ${nextArgs}` })) return null;
     return capabilityRetryFocusForArgs(nextArgs, {
+      ...context,
       marketplaces: Array.isArray(capabilityCommandStatus?.marketplaces) ? capabilityCommandStatus.marketplaces : [],
     });
   }
 
-  function openCapabilityRetryConfirmation(args) {
+  function openCapabilityRetryConfirmation(args, context = {}) {
     const nextArgs = String(args || "").trim();
-    const focus = capabilityRetrySurfaceFocus(nextArgs);
+    const retryContext = normalizeCapabilityContext(context);
+    const focus = capabilityRetrySurfaceFocus(nextArgs, retryContext ? { capabilityContext: retryContext } : context);
     if (!focus) return;
     const nextTab = focus.tab || "plugins";
     const marketplaceSources = Array.isArray(capabilityCommandStatus?.marketplaces) ? capabilityCommandStatus.marketplaces : [];
@@ -14956,12 +15011,14 @@ export function App() {
         args: nextArgs,
         label: marketplaceSource ? `${t.retry}: ${t.marketplaceSources} / ${marketplaceSource.name}` : `${t.retry}: claude ${nextArgs}`,
         reviewRows: retryReviewRows,
+        ...(retryContext ? { capabilityContext: retryContext } : {}),
       },
     });
   }
 
-  function openCapabilityRetryActionFocus(args) {
-    const focus = capabilityRetrySurfaceFocus(args);
+  function openCapabilityRetryActionFocus(args, context = {}) {
+    const retryContext = normalizeCapabilityContext(context);
+    const focus = capabilityRetrySurfaceFocus(args, retryContext ? { capabilityContext: retryContext } : context);
     if (!focus) return;
     const nextTab = focus?.tab || "plugins";
     openCapabilitiesSurface(nextTab, {
@@ -15450,6 +15507,7 @@ export function App() {
         if (!event) return [];
         const retryArgs = capabilityRetryArgsFromRun(run);
         const mutatingRetryArgs = mutatingCapabilityRetryArgsFromRun(run);
+        const capabilityContext = capabilityContextFromRun(run);
         const evidence = runTimelineEvidenceForEvent(event, {
           commandRuns: state.commandRuns,
           automations: state.automations,
@@ -15482,6 +15540,8 @@ export function App() {
           run.cwd,
           run.project?.name,
           run.project?.path,
+          capabilityContext?.id,
+          capabilityContext?.kind,
           evidenceText,
         ].filter(Boolean).join(" ");
         return [
@@ -15498,7 +15558,7 @@ export function App() {
             keywords,
             action: () => {
               if (mutatingRetryArgs) {
-                openCapabilityRetryActionFocus(mutatingRetryArgs);
+                openCapabilityRetryActionFocus(mutatingRetryArgs, capabilityContext ? { capabilityContext } : {});
                 return;
               }
               openRunTimeline(event.id, { action: "retry-capability" });
@@ -17592,6 +17652,7 @@ export function App() {
               args: "plugin marketplace update",
               label: `${t.updatePlugin}: ${t.marketplaceSources} / ${marketplace.name}`,
               reviewRows: marketplaceSourceUpdateReviewRows(marketplace, t, activeProject),
+              capabilityContext: { tab: "marketplace", kind: "marketplace-source", id: marketplace.name, query: marketplace.name, action: "update" },
             } : undefined,
           }),
         }));

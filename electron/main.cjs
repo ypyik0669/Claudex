@@ -654,6 +654,22 @@ function subagentContinuationMessage(run) {
   ].filter(Boolean).join("\n");
 }
 
+function normalizeCapabilityContext(context = {}) {
+  const source = context && typeof context === "object" ? context : {};
+  const tab = String(source.tab || "").trim();
+  const kind = String(source.kind || "").trim();
+  const idValue = String(source.id || "").trim();
+  const query = String(source.query || idValue || "").trim();
+  const action = String(source.action || "").trim();
+  const normalized = {};
+  if (["plugins", "mcp", "skills", "marketplace"].includes(tab)) normalized.tab = tab;
+  if (kind) normalized.kind = kind.slice(0, 80);
+  if (idValue) normalized.id = idValue.slice(0, 240);
+  if (query) normalized.query = query.slice(0, 240);
+  if (action) normalized.action = action.slice(0, 80);
+  return Object.keys(normalized).length ? normalized : null;
+}
+
 function normalizeCommandRun(item, store) {
   const project = normalizeAutomationProject(item?.project, store);
   const startedAt = isoOrEmpty(item?.startedAt) || now();
@@ -661,6 +677,7 @@ function normalizeCommandRun(item, store) {
   const command = String(item?.command || item?.commandLine || "").trim();
   const rawKind = String(item?.kind || "workspace").trim();
   const kind = ["workspace", "claude", "capability", "git"].includes(rawKind) ? rawKind : "workspace";
+  const capabilityContext = normalizeCapabilityContext(item?.capabilityContext);
   return {
     id: item?.id || id("command"),
     requestId: item?.requestId || "",
@@ -677,6 +694,7 @@ function normalizeCommandRun(item, store) {
     cancelled: Boolean(item?.cancelled),
     startedAt,
     endedAt,
+    ...(capabilityContext ? { capabilityContext } : {}),
   };
 }
 
@@ -734,6 +752,7 @@ function upsertCommandRunEvent(store, run, status, fallbackType = "workspace-com
 function normalizeRunEvent(item, store) {
   const project = normalizeAutomationProject(item?.project, store);
   const status = ["running", "ok", "error", "cancelled"].includes(item?.status) ? item.status : "ok";
+  const capabilityContext = normalizeCapabilityContext(item?.capabilityContext);
   return {
     id: item?.id || id("run_event"),
     type: String(item?.type || "run").trim() || "run",
@@ -751,6 +770,7 @@ function normalizeRunEvent(item, store) {
     project,
     sessionId: String(item?.sessionId || ""),
     createdAt: isoOrEmpty(item?.createdAt) || now(),
+    ...(capabilityContext ? { capabilityContext } : {}),
   };
 }
 
@@ -850,6 +870,7 @@ function normalizeNotice(item, store) {
   const level = ["error", "warning", "info", "success"].includes(item?.level) ? item.level : "info";
   const createdAt = isoOrEmpty(item?.createdAt) || now();
   const project = normalizeAutomationProject(item?.project, store);
+  const capabilityContext = normalizeCapabilityContext(item?.capabilityContext);
   return {
     id: item?.id || id("notice"),
     key: String(item?.key || ""),
@@ -865,6 +886,7 @@ function normalizeNotice(item, store) {
     createdAt,
     lastSeenAt: isoOrEmpty(item?.lastSeenAt) || createdAt,
     dismissedAt: isoOrEmpty(item?.dismissedAt),
+    ...(capabilityContext ? { capabilityContext } : {}),
   };
 }
 
@@ -4434,13 +4456,14 @@ ipcMain.handle("claude:status", async (_event, { projectPath } = {}) => {
   return store.capabilityStatus;
 });
 
-ipcMain.handle("claude:run", async (_event, { projectPath, args, requestId, persistCommandRun = false, commandRunKind = "claude" } = {}) => {
+ipcMain.handle("claude:run", async (_event, { projectPath, args, requestId, persistCommandRun = false, commandRunKind = "claude", capabilityContext = null } = {}) => {
   const cwd = projectPath && fs.existsSync(projectPath) ? projectPath : app.getPath("home");
   const argv = Array.isArray(args) ? args.map(String).filter(Boolean) : splitArgs(args);
   if (!argv.length) throw new Error("Claude 命令为空。");
   const claudeCommand = configuredClaudeCommand();
   const runId = requestId || id("claude_command");
   const startedAtIso = now();
+  const normalizedCapabilityContext = normalizeCapabilityContext(capabilityContext);
   let lastResult = null;
   for (const candidate of commandCandidates(claudeCommand)) {
     const result = await runStreamingProcess(candidate, argv, {
@@ -4468,6 +4491,7 @@ ipcMain.handle("claude:run", async (_event, { projectPath, args, requestId, pers
     args: argv,
     stdout: stripAnsi(result.stdout),
     stderr: stripAnsi(result.stderr),
+    ...(normalizedCapabilityContext ? { capabilityContext: normalizedCapabilityContext } : {}),
   };
   if (!persistCommandRun) return sanitizedResult;
   const store = readStore();
@@ -4480,6 +4504,7 @@ ipcMain.handle("claude:run", async (_event, { projectPath, args, requestId, pers
     project: projectFromPath(cwd),
     startedAt: startedAtIso,
     endedAt: now(),
+    ...(normalizedCapabilityContext ? { capabilityContext: normalizedCapabilityContext } : {}),
   });
   writeStore(store);
   broadcastStoreUpdate(store);

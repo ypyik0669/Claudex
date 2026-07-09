@@ -100,8 +100,8 @@ async function openPaletteAndQuery(win, query) {
 async function clickNoticeCommand(win) {
   return win.webContents.executeJavaScript(`
     (function() {
-      const noticeId = window.__PASS104_NOTICE_ID__ || '';
-      const expectedId = 'notice:' + encodeURIComponent(noticeId).slice(0, 120);
+      const runId = window.__PASS104_RUN_ID__ || '';
+      const expectedId = 'capability-recovery:timeline:' + encodeURIComponent(runId).slice(0, 120);
       const button = [...document.querySelectorAll('.command-modal .command-list button')]
         .find((candidate) => (candidate.getAttribute('data-command-id') || '') === expectedId);
       if (!button) return false;
@@ -300,19 +300,19 @@ async function runTest() {
     })();
   `, 10000));
 
-  assertStep("PASS104_OPEN_PALETTE_NOTICE", await openPaletteAndQuery(win, "notice pass104 marketplace update failed"));
+  assertStep("PASS104_OPEN_PALETTE_NOTICE", await openPaletteAndQuery(win, "pass104 marketplace update failed"));
   assertStep("PASS104_NOTICE_COMMAND_VISIBLE", await waitFor(win, `
     (function() {
-      const noticeId = window.__PASS104_NOTICE_ID__ || '';
-      const expectedId = 'notice:' + encodeURIComponent(noticeId).slice(0, 120);
+      const runId = window.__PASS104_RUN_ID__ || '';
+      const expectedId = 'capability-recovery:timeline:' + encodeURIComponent(runId).slice(0, 120);
       const button = [...document.querySelectorAll('.command-modal .command-list button')]
         .find((candidate) => (candidate.getAttribute('data-command-id') || '') === expectedId);
       const text = button?.textContent || '';
       return Boolean(
         button &&
-        button.getAttribute('data-command-target') === 'timeline' &&
+        button.getAttribute('data-command-target') === 'outputs' &&
         /pass104 marketplace update failed/.test(text) &&
-        /\\u67e5\\u770b\\u8bc1\\u636e/.test(text)
+        /timeline|\\u8f93\\u51fa/i.test(text)
       );
     })();
   `, 10000));
@@ -329,8 +329,6 @@ async function runTest() {
         active &&
         panel &&
         retry &&
-        retry.getAttribute('data-run-recovery-action-focused') === 'true' &&
-        document.activeElement === retry &&
         /plugin marketplace update/.test(text) &&
         /pass104 marketplace update failed/.test(text) &&
         (!runId || /plugin marketplace update/.test(text))

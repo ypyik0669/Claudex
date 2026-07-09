@@ -31,14 +31,16 @@ process.chdir(REPO_DIR);
 const USER_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "claudex-pass301-data-"));
 const FAKE_BIN_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "claudex-pass301-bin-"));
 const PROJECT_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "claudex-pass301-project-"));
+const OTHER_MARKETPLACE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "claudex-pass301-other-market-"));
 const MARKETPLACE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "claudex-pass301-market-"));
 const DATA_FILE = path.join(USER_DATA_DIR, "desktop-data.json");
 const FAKE_CLAUDE = path.join(FAKE_BIN_DIR, "claude.cmd");
 const UPDATE_MARKER = path.join(USER_DATA_DIR, "pass301-marketplace-update-ran.txt");
+const OTHER_MARKETPLACE_NAME = "pass301-alpha";
 const MARKETPLACE_NAME = "pass301-market";
 
 function cleanup() {
-  for (const dir of [USER_DATA_DIR, FAKE_BIN_DIR, PROJECT_DIR, MARKETPLACE_DIR]) {
+  for (const dir of [USER_DATA_DIR, FAKE_BIN_DIR, PROJECT_DIR, OTHER_MARKETPLACE_DIR, MARKETPLACE_DIR]) {
     try {
       fs.rmSync(dir, { recursive: true, force: true });
     } catch (_error) {
@@ -84,19 +86,31 @@ function writeFakeClaude() {
   fs.mkdirSync(FAKE_BIN_DIR, { recursive: true });
   const fakeClaudeScript = `
 const fs = require('fs');
+const otherMarketplaceDir = ${JSON.stringify(OTHER_MARKETPLACE_DIR)};
 const marketplaceDir = ${JSON.stringify(MARKETPLACE_DIR)};
 const updateMarker = ${JSON.stringify(UPDATE_MARKER)};
 const args = process.argv.slice(2);
 function out(value) { process.stdout.write(typeof value === 'string' ? value + '\\n' : JSON.stringify(value, null, 2) + '\\n'); }
-const marketplaceJson = [{
-  name: '${MARKETPLACE_NAME}',
-  source: 'path',
-  repo: marketplaceDir,
-  installLocation: marketplaceDir,
-  version: '2026.7.8-pass301',
-  status: 'ready',
-  permissions: ['Read', 'Bash']
-}];
+const marketplaceJson = [
+  {
+    name: '${OTHER_MARKETPLACE_NAME}',
+    source: 'path',
+    repo: otherMarketplaceDir,
+    installLocation: otherMarketplaceDir,
+    version: '2026.7.8-alpha',
+    status: 'ready',
+    permissions: ['Read']
+  },
+  {
+    name: '${MARKETPLACE_NAME}',
+    source: 'path',
+    repo: marketplaceDir,
+    installLocation: marketplaceDir,
+    version: '2026.7.8-pass301',
+    status: 'ready',
+    permissions: ['Read', 'Bash']
+  }
+];
 if (args[0] === '--version') out('3.01.0 (Claude Code PASS301)');
 else if (args[0] === 'auth' && args[1] === 'status') out({ loggedIn: true, apiProvider: 'qa-provider', authMethod: 'api_key' });
 else if (args[0] === 'plugin' && args[1] === 'list' && args.includes('--json')) out({ plugins: [] });
@@ -104,7 +118,7 @@ else if (args[0] === 'plugin' && args[1] === 'list') out('Installed plugins: non
 else if (args[0] === 'mcp' && args[1] === 'list' && args.includes('--json')) out({ servers: [] });
 else if (args[0] === 'mcp' && args[1] === 'list') out('No MCP servers configured');
 else if (args[0] === 'plugin' && args[1] === 'marketplace' && args[2] === 'list' && args.includes('--json')) out(marketplaceJson);
-else if (args[0] === 'plugin' && args[1] === 'marketplace' && args[2] === 'list') out('Configured marketplaces:\\n\\n  > ${MARKETPLACE_NAME}\\n    Source: Path (' + marketplaceDir + ')');
+else if (args[0] === 'plugin' && args[1] === 'marketplace' && args[2] === 'list') out('Configured marketplaces:\\n\\n  > ${OTHER_MARKETPLACE_NAME}\\n    Source: Path (' + otherMarketplaceDir + ')\\n\\n  > ${MARKETPLACE_NAME}\\n    Source: Path (' + marketplaceDir + ')');
 else if (args[0] === 'plugin' && args[1] === 'marketplace' && args[2] === 'update') { fs.writeFileSync(updateMarker, args.join(' '), 'utf8'); out('PASS301 marketplace update complete'); }
 else out('pass301 fake claude command: ' + args.join(' '));
 `;
@@ -118,6 +132,12 @@ function writeInitialStore() {
   fs.mkdirSync(USER_DATA_DIR, { recursive: true });
   fs.mkdirSync(PROJECT_DIR, { recursive: true });
   fs.writeFileSync(path.join(PROJECT_DIR, "package.json"), JSON.stringify({ name: "pass301-project" }), "utf8");
+  writeJson(path.join(OTHER_MARKETPLACE_DIR, ".claude-plugin", "marketplace.json"), {
+    name: OTHER_MARKETPLACE_NAME,
+    description: "PASS301 first marketplace fixture that must not receive command focus",
+    owner: { name: "PASS301 Alpha Owner" },
+    plugins: [],
+  });
   writeJson(path.join(MARKETPLACE_DIR, ".claude-plugin", "marketplace.json"), {
     name: MARKETPLACE_NAME,
     description: "PASS301 marketplace source update command fixture",
@@ -205,7 +225,10 @@ async function runTest() {
   assertStep("PASS301_STATUS_READY", await waitFor(win, `
     (async function() {
       const status = await window.claudexDesktop.getClaudeStatus({ projectPath: ${JSON.stringify(PROJECT_DIR)} });
-      return Boolean(status.marketplaces?.some((item) => item.name === ${JSON.stringify(MARKETPLACE_NAME)} && /2026\\.7\\.8-pass301/.test(item.version || '')));
+      return Boolean(
+        status.marketplaces?.some((item) => item.name === ${JSON.stringify(OTHER_MARKETPLACE_NAME)} && /2026\\.7\\.8-alpha/.test(item.version || '')) &&
+        status.marketplaces?.some((item) => item.name === ${JSON.stringify(MARKETPLACE_NAME)} && /2026\\.7\\.8-pass301/.test(item.version || ''))
+      );
     })();
   `, 15000));
 
@@ -241,6 +264,7 @@ async function runTest() {
         confirm &&
         /plugin marketplace update/.test(text) &&
         /pass301-market/.test(text) &&
+        !/pass301-alpha/.test(text) &&
         /2026\\.7\\.8-pass301/.test(text) &&
         /Read/.test(text) &&
         /Bash/.test(text)
@@ -266,7 +290,12 @@ async function runTest() {
   assertStep("PASS301_COMMAND_RUN_PERSISTED", await waitFor(win, `
     (async function() {
       const state = await window.claudexDesktop.getState();
-      return Boolean((state.commandRuns || []).some((run) => String(run.command || run.commandLine || '').includes('plugin marketplace update')));
+      return Boolean((state.commandRuns || []).some((run) =>
+        String(run.command || run.commandLine || '').includes('plugin marketplace update') &&
+        run.capabilityContext?.kind === 'marketplace-source' &&
+        run.capabilityContext?.id === ${JSON.stringify(MARKETPLACE_NAME)} &&
+        run.capabilityContext?.action === 'update'
+      ));
     })();
   `, 10000));
 
