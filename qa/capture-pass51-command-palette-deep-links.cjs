@@ -180,7 +180,28 @@ function writeInitialStore() {
             history: [],
           },
         ],
-        subagentRuns: [],
+        subagentRuns: [
+          {
+            id: "pass51-subagent-done",
+            requestId: "pass51-subagent-done-request",
+            nickname: "pass51 Subagent QA",
+            task: "pass51 subagent task evidence",
+            status: "done",
+            sessionId: "pass51-current",
+            project: { name: "pass51-project", path: PROJECT_DIR },
+            cwd: PROJECT_DIR,
+            command: FAKE_CLAUDE,
+            args: ["-p", "pass51 subagent task evidence"],
+            stdout: "pass51 subagent stdout evidence",
+            stderr: "",
+            summary: "pass51 subagent summary evidence",
+            code: 0,
+            durationMs: 510,
+            artifacts: [{ type: "summary", label: "pass51 summary artifact", content: "pass51 artifact content evidence" }],
+            startedAt: "2026-07-05T00:08:00.000Z",
+            endedAt: "2026-07-05T00:08:01.000Z",
+          },
+        ],
         commandRuns: [],
         runEvents: [
           {
@@ -341,6 +362,7 @@ async function runTest() {
     ["PASS51_ENVIRONMENT_PANEL_COMMAND_TRACE", "environment cwd git", "panel-environment", "environment"],
     ["PASS51_CHANGES_PANEL_COMMAND_TRACE", "changes git diff status", "panel-changes", "changes"],
     ["PASS51_SOURCES_PANEL_COMMAND_TRACE", "sources files project", "panel-sources", "sources"],
+    ["PASS51_SUBAGENTS_PANEL_COMMAND_TRACE", "subagents agents", "panel-subagents", "subagents"],
     ["PASS51_TASK_CENTER_PANEL_COMMAND_TRACE", "task center automations subagents", "panel-task-center", "subagents"],
   ];
   for (const [step, query, commandId, panel] of panelCommands) {
@@ -392,6 +414,18 @@ async function runTest() {
       document.querySelector('.bottom-panel-tabs button[data-bottom-tab="sources"].active') &&
       /pass51-source-target\\.md/.test(document.querySelector('.bottom-work-panel')?.textContent || '') &&
       /pass51-project/.test(document.querySelector('.bottom-work-panel')?.textContent || '')
+    )
+  `, 8000));
+
+  assertStep("PASS51_OPEN_SUBAGENTS_PANEL_FROM_PALETTE", await runPaletteCommand(win, "subagents agents", "panel-subagents"));
+  assertStep("PASS51_SUBAGENTS_PANEL_VISIBLE_AND_RAIL_ACTIVE", await waitFor(win, `
+    Boolean(
+      document.querySelector('.bottom-panel-tabs button[data-bottom-tab="subagents"].active') &&
+      document.querySelector('.rail-button[data-tool="subagents"]')?.getAttribute('data-tool-active') === 'true' &&
+      document.querySelector('.task-center-filters [data-task-filter="all"].active') &&
+      document.querySelector('.subagent-run-card[data-subagent-run-id="pass51-subagent-done"]') &&
+      /pass51 Subagent QA/.test(document.querySelector('.subagent-workbench')?.textContent || '') &&
+      /pass51 subagent summary evidence/.test(document.querySelector('.subagent-workbench')?.textContent || '')
     )
   `, 8000));
 
