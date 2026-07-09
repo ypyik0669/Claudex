@@ -448,6 +448,39 @@ async function runTest() {
       );
     })();
   `, 5000));
+  const beforeContextOpen = readCommandLog();
+  assertStep("PASS302_OPEN_EVIDENCE_CAPABILITY_CONTEXT", await win.webContents.executeJavaScript(`
+    (function() {
+      const open = document.querySelector('.selected-run-evidence-panel [data-run-recovery-action="open-capability-context"]');
+      if (!open || open.disabled) return false;
+      open.click();
+      return true;
+    })();
+  `));
+  assertStep("PASS302_CONTEXT_FOCUSES_SOURCE_WITHOUT_MUTATION", await waitFor(win, `
+    (function() {
+      const otherRow = document.querySelector('.plugin-manager-modal [data-marketplace-source-id="${OTHER_MARKETPLACE_NAME}"]');
+      const row = document.querySelector('.plugin-manager-modal [data-marketplace-source-id="${TARGET_MARKETPLACE_NAME}"]');
+      const copy = row?.querySelector('[data-marketplace-source-action="copy-evidence"]');
+      const update = row?.querySelector('[data-marketplace-source-action="update"]');
+      return Boolean(
+        row &&
+        row.classList.contains('focused-capability-row') &&
+        row.getAttribute('data-capability-kind') === 'marketplace-source' &&
+        row.getAttribute('data-capability-id') === '${TARGET_MARKETPLACE_NAME}' &&
+        row.getAttribute('data-capability-focused') === 'true' &&
+        copy &&
+        copy.getAttribute('data-capability-action-focused') === 'true' &&
+        copy.getAttribute('data-capability-action') === 'copy' &&
+        update &&
+        update.getAttribute('data-capability-action-focused') !== 'true' &&
+        (!otherRow || !otherRow.classList.contains('focused-capability-row'))
+      );
+    })();
+  `, 12000));
+  assertStep("PASS302_CONTEXT_OPEN_DID_NOT_RUN_UPDATE", !/plugin marketplace update/.test(readCommandLog().slice(beforeContextOpen.length)));
+  assertStep("PASS302_LEAVE_CONTEXT_SURFACE", await leaveSurface(win));
+  assertStep("PASS302_RETURN_TO_NOTICE_CENTER", await openNoticeCenter(win));
 
   assertStep("PASS302_OPEN_PALETTE_BUCKET", await openPaletteAndQuery(win, "notice recovery summary pass302 marketplace update failed"));
   assertStep("PASS302_PALETTE_BUCKET_VISIBLE", await waitFor(win, `

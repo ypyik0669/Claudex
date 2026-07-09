@@ -594,6 +594,7 @@ const copy = {
     pluginActionEvidence: "最近 CLI 操作证据",
     pluginRowActionEvidence: "最近执行",
     copyEvidence: "复制证据",
+    openCapabilityContext: "打开能力上下文",
     openOutputs: "打开输出",
     confirmDisableTitle: "要禁用这个插件吗？",
     confirmDisableWarning: "这会禁用「{name}」。之后可以通过重新安装或更新来重新启用它。",
@@ -2969,6 +2970,28 @@ function normalizeCapabilityContext(context = {}) {
 
 function capabilityContextFromRun(run = {}) {
   return normalizeCapabilityContext(run?.capabilityContext || run?.capabilityFocus || null);
+}
+
+function capabilityFocusFromContext(context = {}, options = {}) {
+  const normalized = normalizeCapabilityContext(context);
+  if (!normalized?.kind || !normalized?.id) return null;
+  const tab = normalized.tab
+    || (normalized.kind.startsWith("marketplace") ? "marketplace"
+      : normalized.kind === "mcp" ? "mcp"
+        : normalized.kind === "skill" ? "skills"
+          : "plugins");
+  const action = Object.prototype.hasOwnProperty.call(options, "action")
+    ? String(options.action || "").trim()
+    : normalized.kind === "marketplace-source"
+      ? "copy"
+      : "";
+  return {
+    tab,
+    kind: normalized.kind,
+    id: normalized.id,
+    query: normalized.query || normalized.id,
+    ...(action ? { action } : {}),
+  };
 }
 
 function capabilityFocusFromAction(action) {
@@ -5715,6 +5738,8 @@ function Conversation({
         }
       : null;
   })();
+  const selectedRunCapabilityContext = runTimelineCapabilityContext(selectedRunEvent, selectedRunEvidence);
+  const selectedRunCapabilityFocus = capabilityFocusFromContext(selectedRunCapabilityContext);
   const selectedRunRecoveryActions = [];
   if (selectedRunAutomation) {
     selectedRunRecoveryActions.push({
@@ -5813,6 +5838,14 @@ function Conversation({
         projectLabel: selectedRunWorkspaceFileTarget.projectLabel || selectedRunEvidence?.project || projectLabel(activeProject, t),
         force: true,
       }),
+    });
+  }
+  if (selectedRunCapabilityFocus) {
+    selectedRunRecoveryActions.push({
+      key: "open-capability-context",
+      label: t.openCapabilityContext || t.capabilities,
+      icon: Store,
+      onClick: () => onCapabilities?.(selectedRunCapabilityFocus.tab, selectedRunCapabilityFocus),
     });
   }
   if (selectedRunCommand) {
