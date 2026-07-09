@@ -40,6 +40,7 @@ const SAFE_RUN_ID = "pass208-safe-mcp-failure";
 const MUTATING_RUN_ID = "pass208-mutating-plugin-failure";
 const MARKETPLACE_RUN_ID = "pass208-marketplace-update-failure";
 const PLUGIN_ID = "pass208-plugin@qa-market";
+const MCP_SERVER_NAME = "pass208-mcp";
 const OTHER_MARKETPLACE_NAME = "pass208-alpha";
 const MARKETPLACE_NAME = "pass208-market";
 
@@ -137,6 +138,7 @@ else if (args[0] === 'plugin' && args[1] === 'marketplace' && args[2] === 'list'
 ]);
 else if (args[0] === 'plugin' && args[1] === 'marketplace' && args[2] === 'list') out('Configured marketplaces:\\n\\n  > ${OTHER_MARKETPLACE_NAME}\\n    Source: Path (' + otherMarketplaceDir + ')\\n\\n  > ${MARKETPLACE_NAME}\\n    Source: Path (' + marketplaceDir + ')');
 else if (args[0] === 'plugin' && args[1] === 'marketplace' && args[2] === 'update') out('pass208 marketplace update recovered');
+else if (args[0] === 'mcp' && args[1] === 'list' && args.includes('--json')) out([{ name: '${MCP_SERVER_NAME}', status: 'connected', transport: 'stdio', source: 'pass208 fixture', tools: 1, toolNames: ['pass208-tool'] }]);
 else if (args[0] === 'mcp' && args[1] === 'list') out('pass208 mcp list recovered');
 else if (args[0] === 'plugin' && args[1] === 'disable' && args[2] === '${PLUGIN_ID}') out('ok plugin disable ${PLUGIN_ID}');
 else out('pass208 fake claude command: ' + args.join(' '));
@@ -215,6 +217,13 @@ function writeInitialStore() {
         stderr: "pass208 mcp list failed before retry",
         startedAt: "2026-07-08T02:08:01.000Z",
         endedAt: "2026-07-08T02:08:02.000Z",
+        capabilityContext: {
+          tab: "mcp",
+          kind: "mcp",
+          id: MCP_SERVER_NAME,
+          query: MCP_SERVER_NAME,
+          action: "copy",
+        },
       },
       {
         id: MUTATING_RUN_ID,
@@ -509,6 +518,42 @@ async function runTest() {
       /mcp list/.test(document.querySelector('.selected-run-evidence-panel')?.textContent || '') &&
       /pass208 mcp list failed before retry/.test(document.querySelector('.selected-run-evidence-panel')?.textContent || ''))
   `, 10000));
+  const beforeMcpContextRuns = await win.webContents.executeJavaScript(`
+    window.claudexDesktop.getState().then((state) => (state.commandRuns || []).length)
+  `);
+  assertStep("PASS208_OPEN_MCP_EVIDENCE_CONTEXT", await win.webContents.executeJavaScript(`
+    (function() {
+      const open = document.querySelector('.selected-run-evidence-panel [data-run-recovery-action="open-capability-context"]');
+      if (!open || open.disabled) return false;
+      open.click();
+      return true;
+    })();
+  `));
+  assertStep("PASS208_MCP_CONTEXT_FOCUSES_ROW", await waitFor(win, `
+    (function() {
+      const row = document.querySelector('.plugin-manager-modal [data-mcp-server-id="${MCP_SERVER_NAME}"]');
+      const copy = row?.querySelector('[data-mcp-server-action="copy-evidence"]');
+      const refresh = row?.querySelector('[data-mcp-server-action="refresh"]');
+      return Boolean(
+        row &&
+        row.classList.contains('focused-capability-row') &&
+        row.getAttribute('data-capability-kind') === 'mcp' &&
+        row.getAttribute('data-capability-id') === '${MCP_SERVER_NAME}' &&
+        row.getAttribute('data-capability-focused') === 'true' &&
+        copy &&
+        copy.getAttribute('data-capability-action-focused') === 'true' &&
+        copy.getAttribute('data-capability-action') === 'copy' &&
+        refresh &&
+        refresh.getAttribute('data-capability-action-focused') !== 'true'
+      );
+    })();
+  `, 12000));
+  assertStep("PASS208_MCP_CONTEXT_DID_NOT_PERSIST_RUN", await waitFor(win, `
+    (async function() {
+      const state = await window.claudexDesktop.getState();
+      return (state.commandRuns || []).length === ${JSON.stringify(beforeMcpContextRuns)};
+    })();
+  `, 5000));
 
   console.log("PASS208_COMMAND_PALETTE_CAPABILITY_RECOVERY_DONE");
   cleanup();

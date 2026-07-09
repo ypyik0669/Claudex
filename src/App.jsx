@@ -2972,6 +2972,14 @@ function capabilityContextFromRun(run = {}) {
   return normalizeCapabilityContext(run?.capabilityContext || run?.capabilityFocus || null);
 }
 
+function safeCapabilityContextFocusAction(context = {}) {
+  const normalized = normalizeCapabilityContext(context);
+  if (!normalized?.kind) return "";
+  if (normalized.kind === "skill") return "open-file";
+  if (["marketplace-source", "marketplace-plugin", "plugin", "mcp"].includes(normalized.kind)) return "copy";
+  return "";
+}
+
 function capabilityFocusFromContext(context = {}, options = {}) {
   const normalized = normalizeCapabilityContext(context);
   if (!normalized?.kind || !normalized?.id) return null;
@@ -2982,9 +2990,7 @@ function capabilityFocusFromContext(context = {}, options = {}) {
           : "plugins");
   const action = Object.prototype.hasOwnProperty.call(options, "action")
     ? String(options.action || "").trim()
-    : normalized.kind === "marketplace-source"
-      ? "copy"
-      : "";
+    : safeCapabilityContextFocusAction(normalized);
   return {
     tab,
     kind: normalized.kind,
@@ -12081,6 +12087,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
   const recentCapabilityRuns = useMemo(() => capabilityRunsNewestFirst(state.commandRuns), [state.commandRuns]);
   const recentMarketplaceActionRun = findRecentMarketplaceActionRun(recentCapabilityRuns);
   const recentMcpActionRun = findRecentMcpActionRun(recentCapabilityRuns);
+  const recentMcpActionContext = capabilityContextFromRun(recentMcpActionRun);
   const cliWorking = cliBusy || marketplaceBusy || Boolean(cliAction);
   const surfaceTraceAttributes = (kind, action, item = {}, options = {}) => capabilitySurfaceTraceAttributes({
     kind,
@@ -13397,7 +13404,9 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                   run={recentMcpActionRun}
                   t={t}
                   onOpenOutputs={openCapabilityOutputs}
-                  onRetry={recentMcpActionRun && recentMcpActionRun.code !== 0 && !cliWorking ? () => runCapabilityClaude("mcp list") : null}
+                  onRetry={recentMcpActionRun && recentMcpActionRun.code !== 0 && !cliWorking
+                    ? () => runCapabilityClaude("mcp list", recentMcpActionContext ? { capabilityContext: recentMcpActionContext } : {})
+                    : null}
                 />
                 {mcpServerRows.length === 0 && <p className="empty-list">{hasStructuredMcpRows ? t.noCapabilities : t.noMcpServers}</p>}
                 {mcpServerRows.map((server) => {
@@ -13497,7 +13506,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                           data-mcp-server-action="refresh"
                           {...capabilityActionFocusAttributes(mcpRefreshFocused)}
                           {...surfaceTraceAttributes("mcp", "refresh", server, { id: server.name, name: server.name })}
-                          onClick={() => runCapabilityClaude("mcp list")}
+                          onClick={() => runCapabilityClaude("mcp list", { capabilityContext: { tab: "mcp", kind: "mcp", id: server.name, query: server.name, action: "refresh" } })}
                           disabled={cliWorking}
                           title={cliWorking ? t.workingHint : undefined}
                         >
