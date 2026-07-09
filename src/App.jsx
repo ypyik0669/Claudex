@@ -13255,8 +13255,26 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                   const pluginRetryArgs = pluginFocused && recentRun && recentRun.code !== 0
                     ? pluginActionArgsFromRun(recentRun, plugin.id)
                     : "";
+                  const pluginActionContext = (action) => ({
+                    tab: "plugins",
+                    kind: "plugin",
+                    id: plugin.id,
+                    query: plugin.id,
+                    action,
+                  });
+                  const pluginRetryAction = String(pluginRetryArgs.match(/(?:^|\s)plugin\s+(enable|disable|update|install)\s+/i)?.[1] || "").toLowerCase();
+                  const pluginRetryBaseContext = capabilityContextFromRun(recentRun);
+                  const pluginRetryContext = pluginRetryArgs
+                    ? normalizeCapabilityContext({
+                        tab: "plugins",
+                        kind: "plugin",
+                        id: pluginRetryBaseContext?.id || plugin.id,
+                        query: pluginRetryBaseContext?.query || plugin.id,
+                        action: pluginRetryAction || pluginRetryBaseContext?.action || "retry",
+                      })
+                    : null;
                   const pluginRetry = pluginRetryArgs
-                    ? () => requestCapabilityClaude(pluginRetryArgs, `${t.pluginActions}: ${plugin.id}`, pluginActionReviewRows(plugin))
+                    ? () => requestCapabilityClaude(pluginRetryArgs, `${t.pluginActions}: ${plugin.id}`, pluginActionReviewRows(plugin), pluginRetryContext)
                     : null;
                   const pluginMeta = [
                     plugin.version && plugin.version !== "unknown" ? [t.version, plugin.version] : null,
@@ -13313,7 +13331,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                           data-plugin-action="disable"
                           {...capabilityActionFocusAttributes(pluginDisableFocused)}
                           {...surfaceTraceAttributes("plugin", "disable", plugin, { id: plugin.id || plugin.name })}
-                          onClick={() => requestCapabilityClaude(`plugin disable ${plugin.id}`, `${t.disablePlugin}: ${plugin.id}`, pluginActionReviewRows(plugin, t.disablePlugin))}
+                          onClick={() => requestCapabilityClaude(`plugin disable ${plugin.id}`, `${t.disablePlugin}: ${plugin.id}`, pluginActionReviewRows(plugin, t.disablePlugin), pluginActionContext("disable"))}
                           disabled={cliWorking}
                           title={cliWorking ? t.workingHint : undefined}
                         >
@@ -13326,7 +13344,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                           data-plugin-action="enable"
                           {...capabilityActionFocusAttributes(pluginEnableFocused)}
                           {...surfaceTraceAttributes("plugin", "enable", plugin, { id: plugin.id || plugin.name })}
-                          onClick={() => requestCapabilityClaude(`plugin enable ${plugin.id}`, `${t.enablePlugin}: ${plugin.id}`, pluginActionReviewRows(plugin, t.enablePlugin))}
+                          onClick={() => requestCapabilityClaude(`plugin enable ${plugin.id}`, `${t.enablePlugin}: ${plugin.id}`, pluginActionReviewRows(plugin, t.enablePlugin), pluginActionContext("enable"))}
                           disabled={cliWorking}
                           title={cliWorking ? t.workingHint : undefined}
                         >
@@ -13339,7 +13357,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                         data-plugin-action="update"
                         {...capabilityActionFocusAttributes(pluginUpdateFocused)}
                         {...surfaceTraceAttributes("plugin", "update", plugin, { id: plugin.id || plugin.name })}
-                        onClick={() => requestCapabilityClaude(`plugin update ${plugin.id}`, `${t.updatePlugin}: ${plugin.id}`, pluginActionReviewRows(plugin, t.updatePlugin))}
+                        onClick={() => requestCapabilityClaude(`plugin update ${plugin.id}`, `${t.updatePlugin}: ${plugin.id}`, pluginActionReviewRows(plugin, t.updatePlugin), pluginActionContext("update"))}
                         disabled={cliWorking}
                         title={cliWorking ? t.workingHint : undefined}
                       >

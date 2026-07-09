@@ -239,6 +239,13 @@ function writeInitialStore() {
         stderr: "pass208 plugin disable failed before retry",
         startedAt: "2026-07-08T02:08:03.000Z",
         endedAt: "2026-07-08T02:08:04.000Z",
+        capabilityContext: {
+          tab: "plugins",
+          kind: "plugin",
+          id: PLUGIN_ID,
+          query: PLUGIN_ID,
+          action: "disable",
+        },
       },
       {
         id: MARKETPLACE_RUN_ID,
@@ -425,6 +432,75 @@ async function runTest() {
         runs.some((run) => run.code === 0 && /ok plugin disable pass208-plugin@qa-market/.test(run.stdout || ''));
     })();
   `, 10000));
+  assertStep("PASS208_MUTATING_RETRY_CAPABILITY_CONTEXT_PERSISTED", await waitFor(win, `
+    (async function() {
+      const state = await window.claudexDesktop.getState();
+      const runs = (state.commandRuns || []).filter((run) => run.kind === 'capability' && /plugin disable pass208-plugin@qa-market/.test(run.command || run.commandLine || ''));
+      const failed = runs.find((run) => run.code === 33 && /pass208 plugin disable failed/.test(run.stderr || ''));
+      const recovered = runs.find((run) => run.code === 0 && /ok plugin disable pass208-plugin@qa-market/.test(run.stdout || ''));
+      return Boolean(
+        failed?.capabilityContext?.tab === 'plugins' &&
+        failed?.capabilityContext?.kind === 'plugin' &&
+        failed?.capabilityContext?.id === '${PLUGIN_ID}' &&
+        failed?.capabilityContext?.action === 'disable' &&
+        recovered?.capabilityContext?.tab === 'plugins' &&
+        recovered?.capabilityContext?.kind === 'plugin' &&
+        recovered?.capabilityContext?.id === '${PLUGIN_ID}' &&
+        recovered?.capabilityContext?.action === 'disable'
+      );
+    })();
+  `, 10000));
+
+  assertStep("PASS208_OPEN_PALETTE_PLUGIN_TIMELINE", await openPaletteAndQuery(win, "timeline pass208 plugin disable"));
+  assertStep("PASS208_PLUGIN_TIMELINE_COMMAND_VISIBLE", await commandVisible(win, `capability-recovery:timeline:${MUTATING_RUN_ID}`, /timeline|时间线|输出/i, "outputs"));
+  assertStep("PASS208_CLICK_PLUGIN_TIMELINE", await clickCommandById(win, `capability-recovery:timeline:${MUTATING_RUN_ID}`));
+  assertStep("PASS208_PLUGIN_TIMELINE_FOCUSED", await waitFor(win, `
+    Boolean(document.querySelector('.selected-run-evidence-panel') &&
+      /plugin disable ${PLUGIN_ID}/.test(document.querySelector('.selected-run-evidence-panel')?.textContent || '') &&
+      /pass208 plugin disable failed before retry/.test(document.querySelector('.selected-run-evidence-panel')?.textContent || ''))
+  `, 10000));
+  const beforePluginContextRuns = await win.webContents.executeJavaScript(`
+    window.claudexDesktop.getState().then((state) => (state.commandRuns || []).length)
+  `);
+  assertStep("PASS208_OPEN_PLUGIN_EVIDENCE_CONTEXT", await win.webContents.executeJavaScript(`
+    (function() {
+      const open = document.querySelector('.selected-run-evidence-panel [data-run-recovery-action="open-capability-context"]');
+      if (!open || open.disabled) return false;
+      open.click();
+      return true;
+    })();
+  `));
+  assertStep("PASS208_PLUGIN_CONTEXT_FOCUSES_SAFE_COPY_ACTION", await waitFor(win, `
+    (function() {
+      const row = document.querySelector('.plugin-manager-modal [data-plugin-id="${PLUGIN_ID}"]');
+      const copy = row?.querySelector('[data-plugin-action="copy-evidence"]');
+      const disable = row?.querySelector('[data-plugin-action="disable"]');
+      const update = row?.querySelector('[data-plugin-action="update"]');
+      const retry = row?.querySelector('[data-plugin-action="retry"]');
+      return Boolean(
+        row &&
+        row.classList.contains('focused-capability-row') &&
+        row.getAttribute('data-capability-kind') === 'plugin' &&
+        row.getAttribute('data-capability-id') === '${PLUGIN_ID}' &&
+        row.getAttribute('data-capability-focused') === 'true' &&
+        copy &&
+        copy.getAttribute('data-capability-action-focused') === 'true' &&
+        copy.getAttribute('data-capability-action') === 'copy' &&
+        copy.getAttribute('data-capability-kind') === 'plugin' &&
+        copy.getAttribute('data-capability-id') === '${PLUGIN_ID}' &&
+        (!disable || disable.getAttribute('data-capability-action-focused') !== 'true') &&
+        (!update || update.getAttribute('data-capability-action-focused') !== 'true') &&
+        (!retry || retry.getAttribute('data-capability-action-focused') !== 'true') &&
+        !document.querySelector('.plugin-cli-confirm')
+      );
+    })();
+  `, 12000));
+  assertStep("PASS208_PLUGIN_CONTEXT_DID_NOT_PERSIST_RUN", await waitFor(win, `
+    (async function() {
+      const state = await window.claudexDesktop.getState();
+      return (state.commandRuns || []).length === ${JSON.stringify(beforePluginContextRuns)};
+    })();
+  `, 5000));
 
   assertStep("PASS208_OPEN_PALETTE_MARKETPLACE_RETRY", await openPaletteAndQuery(win, "retry pass208 marketplace update"));
   assertStep("PASS208_MARKETPLACE_RETRY_COMMAND_VISIBLE", await commandVisible(win, `capability-recovery:retry:${MARKETPLACE_RUN_ID}`, /重试|retry/i, "capabilities"));
