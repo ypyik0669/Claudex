@@ -1,6 +1,7 @@
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
+const { execFileSync } = require("child_process");
 const { app, BrowserWindow } = require("electron");
 
 function findRepoDir() {
@@ -33,6 +34,7 @@ const PROJECT_B_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "claudex-pass51-proj
 const FAKE_CLAUDE = path.join(USER_DATA_DIR, "fake-claude.cmd");
 const DATA_FILE = path.join(USER_DATA_DIR, "desktop-data.json");
 const SOURCE_TARGET = "docs/pass51-source-target.md";
+const GIT_CHANGE_TARGET = "pass51-change-target.txt";
 
 function cleanup() {
   for (const dir of [USER_DATA_DIR, PROJECT_DIR, PROJECT_B_DIR]) {
@@ -63,13 +65,31 @@ function assertStep(name, ok) {
   if (!ok) throw new Error(`${name} failed`);
 }
 
+function runGit(args, cwd = PROJECT_DIR) {
+  return execFileSync("git", args, {
+    cwd,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"],
+  });
+}
+
+function initializeGitFixture() {
+  try {
+    runGit(["init", "-b", "pass51-main"]);
+  } catch (_error) {
+    runGit(["init"]);
+  }
+}
+
 function writeInitialStore() {
   fs.mkdirSync(USER_DATA_DIR, { recursive: true });
   fs.mkdirSync(PROJECT_DIR, { recursive: true });
   fs.mkdirSync(PROJECT_B_DIR, { recursive: true });
+  initializeGitFixture();
   fs.mkdirSync(path.join(PROJECT_DIR, "docs"), { recursive: true });
   fs.writeFileSync(path.join(PROJECT_DIR, "package.json"), JSON.stringify({ name: "pass51-project" }), "utf8");
   fs.writeFileSync(path.join(PROJECT_DIR, SOURCE_TARGET), "pass51 source target evidence\n", "utf8");
+  fs.writeFileSync(path.join(PROJECT_DIR, GIT_CHANGE_TARGET), "pass51 git diff evidence\n", "utf8");
   fs.writeFileSync(path.join(PROJECT_B_DIR, "package.json"), JSON.stringify({ name: "pass51-project-b" }), "utf8");
   fs.writeFileSync(
     FAKE_CLAUDE,
@@ -319,6 +339,7 @@ async function runTest() {
     ["PASS51_OUTPUTS_PANEL_COMMAND_TRACE", "outputs run timeline evidence", "panel-outputs", "outputs"],
     ["PASS51_NOTICES_PANEL_COMMAND_TRACE", "notices errors warnings", "panel-notices", "notices"],
     ["PASS51_ENVIRONMENT_PANEL_COMMAND_TRACE", "environment cwd git", "panel-environment", "environment"],
+    ["PASS51_CHANGES_PANEL_COMMAND_TRACE", "changes git diff status", "panel-changes", "changes"],
     ["PASS51_SOURCES_PANEL_COMMAND_TRACE", "sources files project", "panel-sources", "sources"],
     ["PASS51_TASK_CENTER_PANEL_COMMAND_TRACE", "task center automations subagents", "panel-task-center", "subagents"],
   ];
@@ -354,6 +375,16 @@ async function runTest() {
       /pass51-project/.test(document.querySelector('.bottom-work-panel')?.textContent || '')
     )
   `, 8000));
+
+  assertStep("PASS51_OPEN_CHANGES_PANEL_FROM_PALETTE", await runPaletteCommand(win, "changes git diff status", "panel-changes"));
+  assertStep("PASS51_CHANGES_PANEL_VISIBLE_WITH_GIT_DIFF", await waitFor(win, `
+    Boolean(
+      document.querySelector('.bottom-panel-tabs button[data-bottom-tab="changes"].active') &&
+      document.querySelector('.git-change-summary [data-git-summary-kind="untracked"]') &&
+      /pass51-change-target\\.txt/.test(document.querySelector('.bottom-work-panel')?.textContent || '') &&
+      /pass51 git diff evidence/.test(document.querySelector('.git-diff-preview')?.textContent || '')
+    )
+  `, 10000));
 
   assertStep("PASS51_OPEN_SOURCES_PANEL_FROM_PALETTE", await runPaletteCommand(win, "sources files project", "panel-sources"));
   assertStep("PASS51_SOURCES_PANEL_VISIBLE", await waitFor(win, `
