@@ -186,10 +186,16 @@ async function openMarketplace(win) {
 
 async function clickMarketplaceUpdate(win, stepName) {
   assertStep(stepName, await win.webContents.executeJavaScript(`
-    (function() {
-      const button = [...document.querySelectorAll('.marketplace-actions button')]
-        .find((candidate) => /\\u66f4\\u65b0/.test(candidate.textContent || ''));
-      if (!button) return false;
+    (async function() {
+      let button = null;
+      const startedAt = Date.now();
+      while (Date.now() - startedAt < 5000) {
+        button = [...document.querySelectorAll('.marketplace-actions button')]
+          .find((candidate) => /\\u66f4\\u65b0/.test(candidate.textContent || ''));
+        if (button && !button.disabled) break;
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      if (!button || button.disabled) return false;
       button.click();
       return true;
     })();
@@ -256,11 +262,19 @@ async function runTest() {
 
   const beforeRetry = readCommandLog();
   assertStep("PASS107_CLICK_RETRY", await win.webContents.executeJavaScript(`
-    (function() {
+    (async function() {
       const row = document.querySelector('[data-marketplace-source-id="pass107-market"]');
-      const retry = [...(row?.querySelectorAll('.row-cli-action-evidence.error button') || [])]
-        .find((button) => /\\u91cd\\u8bd5/.test(button.textContent || ''));
-      if (!retry) return false;
+      let retry = null;
+      let readinessButton = null;
+      const startedAt = Date.now();
+      while (Date.now() - startedAt < 5000) {
+        retry = [...(row?.querySelectorAll('.row-cli-action-evidence.error button') || [])]
+          .find((button) => /\\u91cd\\u8bd5/.test(button.textContent || ''));
+        readinessButton = row?.querySelector('[data-marketplace-source-action="update"]');
+        if (retry && (!readinessButton || !readinessButton.disabled)) break;
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      if (!retry || readinessButton?.disabled) return false;
       retry.click();
       return true;
     })();

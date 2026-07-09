@@ -187,10 +187,16 @@ async function runTest() {
 
   const beforeUpdate = readCommandLog();
   assertStep("PASS103_CLICK_UPDATE", await win.webContents.executeJavaScript(`
-    (function() {
-      const button = [...document.querySelectorAll('.marketplace-actions button')]
-        .find((candidate) => /更新/.test(candidate.textContent || ''));
-      if (!button) return false;
+    (async function() {
+      let button = null;
+      const startedAt = Date.now();
+      while (Date.now() - startedAt < 5000) {
+        button = [...document.querySelectorAll('.marketplace-actions button')]
+          .find((candidate) => /更新/.test(candidate.textContent || ''));
+        if (button && !button.disabled) break;
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      if (!button || button.disabled) return false;
       button.click();
       return true;
     })();

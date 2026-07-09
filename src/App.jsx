@@ -1279,8 +1279,8 @@ function runEvidenceFocusActionForEventId(eventId, {
   return runEvidenceRecoveryFocusAction(event, evidence, run);
 }
 
-function capabilityRetryFocusForArgs(args) {
-  const actionFocus = capabilityActionFocusForCommand(args);
+function capabilityRetryFocusForArgs(args, context = {}) {
+  const actionFocus = capabilityActionFocusForCommand(args, context);
   if (actionFocus) return actionFocus;
   const parts = String(args || "").trim().split(/\s+/).filter(Boolean);
   if (parts[0] === "plugin" && parts[1] === "marketplace" && parts[2] === "update") {

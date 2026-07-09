@@ -31,15 +31,18 @@ process.chdir(REPO_DIR);
 const USER_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "claudex-pass208-data-"));
 const FAKE_BIN_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "claudex-pass208-bin-"));
 const PROJECT_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "claudex-pass208-project-"));
+const MARKETPLACE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "claudex-pass208-market-"));
 const DATA_FILE = path.join(USER_DATA_DIR, "desktop-data.json");
 const COMMAND_LOG = path.join(USER_DATA_DIR, "claude-command-log.txt");
 const FAKE_CLAUDE = path.join(FAKE_BIN_DIR, "claude.cmd");
 const SAFE_RUN_ID = "pass208-safe-mcp-failure";
 const MUTATING_RUN_ID = "pass208-mutating-plugin-failure";
+const MARKETPLACE_RUN_ID = "pass208-marketplace-update-failure";
 const PLUGIN_ID = "pass208-plugin@qa-market";
+const MARKETPLACE_NAME = "pass208-market";
 
 function cleanup() {
-  for (const dir of [USER_DATA_DIR, FAKE_BIN_DIR, PROJECT_DIR]) {
+  for (const dir of [USER_DATA_DIR, FAKE_BIN_DIR, PROJECT_DIR, MARKETPLACE_DIR]) {
     try {
       fs.rmSync(dir, { recursive: true, force: true });
     } catch (_error) {
@@ -118,14 +121,16 @@ function writeFakeClaude() {
 const fs = require('fs');
 const args = process.argv.slice(2);
 const commandLog = ${JSON.stringify(COMMAND_LOG)};
+const marketplaceDir = ${JSON.stringify(MARKETPLACE_DIR)};
 fs.appendFileSync(commandLog, args.join(' ') + '\\n', 'utf8');
 function out(value) { process.stdout.write(typeof value === 'string' ? value + '\\n' : JSON.stringify(value, null, 2) + '\\n'); }
 if (args[0] === '--version') out('2.12.0 (Claude Code PASS208)');
 else if (args[0] === 'auth' && args[1] === 'status') out({ loggedIn: true, apiProvider: 'qa-provider', authMethod: 'api_key' });
 else if (args[0] === 'plugin' && args[1] === 'list' && args.includes('--json')) out([{ id: '${PLUGIN_ID}', name: 'pass208-plugin', marketplace: 'qa-market', version: '12.8.0', scope: 'user', enabled: true, source: 'pass208 fixture', permissions: ['Read'] }]);
 else if (args[0] === 'plugin' && args[1] === 'list') out('Installed plugins:\\n\\n  > ${PLUGIN_ID}\\n    Version: 12.8.0\\n    Scope: user\\n    Status: ✓ enabled');
-else if (args[0] === 'plugin' && args[1] === 'marketplace' && args[2] === 'list' && args.includes('--json')) out([]);
-else if (args[0] === 'plugin' && args[1] === 'marketplace' && args[2] === 'list') out('Configured marketplaces: none');
+else if (args[0] === 'plugin' && args[1] === 'marketplace' && args[2] === 'list' && args.includes('--json')) out([{ name: '${MARKETPLACE_NAME}', source: 'path', repo: marketplaceDir, installLocation: marketplaceDir, version: '2026.7.8-pass208', status: 'ready', permissions: ['Read', 'Bash'] }]);
+else if (args[0] === 'plugin' && args[1] === 'marketplace' && args[2] === 'list') out('Configured marketplaces:\\n\\n  > ${MARKETPLACE_NAME}\\n    Source: Path (' + marketplaceDir + ')');
+else if (args[0] === 'plugin' && args[1] === 'marketplace' && args[2] === 'update') out('pass208 marketplace update recovered');
 else if (args[0] === 'mcp' && args[1] === 'list') out('pass208 mcp list recovered');
 else if (args[0] === 'plugin' && args[1] === 'disable' && args[2] === '${PLUGIN_ID}') out('ok plugin disable ${PLUGIN_ID}');
 else out('pass208 fake claude command: ' + args.join(' '));
@@ -139,7 +144,14 @@ else out('pass208 fake claude command: ' + args.join(' '));
 function writeInitialStore() {
   writeFakeClaude();
   fs.mkdirSync(PROJECT_DIR, { recursive: true });
+  fs.mkdirSync(path.join(MARKETPLACE_DIR, ".claude-plugin"), { recursive: true });
   fs.writeFileSync(path.join(PROJECT_DIR, "package.json"), JSON.stringify({ name: "pass208-project" }), "utf8");
+  writeJson(path.join(MARKETPLACE_DIR, ".claude-plugin", "marketplace.json"), {
+    name: MARKETPLACE_NAME,
+    description: "PASS208 marketplace recovery fixture",
+    owner: { name: "PASS208 Owner" },
+    plugins: [],
+  });
   const project = { name: "pass208-project", path: PROJECT_DIR };
   writeJson(DATA_FILE, {
     version: 1,
@@ -205,6 +217,21 @@ function writeInitialStore() {
         stderr: "pass208 plugin disable failed before retry",
         startedAt: "2026-07-08T02:08:03.000Z",
         endedAt: "2026-07-08T02:08:04.000Z",
+      },
+      {
+        id: MARKETPLACE_RUN_ID,
+        requestId: MARKETPLACE_RUN_ID,
+        kind: "capability",
+        command: "plugin marketplace update",
+        commandLine: "plugin marketplace update",
+        cwd: PROJECT_DIR,
+        project,
+        code: 41,
+        durationMs: 131,
+        stdout: "pass208 marketplace stdout before failure",
+        stderr: "pass208 marketplace update failed before retry",
+        startedAt: "2026-07-08T02:08:05.000Z",
+        endedAt: "2026-07-08T02:08:06.000Z",
       },
     ],
     runEvents: [],
@@ -329,9 +356,18 @@ async function runTest() {
   `, 10000));
   assertStep("PASS208_MUTATING_NOT_RUN_BEFORE_ROW_RETRY", !/plugin disable pass208-plugin@qa-market/.test(readCommandLog().slice(beforeMutatingRetry.length)));
   assertStep("PASS208_CLICK_MUTATING_ROW_RETRY", await win.webContents.executeJavaScript(`
-    (function() {
-      const button = document.querySelector('.plugin-manager-modal [data-plugin-id="${PLUGIN_ID}"] [data-plugin-action="retry"]');
-      if (!button || button.disabled) return false;
+    (async function() {
+      let button = null;
+      let readinessButton = null;
+      const startedAt = Date.now();
+      while (Date.now() - startedAt < 5000) {
+        const row = document.querySelector('.plugin-manager-modal [data-plugin-id="${PLUGIN_ID}"]');
+        button = row?.querySelector('[data-plugin-action="retry"]');
+        readinessButton = row?.querySelector('[data-plugin-action="disable"], [data-plugin-action="enable"], [data-plugin-action="update"]');
+        if (button && (!readinessButton || !readinessButton.disabled)) break;
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      if (!button || button.disabled || readinessButton?.disabled) return false;
       button.click();
       return true;
     })();
@@ -358,6 +394,73 @@ async function runTest() {
       const runs = (state.commandRuns || []).filter((run) => run.kind === 'capability' && /plugin disable pass208-plugin@qa-market/.test(run.command || run.commandLine || ''));
       return runs.some((run) => run.code === 33 && /pass208 plugin disable failed/.test(run.stderr || '')) &&
         runs.some((run) => run.code === 0 && /ok plugin disable pass208-plugin@qa-market/.test(run.stdout || ''));
+    })();
+  `, 10000));
+
+  assertStep("PASS208_OPEN_PALETTE_MARKETPLACE_RETRY", await openPaletteAndQuery(win, "retry pass208 marketplace update"));
+  assertStep("PASS208_MARKETPLACE_RETRY_COMMAND_VISIBLE", await commandVisible(win, `capability-recovery:retry:${MARKETPLACE_RUN_ID}`, /重试|retry/i, "capabilities"));
+  const beforeMarketplaceRetry = readCommandLog();
+  assertStep("PASS208_CLICK_MARKETPLACE_RETRY", await clickCommandById(win, `capability-recovery:retry:${MARKETPLACE_RUN_ID}`));
+  assertStep("PASS208_MARKETPLACE_RETRY_ACTION_FOCUSED", await waitFor(win, `
+    (function() {
+      const row = document.querySelector('.plugin-manager-modal [data-marketplace-source-id="${MARKETPLACE_NAME}"]');
+      const retry = row?.querySelector('[data-marketplace-source-action="retry"]');
+      const text = row?.textContent || '';
+      return Boolean(
+        row &&
+        retry &&
+        row.classList.contains('focused-capability-row') &&
+        retry.getAttribute('data-capability-action-focused') === 'true' &&
+        retry.getAttribute('data-capability-kind') === 'marketplace-source' &&
+        retry.getAttribute('data-capability-action') === 'retry' &&
+        retry.getAttribute('data-capability-id') === '${MARKETPLACE_NAME}' &&
+        /plugin marketplace update/.test(text) &&
+        /pass208 marketplace update failed before retry/.test(text) &&
+        !document.querySelector('.plugin-cli-confirm')
+      );
+    })();
+  `, 10000));
+  assertStep("PASS208_MARKETPLACE_NOT_RUN_BEFORE_ROW_RETRY", !/plugin marketplace update/.test(readCommandLog().slice(beforeMarketplaceRetry.length)));
+  assertStep("PASS208_CLICK_MARKETPLACE_ROW_RETRY", await win.webContents.executeJavaScript(`
+    (async function() {
+      let button = null;
+      let readinessButton = null;
+      const startedAt = Date.now();
+      while (Date.now() - startedAt < 5000) {
+        const row = document.querySelector('.plugin-manager-modal [data-marketplace-source-id="${MARKETPLACE_NAME}"]');
+        button = row?.querySelector('[data-marketplace-source-action="retry"]');
+        readinessButton = row?.querySelector('[data-marketplace-source-action="update"]');
+        if (button && (!readinessButton || !readinessButton.disabled)) break;
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      if (!button || button.disabled || readinessButton?.disabled) return false;
+      button.click();
+      return true;
+    })();
+  `));
+  assertStep("PASS208_MARKETPLACE_CONFIRM_VISIBLE", await waitFor(win, `
+    Boolean(document.querySelector('.plugin-manager-modal') &&
+      document.querySelector('.plugin-cli-confirm') &&
+      !document.querySelector('.plugin-cli-confirm .danger-action')?.disabled &&
+      /plugin marketplace update/.test(document.querySelector('.plugin-cli-confirm')?.textContent || '') &&
+      /${MARKETPLACE_NAME}/.test(document.querySelector('.plugin-cli-confirm')?.textContent || ''))
+  `, 10000));
+  assertStep("PASS208_MARKETPLACE_NOT_RUN_BEFORE_CONFIRM", !/plugin marketplace update/.test(readCommandLog().slice(beforeMarketplaceRetry.length)));
+  assertStep("PASS208_CONFIRM_MARKETPLACE_RETRY", await win.webContents.executeJavaScript(`
+    (function() {
+      const button = document.querySelector('.plugin-cli-confirm .danger-action');
+      if (!button || button.disabled) return false;
+      button.click();
+      return true;
+    })();
+  `));
+  assertStep("PASS208_MARKETPLACE_RETRY_RAN", await waitForLogGrowth(/plugin marketplace update/, beforeMarketplaceRetry, 12000));
+  assertStep("PASS208_MARKETPLACE_RETRY_PERSISTED", await waitFor(win, `
+    (async function() {
+      const state = await window.claudexDesktop.getState();
+      const runs = (state.commandRuns || []).filter((run) => run.kind === 'capability' && /plugin marketplace update/.test(run.command || run.commandLine || ''));
+      return runs.some((run) => run.code === 41 && /pass208 marketplace update failed/.test(run.stderr || '')) &&
+        runs.some((run) => run.code === 0 && /pass208 marketplace update recovered/.test(run.stdout || ''));
     })();
   `, 10000));
 
