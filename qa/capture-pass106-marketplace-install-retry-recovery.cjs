@@ -11,6 +11,8 @@ const MARKETPLACE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "claudex-pass106-m
 const MARKETPLACE_MANIFEST_DIR = path.join(MARKETPLACE_DIR, ".claude-plugin");
 const COMMAND_LOG = path.join(USER_DATA_DIR, "claude-command-log.txt");
 const DATA_FILE = path.join(USER_DATA_DIR, "desktop-data.json");
+const MARKETPLACE_PLUGIN_ID = "pass106-retry-plugin@pass106-market";
+const MARKETPLACE_INSTALL_COMMAND = `plugin install ${MARKETPLACE_PLUGIN_ID}`;
 
 function cleanup() {
   for (const dir of [USER_DATA_DIR, FAKE_BIN_DIR, PROJECT_DIR, MARKETPLACE_DIR]) {
@@ -61,6 +63,66 @@ async function waitForLog(pattern, timeoutMs = 10000) {
     await wait(150);
   }
   return false;
+}
+
+async function waitForPluginConfirmReady(win, commandText, timeoutMs = 7000) {
+  return waitFor(win, `
+    (function() {
+      const command = ${JSON.stringify(commandText)};
+      const confirm = [...document.querySelectorAll('.plugin-cli-confirm')]
+        .find((item) => (item.textContent || '').includes(command));
+      const button = confirm?.querySelector('.danger-action');
+      return Boolean(confirm && button && !button.disabled);
+    })();
+  `, timeoutMs);
+}
+
+async function clickPluginConfirm(win, commandText, timeoutMs = 7000) {
+  return win.webContents.executeJavaScript(`
+    (async function() {
+      const command = ${JSON.stringify(commandText)};
+      const startedAt = Date.now();
+      while (Date.now() - startedAt < ${Number(timeoutMs)}) {
+        const confirm = [...document.querySelectorAll('.plugin-cli-confirm')]
+          .find((item) => (item.textContent || '').includes(command));
+        const button = confirm?.querySelector('.danger-action');
+        if (button && !button.disabled) {
+          button.click();
+          return true;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      return false;
+    })();
+  `);
+}
+
+async function openPaletteAndQuery(win, query) {
+  return win.webContents.executeJavaScript(`
+    (async function() {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true, bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 240));
+      const input = document.querySelector('.command-modal .command-search input');
+      if (!input) return false;
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+      setter.call(input, ${JSON.stringify(query)});
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 300));
+      return true;
+    })();
+  `);
+}
+
+async function clickNoticeRecoveryCommand(win) {
+  return win.webContents.executeJavaScript(`
+    (function() {
+      const button = [...document.querySelectorAll('.command-modal .command-list button')]
+        .find((candidate) => (candidate.getAttribute('data-command-id') || '') === 'notice-recovery:timeline');
+      if (!button) return false;
+      button.click();
+      return true;
+    })();
+  `);
 }
 
 function writeMarketplaceFixture() {
@@ -174,6 +236,42 @@ async function openMarketplace(win) {
       return true;
     })();
   `));
+  return true;
+}
+
+async function leaveSurface(win) {
+  return win.webContents.executeJavaScript(`
+    (function() {
+      const button = document.querySelector('.surface-back');
+      if (!button) return false;
+      button.click();
+      return true;
+    })();
+  `);
+}
+
+async function openNoticeCenter(win) {
+  return win.webContents.executeJavaScript(`
+    (function() {
+      const button = document.querySelector('.rail-button[data-tool="notices"]') ||
+        [...document.querySelectorAll('.workspace-context-button, .bottom-panel-tabs button, button')]
+          .find((candidate) => /\u901a\u77e5|notices/i.test(candidate.getAttribute('aria-label') || candidate.textContent || ''));
+      if (!button) return false;
+      button.click();
+      return true;
+    })();
+  `);
+}
+
+async function clickSummaryTimeline(win) {
+  return win.webContents.executeJavaScript(`
+    (function() {
+      const button = document.querySelector('.notice-recovery-summary [data-notice-recovery-target="timeline"]');
+      if (!button) return false;
+      button.click();
+      return true;
+    })();
+  `);
 }
 
 async function runTest() {
@@ -205,15 +303,8 @@ async function runTest() {
       return true;
     })();
   `));
-  assertStep("PASS106_CONFIRM_INSTALL_VISIBLE", await waitFor(win, "Boolean(document.querySelector('.plugin-cli-confirm'))", 5000));
-  assertStep("PASS106_CONFIRM_INSTALL", await win.webContents.executeJavaScript(`
-    (function() {
-      const button = document.querySelector('.plugin-cli-confirm .danger-action');
-      if (!button) return false;
-      button.click();
-      return true;
-    })();
-  `));
+  assertStep("PASS106_CONFIRM_INSTALL_VISIBLE", await waitForPluginConfirmReady(win, MARKETPLACE_INSTALL_COMMAND));
+  assertStep("PASS106_CONFIRM_INSTALL", await clickPluginConfirm(win, MARKETPLACE_INSTALL_COMMAND));
   assertStep("PASS106_INSTALL_RAN", await waitForLog(/plugin install pass106-retry-plugin@pass106-market/));
   assertStep("PASS106_MARKETPLACE_INSTALL_FAILURE_FOCUS", await waitFor(win, `
     (function() {
@@ -242,6 +333,8 @@ async function runTest() {
         /pass106 plugin install failed/.test(run.stderr || ''));
       const notice = state.notices?.find((item) => item.level === 'error' &&
         /pass106 plugin install failed/.test((item.title || '') + (item.detail || '')));
+      window.__PASS106_NOTICE_ID__ = notice?.id || '';
+      window.__PASS106_RUN_ID__ = notice?.runEventId || failedRun?.requestId || failedRun?.id || '';
       return Boolean(
         failedRun &&
         failedRun.capabilityContext?.tab === 'marketplace' &&
@@ -255,16 +348,167 @@ async function runTest() {
     })();
   `, 10000));
 
+  assertStep("PASS106_LEAVE_CAPABILITIES_FOR_NOTICE", await leaveSurface(win));
+  assertStep("PASS106_OPEN_NOTICE_CENTER", await openNoticeCenter(win));
+  assertStep("PASS106_SUMMARY_BUCKET_VISIBLE", await waitFor(win, `
+    (function() {
+      const noticeId = window.__PASS106_NOTICE_ID__ || '';
+      const bucket = document.querySelector('.notice-recovery-summary [data-notice-recovery-target="timeline"]');
+      const text = bucket?.closest('.notice-recovery-summary')?.textContent || '';
+      return Boolean(
+        bucket &&
+        bucket.getAttribute('data-notice-recovery-count') === '1' &&
+        bucket.getAttribute('data-notice-recovery-first-id') === noticeId &&
+        bucket.getAttribute('data-notice-recovery-first-action')?.startsWith('capability-recovery:') &&
+        /plugin install pass106-retry-plugin@pass106-market/.test(bucket.getAttribute('data-notice-recovery-first-title') || text)
+      );
+    })();
+  `, 10000));
+  assertStep("PASS106_CLICK_SUMMARY_BUCKET", await clickSummaryTimeline(win));
+  assertStep("PASS106_SUMMARY_OPENS_PLUGIN_EVIDENCE_RETRY", await waitFor(win, `
+    (function() {
+      const panel = document.querySelector('.selected-run-evidence-panel.error');
+      const retry = panel?.querySelector('[data-run-recovery-action="retry-capability"]');
+      const text = panel?.textContent || '';
+      return Boolean(
+        panel &&
+        retry &&
+        retry.getAttribute('data-run-recovery-action-focused') === 'true' &&
+        document.activeElement === retry &&
+        /plugin install pass106-retry-plugin@pass106-market/.test(text) &&
+        /pass106 plugin install failed/.test(text)
+      );
+    })();
+  `, 12000));
+  assertStep("PASS106_SUMMARY_EVIDENCE_CONTEXT_VISIBLE", await waitFor(win, `
+    (function() {
+      const runId = window.__PASS106_RUN_ID__ || '';
+      const panel = document.querySelector('.selected-run-evidence-panel.error');
+      const row = [...document.querySelectorAll('.run-timeline-row.error')]
+        .find((candidate) => candidate.getAttribute('data-run-event-id') === runId);
+      const context = panel?.querySelector('[data-run-capability-context="true"]');
+      const rowContext = row?.querySelector('[data-run-capability-context="true"]');
+      const contextText = context?.textContent || '';
+      const rowContextText = rowContext?.textContent || '';
+      return Boolean(
+        panel &&
+        row &&
+        panel.getAttribute('data-run-evidence-source') === 'command' &&
+        panel.getAttribute('data-run-capability-tab') === 'marketplace' &&
+        panel.getAttribute('data-run-capability-kind') === 'marketplace-plugin' &&
+        panel.getAttribute('data-run-capability-id') === 'pass106-retry-plugin@pass106-market' &&
+        panel.getAttribute('data-run-capability-action') === 'install' &&
+        row.getAttribute('data-run-capability-tab') === 'marketplace' &&
+        row.getAttribute('data-run-capability-kind') === 'marketplace-plugin' &&
+        row.getAttribute('data-run-capability-id') === 'pass106-retry-plugin@pass106-market' &&
+        row.getAttribute('data-run-capability-action') === 'install' &&
+        context &&
+        context.getAttribute('data-run-capability-tab') === 'marketplace' &&
+        context.getAttribute('data-run-capability-kind') === 'marketplace-plugin' &&
+        context.getAttribute('data-run-capability-id') === 'pass106-retry-plugin@pass106-market' &&
+        context.getAttribute('data-run-capability-action') === 'install' &&
+        rowContext &&
+        rowContext.getAttribute('data-run-capability-tab') === 'marketplace' &&
+        rowContext.getAttribute('data-run-capability-kind') === 'marketplace-plugin' &&
+        rowContext.getAttribute('data-run-capability-id') === 'pass106-retry-plugin@pass106-market' &&
+        rowContext.getAttribute('data-run-capability-action') === 'install' &&
+        /marketplace-plugin/.test(contextText) &&
+        /pass106-retry-plugin@pass106-market/.test(contextText) &&
+        /install/.test(contextText) &&
+        /marketplace-plugin/.test(rowContextText) &&
+        /pass106-retry-plugin@pass106-market/.test(rowContextText) &&
+        /install/.test(rowContextText)
+      );
+    })();
+  `, 5000));
+  const beforeSummaryContextOpen = readCommandLog();
+  assertStep("PASS106_OPEN_SUMMARY_EVIDENCE_CAPABILITY_CONTEXT", await win.webContents.executeJavaScript(`
+    (function() {
+      const open = document.querySelector('.selected-run-evidence-panel [data-run-recovery-action="open-capability-context"]');
+      if (!open || open.disabled) return false;
+      open.click();
+      return true;
+    })();
+  `));
+  assertStep("PASS106_SUMMARY_CONTEXT_FOCUSES_PLUGIN_WITHOUT_MUTATION", await waitFor(win, `
+    (function() {
+      const row = document.querySelector('.plugin-manager-modal [data-marketplace-plugin-id="pass106-retry-plugin@pass106-market"]');
+      const copy = row?.querySelector('[data-marketplace-plugin-action="copy-evidence"]');
+      const install = row?.querySelector('[data-marketplace-plugin-action="install"]');
+      const retry = row?.querySelector('[data-marketplace-plugin-action="retry"]');
+      return Boolean(
+        row &&
+        row.classList.contains('focused-capability-row') &&
+        row.getAttribute('data-capability-kind') === 'marketplace-plugin' &&
+        row.getAttribute('data-capability-id') === 'pass106-retry-plugin@pass106-market' &&
+        row.getAttribute('data-capability-focused') === 'true' &&
+        copy &&
+        copy.getAttribute('data-capability-action-focused') === 'true' &&
+        copy.getAttribute('data-capability-action') === 'copy' &&
+        install &&
+        install.getAttribute('data-capability-action-focused') !== 'true' &&
+        (!retry || retry.getAttribute('data-capability-action-focused') !== 'true') &&
+        !document.querySelector('.plugin-cli-confirm')
+      );
+    })();
+  `, 12000));
+  assertStep("PASS106_SUMMARY_CONTEXT_DID_NOT_RUN_INSTALL", !/plugin install pass106-retry-plugin@pass106-market/.test(readCommandLog().slice(beforeSummaryContextOpen.length)));
+  assertStep("PASS106_LEAVE_SUMMARY_CONTEXT", await leaveSurface(win));
+  assertStep("PASS106_RETURN_TO_NOTICE_CENTER", await openNoticeCenter(win));
+
+  assertStep("PASS106_OPEN_PALETTE_BUCKET", await openPaletteAndQuery(win, "notice recovery summary pass106 plugin install failed"));
+  assertStep("PASS106_PALETTE_BUCKET_VISIBLE", await waitFor(win, `
+    (function() {
+      const noticeId = window.__PASS106_NOTICE_ID__ || '';
+      const button = [...document.querySelectorAll('.command-modal .command-list button')]
+        .find((candidate) => (candidate.getAttribute('data-command-id') || '') === 'notice-recovery:timeline');
+      const text = button?.textContent || '';
+      return Boolean(
+        button &&
+        button.getAttribute('data-command-target') === 'timeline' &&
+        button.getAttribute('data-notice-recovery-count') === '1' &&
+        button.getAttribute('data-notice-recovery-first-id') === noticeId &&
+        button.getAttribute('data-command-notice-recovery-first-action')?.startsWith('capability-recovery:') &&
+        /plugin install pass106-retry-plugin@pass106-market/.test(text)
+      );
+    })();
+  `, 10000));
+  assertStep("PASS106_CLICK_PALETTE_BUCKET", await clickNoticeRecoveryCommand(win));
+  assertStep("PASS106_PALETTE_BUCKET_OPENS_PLUGIN_EVIDENCE_RETRY", await waitFor(win, `
+    (function() {
+      const panel = document.querySelector('.selected-run-evidence-panel.error');
+      const retry = panel?.querySelector('[data-run-recovery-action="retry-capability"]');
+      const context = panel?.querySelector('[data-run-capability-context="true"]');
+      const text = panel?.textContent || '';
+      return Boolean(
+        panel &&
+        retry &&
+        retry.getAttribute('data-run-recovery-action-focused') === 'true' &&
+        document.activeElement === retry &&
+        panel.getAttribute('data-run-capability-tab') === 'marketplace' &&
+        panel.getAttribute('data-run-capability-kind') === 'marketplace-plugin' &&
+        panel.getAttribute('data-run-capability-id') === 'pass106-retry-plugin@pass106-market' &&
+        panel.getAttribute('data-run-capability-action') === 'install' &&
+        context &&
+        context.getAttribute('data-run-capability-kind') === 'marketplace-plugin' &&
+        /plugin install pass106-retry-plugin@pass106-market/.test(text) &&
+        /pass106 plugin install failed/.test(text)
+      );
+    })();
+  `, 12000));
+
   const beforeRetry = readCommandLog();
   assertStep("PASS106_CLICK_RETRY", await win.webContents.executeJavaScript(`
     (async function() {
       let retry = null;
       const startedAt = Date.now();
       while (Date.now() - startedAt < 5000) {
+        const evidenceRetry = document.querySelector('.selected-run-evidence-panel [data-run-recovery-action="retry-capability"]');
         const card = [...document.querySelectorAll('.marketplace-plugin-card')]
           .find((item) => /pass106-retry-plugin/.test(item.textContent || ''));
-        retry = [...(card?.querySelectorAll('.row-cli-action-evidence.error button') || [])]
+        const rowRetry = [...(card?.querySelectorAll('.row-cli-action-evidence.error button') || [])]
           .find((button) => /重试/.test(button.textContent || ''));
+        retry = evidenceRetry || rowRetry;
         if (retry && !retry.disabled) break;
         await new Promise((resolve) => setTimeout(resolve, 100));
       }
@@ -273,16 +517,9 @@ async function runTest() {
       return true;
     })();
   `));
-  assertStep("PASS106_RETRY_CONFIRM_VISIBLE", await waitFor(win, "Boolean(document.querySelector('.plugin-cli-confirm'))", 5000));
+  assertStep("PASS106_RETRY_CONFIRM_VISIBLE", await waitForPluginConfirmReady(win, MARKETPLACE_INSTALL_COMMAND));
   assertStep("PASS106_RETRY_NOT_RUN_BEFORE_CONFIRM", !/plugin install pass106-retry-plugin@pass106-market/.test(readCommandLog().slice(beforeRetry.length)));
-  assertStep("PASS106_CONFIRM_RETRY", await win.webContents.executeJavaScript(`
-    (function() {
-      const button = document.querySelector('.plugin-cli-confirm .danger-action');
-      if (!button) return false;
-      button.click();
-      return true;
-    })();
-  `));
+  assertStep("PASS106_CONFIRM_RETRY", await clickPluginConfirm(win, MARKETPLACE_INSTALL_COMMAND));
   assertStep("PASS106_RETRY_INSTALL_RAN", await waitForLog(/plugin install pass106-retry-plugin@pass106-market(?:.|\n)*plugin install pass106-retry-plugin@pass106-market/, 12000));
   assertStep("PASS106_RETRY_RECOVERED_INLINE", await waitFor(win, `
     (function() {
@@ -331,12 +568,14 @@ writeInitialStore();
 require(path.join(REPO_DIR, "electron", "main.cjs"));
 app.whenReady().then(runTest).catch((error) => {
   console.error("PASS106_FAILED", error?.stack || error);
+  console.error("PASS106_COMMAND_LOG", readCommandLog());
   cleanup();
   app.exit(1);
 });
 
 setTimeout(() => {
   console.error("PASS106_TIMEOUT");
+  console.error("PASS106_COMMAND_LOG", readCommandLog());
   cleanup();
   app.exit(1);
 }, 90000);
