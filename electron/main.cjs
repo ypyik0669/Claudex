@@ -3850,6 +3850,7 @@ ipcMain.handle("notice:record", (_event, payload = {}) => {
     lastSeenAt: now(),
   });
   writeStore(store);
+  broadcastStoreUpdate(store);
   return {
     ...sanitizeStore(store),
     notice,

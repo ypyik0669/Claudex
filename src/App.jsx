@@ -6076,7 +6076,10 @@ function Conversation({
     if (safeArgs && onRetryCapabilityCommand && !bottomCapabilityRetryingId) {
       setBottomCapabilityRetryingId(entry.id || safeArgs);
       try {
-        await onRetryCapabilityCommand(safeArgs, capabilityContext ? { capabilityContext } : {});
+        await onRetryCapabilityCommand(safeArgs, {
+          ...(capabilityContext ? { capabilityContext } : {}),
+          recoveryNoticeOnError: true,
+        });
       } finally {
         setBottomCapabilityRetryingId("");
       }
@@ -15063,6 +15066,29 @@ export function App() {
     const requestId = `capability_${Date.now()}_${Math.random().toString(16).slice(2)}`;
     const commandLine = `claude ${nextArgs}`;
     const capabilityContext = normalizeCapabilityContext(options.capabilityContext);
+    const shouldRecordSafeRetryRecoveryNotice = Boolean(options.recoveryNoticeOnError)
+      && Boolean(safeCapabilityRetryArgsFromRun({ commandLine }))
+      && !mutatingCapabilityRetryArgsFromRun({ commandLine });
+    function recordSafeRetryRecoveryNotice(resolvedArgs = nextArgs, detail = "") {
+      if (!shouldRecordSafeRetryRecoveryNotice) return;
+      const keyParts = [
+        projectKey(activeProject) || "workspace",
+        resolvedArgs || nextArgs,
+        capabilityContext?.tab,
+        capabilityContext?.kind,
+        capabilityContext?.id,
+      ].filter(Boolean);
+      void recordNotice({
+        level: "error",
+        source: "plugin/mcp",
+        title: `${t.retry}: ${t.pluginActions}: claude ${resolvedArgs || nextArgs}`,
+        detail,
+        action: `capability-recovery:${encodeActionPart(requestId)}`,
+        runEventId: requestId,
+        key: `capability:retry:${keyParts.join(":")}`,
+        ...(capabilityContext ? { capabilityContext } : {}),
+      });
+    }
     setBottomPanel("outputs");
     recordRunEvent({
       id: requestId,
@@ -15102,19 +15128,27 @@ export function App() {
         suppressNotice: true,
         ...(capabilityContext ? { capabilityContext } : {}),
       });
+      if (result.code !== 0) {
+        recordSafeRetryRecoveryNotice(
+          resolvedArgs,
+          result.stderr || result.stdout || `${t.commandExit}: ${result.code ?? "-"}`,
+        );
+      }
       return result;
     } catch (error) {
+      const errorDetail = error.message || String(error);
       recordRunEvent({
         id: requestId,
         type: "capability-cli",
         status: "error",
         title: `${t.pluginActions}: ${commandLine}`,
-        detail: error.message || String(error),
+        detail: errorDetail,
         commandLine,
         cwd: activeProject?.path || "",
         suppressNotice: true,
         ...(capabilityContext ? { capabilityContext } : {}),
       });
+      recordSafeRetryRecoveryNotice(nextArgs, errorDetail);
       throw error;
     }
   }

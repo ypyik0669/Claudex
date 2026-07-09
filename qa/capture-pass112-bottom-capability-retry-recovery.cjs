@@ -344,8 +344,32 @@ writeInitialStore(fakeClaudeCommand);
 require(path.join(REPO_DIR, "electron", "main.cjs"));
 app.whenReady().then(runTest).catch((error) => {
   console.error("PASS112_FAILED", error?.stack || error);
-  cleanup();
-  app.exit(1);
+  Promise.resolve()
+    .then(async () => {
+      const win = BrowserWindow.getAllWindows()[0];
+      if (!win) return;
+      const debug = await win.webContents.executeJavaScript(`
+        (async function() {
+          return {
+            activeBottom: document.querySelector('.bottom-panel-tabs button.active, .workspace-context-button.active')?.textContent || '',
+            evidenceStack: document.querySelector('.capability-command-evidence-stack')?.textContent || '',
+            selectedRun: document.querySelector('.selected-run-evidence-panel')?.textContent || '',
+            outputCards: [...document.querySelectorAll('.command-output-card')].map((card) => ({
+              className: card.className,
+              text: card.textContent,
+            })),
+            body: document.body?.textContent?.slice(0, 8000) || '',
+            state: await window.claudexDesktop.getState().catch((stateError) => ({ error: String(stateError?.message || stateError) })),
+          };
+        })();
+      `).catch((debugError) => ({ error: String(debugError?.message || debugError) }));
+      console.error("PASS112_DEBUG", JSON.stringify(debug, null, 2).slice(0, 14000));
+      console.error("PASS112_COMMAND_LOG", readCommandLog());
+    })
+    .finally(() => {
+      cleanup();
+      app.exit(1);
+    });
 });
 
 setTimeout(() => {
