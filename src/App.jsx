@@ -1872,6 +1872,21 @@ function marketplacePluginEvidenceText(plugin = {}, t) {
   return rows.map(([label, value]) => `${label}: ${value}`).join("\n");
 }
 
+function marketplacePluginInstallReviewRows(plugin = {}, t) {
+  const detailLines = toolDetailLines(plugin, t);
+  return [
+    [t.marketplace, plugin.marketplace || t.marketplaceSourceClaude],
+    plugin.version && plugin.version !== "unknown" ? [t.version, plugin.version] : null,
+    plugin.author ? [t.author, summarizePanelPluginField(plugin.author)] : null,
+    plugin.category ? [t.category, plugin.category] : null,
+    plugin.source ? [t.source, summarizePanelPluginField(plugin.source)] : null,
+    plugin.installLocation ? [t.installPath, plugin.installLocation] : null,
+    detailLines.length ? [t.toolsList, detailLines.join("\n")] : plugin.tools ? [t.tools, summarizePanelPluginField(plugin.tools)] : null,
+    plugin.permissions ? [t.allowedTools, summarizePanelPluginField(plugin.permissions)] : null,
+    [t.marketplaceRisk, plugin.risk || t.marketplaceInstallRisk],
+  ].filter(Boolean);
+}
+
 function marketplaceSourceEvidenceText(source = {}, t) {
   const rows = [
     [t.marketplaceSources, source.name || source.repo || source.source],
@@ -12388,18 +12403,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
   }
 
   function marketplaceInstallReviewRows(item) {
-    const detailLines = toolDetailLines(item, t);
-    return [
-      [t.marketplace, item.marketplace || t.marketplaceSourceClaude],
-      item.version && item.version !== "unknown" ? [t.version, item.version] : null,
-      item.author ? [t.author, item.author] : null,
-      item.category ? [t.category, item.category] : null,
-      item.source ? [t.source, item.source] : null,
-      item.installLocation ? [t.installPath, item.installLocation] : null,
-      detailLines.length ? [t.toolsList, detailLines.join("\n")] : item.tools ? [t.tools, item.tools] : null,
-      item.permissions ? [t.allowedTools, item.permissions] : null,
-      [t.marketplaceRisk, item.risk || t.marketplaceInstallRisk],
-    ].filter(Boolean);
+    return marketplacePluginInstallReviewRows(item, t);
   }
 
   function marketplaceUpdateReviewRows() {
@@ -15131,20 +15135,32 @@ export function App() {
     if (!focus) return;
     const nextTab = focus.tab || "plugins";
     const marketplaceSources = Array.isArray(capabilityCommandStatus?.marketplaces) ? capabilityCommandStatus.marketplaces : [];
+    const marketplacePlugins = Array.isArray(capabilityCommandStatus?.marketplacePlugins) ? capabilityCommandStatus.marketplacePlugins : [];
     const marketplaceSource = /^plugin\s+marketplace\s+update$/i.test(nextArgs)
       ? marketplaceSources.find((item) => item?.name && item.name === focus.id) || marketplaceSources.find((item) => item?.name) || null
       : null;
+    const installPluginId = String(nextArgs.match(/^plugin\s+install\s+([^\s]+)/i)?.[1] || "").trim();
+    const marketplacePlugin = !marketplaceSource && retryContext?.kind === "marketplace-plugin" && installPluginId
+      ? findPluginByIdentifiers(marketplacePlugins, [retryContext.id, focus.id, installPluginId, retryContext.query])
+      : null;
     const retryReviewRows = marketplaceSource
       ? marketplaceSourceUpdateReviewRows(marketplaceSource, t, activeProject)
+      : marketplacePlugin
+        ? marketplacePluginInstallReviewRows(marketplacePlugin, t)
       : [
         [t.commandLine, `claude ${nextArgs}`],
         [t.commandCwd, activeProject?.path || t.localWorkspace],
       ];
+    const retryLabel = marketplaceSource
+      ? `${t.retry}: ${t.marketplaceSources} / ${marketplaceSource.name}`
+      : marketplacePlugin
+        ? `${t.retry}: ${t.installFromMarketplace} / ${marketplacePlugin.name || marketplacePlugin.id || installPluginId}`
+        : `${t.retry}: claude ${nextArgs}`;
     openCapabilitiesSurface(nextTab, {
       ...focus,
       confirmCommand: {
         args: nextArgs,
-        label: marketplaceSource ? `${t.retry}: ${t.marketplaceSources} / ${marketplaceSource.name}` : `${t.retry}: claude ${nextArgs}`,
+        label: retryLabel,
         reviewRows: retryReviewRows,
         ...(retryContext ? { capabilityContext: retryContext } : {}),
       },

@@ -518,6 +518,25 @@ async function runTest() {
     })();
   `));
   assertStep("PASS106_RETRY_CONFIRM_VISIBLE", await waitForPluginConfirmReady(win, MARKETPLACE_INSTALL_COMMAND));
+  assertStep("PASS106_RETRY_CONFIRM_AUDIT_DETAILS", await waitFor(win, `
+    (function() {
+      const confirm = [...document.querySelectorAll('.plugin-cli-confirm')]
+        .find((item) => /plugin install pass106-retry-plugin@pass106-market/.test(item.textContent || ''));
+      const meta = confirm?.querySelector('.plugin-cli-confirm-meta');
+      const text = meta?.textContent || '';
+      return Boolean(
+        confirm &&
+        meta &&
+        /pass106-market/.test(text) &&
+        /10\\.6\\.0/.test(text) &&
+        /PASS106 QA/.test(text) &&
+        /https:\\/\\/example\\.invalid\\/pass106\\.git/.test(text) &&
+        /plugins\\/failing/.test(text) &&
+        /Read/.test(text) &&
+        /Bash/.test(text)
+      );
+    })();
+  `, 7000));
   assertStep("PASS106_RETRY_NOT_RUN_BEFORE_CONFIRM", !/plugin install pass106-retry-plugin@pass106-market/.test(readCommandLog().slice(beforeRetry.length)));
   assertStep("PASS106_CONFIRM_RETRY", await clickPluginConfirm(win, MARKETPLACE_INSTALL_COMMAND));
   assertStep("PASS106_RETRY_INSTALL_RAN", await waitForLog(/plugin install pass106-retry-plugin@pass106-market(?:.|\n)*plugin install pass106-retry-plugin@pass106-market/, 12000));
@@ -568,9 +587,44 @@ writeInitialStore();
 require(path.join(REPO_DIR, "electron", "main.cjs"));
 app.whenReady().then(runTest).catch((error) => {
   console.error("PASS106_FAILED", error?.stack || error);
-  console.error("PASS106_COMMAND_LOG", readCommandLog());
-  cleanup();
-  app.exit(1);
+  Promise.resolve()
+    .then(async () => {
+      const win = BrowserWindow.getAllWindows()[0];
+      if (!win) return;
+      const debug = await win.webContents.executeJavaScript(`
+        (async function() {
+          return {
+            confirm: document.querySelector('.plugin-cli-confirm')?.textContent || '',
+            meta: document.querySelector('.plugin-cli-confirm-meta')?.textContent || '',
+            state: await window.claudexDesktop.getState().then((state) => ({
+              capabilityStatus: {
+                marketplacePluginCount: state.capabilityStatus?.marketplacePlugins?.length || 0,
+                marketplacePlugins: (state.capabilityStatus?.marketplacePlugins || []).slice(0, 5),
+                marketplaceCount: state.capabilityStatus?.marketplaces?.length || 0,
+                marketplaces: (state.capabilityStatus?.marketplaces || []).slice(0, 5),
+              },
+              commandRuns: (state.commandRuns || []).map((run) => ({
+                command: run.command,
+                code: run.code,
+                capabilityContext: run.capabilityContext,
+              })),
+              notices: (state.notices || []).map((notice) => ({
+                action: notice.action,
+                runEventId: notice.runEventId,
+                capabilityContext: notice.capabilityContext,
+              })),
+            })).catch((stateError) => ({ error: String(stateError?.message || stateError) })),
+          };
+        })();
+      `).catch((debugError) => ({ error: String(debugError?.message || debugError) }));
+      console.error("PASS106_DEBUG", JSON.stringify(debug, null, 2).slice(0, 12000));
+    })
+    .finally(() => {
+      console.error("PASS106_COMMAND_LOG", readCommandLog());
+      cleanup();
+      app.exit(1);
+    });
+  return;
 });
 
 setTimeout(() => {

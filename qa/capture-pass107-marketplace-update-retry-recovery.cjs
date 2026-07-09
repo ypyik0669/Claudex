@@ -12,6 +12,8 @@ const PROJECT_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "claudex-pass107-proje
 const COMMAND_LOG = path.join(USER_DATA_DIR, "claude-command-log.txt");
 const DATA_FILE = path.join(USER_DATA_DIR, "desktop-data.json");
 const UPDATE_COUNT_FILE = path.join(USER_DATA_DIR, "pass107-update-count.txt");
+const MARKETPLACE_SOURCE_ID = "pass107-market";
+const MARKETPLACE_UPDATE_COMMAND = "plugin marketplace update";
 
 function cleanup() {
   for (const dir of [USER_DATA_DIR, FAKE_BIN_DIR, MARKETPLACE_DIR, PROJECT_DIR]) {
@@ -57,6 +59,38 @@ async function waitForLog(pattern, timeoutMs = 10000) {
     await wait(150);
   }
   return false;
+}
+
+async function waitForCliConfirmReady(win, commandText, timeoutMs = 7000) {
+  return waitFor(win, `
+    (function() {
+      const command = ${JSON.stringify(commandText)};
+      const confirm = [...document.querySelectorAll('.plugin-cli-confirm')]
+        .find((item) => (item.textContent || '').includes(command));
+      const button = confirm?.querySelector('.danger-action');
+      return Boolean(confirm && button && !button.disabled);
+    })();
+  `, timeoutMs);
+}
+
+async function clickCliConfirm(win, commandText, timeoutMs = 7000) {
+  return win.webContents.executeJavaScript(`
+    (async function() {
+      const command = ${JSON.stringify(commandText)};
+      const startedAt = Date.now();
+      while (Date.now() - startedAt < ${Number(timeoutMs)}) {
+        const confirm = [...document.querySelectorAll('.plugin-cli-confirm')]
+          .find((item) => (item.textContent || '').includes(command));
+        const button = confirm?.querySelector('.danger-action');
+        if (button && !button.disabled) {
+          button.click();
+          return true;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      return false;
+    })();
+  `);
 }
 
 function assertStep(name, ok) {
@@ -187,11 +221,12 @@ async function openMarketplace(win) {
 async function clickMarketplaceUpdate(win, stepName) {
   assertStep(stepName, await win.webContents.executeJavaScript(`
     (async function() {
+      const sourceId = ${JSON.stringify(MARKETPLACE_SOURCE_ID)};
       let button = null;
       const startedAt = Date.now();
       while (Date.now() - startedAt < 5000) {
-        button = [...document.querySelectorAll('.marketplace-actions button')]
-          .find((candidate) => /\\u66f4\\u65b0/.test(candidate.textContent || ''));
+        const row = document.querySelector('[data-marketplace-source-id="' + sourceId + '"]');
+        button = row?.querySelector('[data-marketplace-source-action="update"]');
         if (button && !button.disabled) break;
         await new Promise((resolve) => setTimeout(resolve, 100));
       }
@@ -218,16 +253,25 @@ async function runTest() {
 
   const beforeUpdate = readCommandLog();
   await clickMarketplaceUpdate(win, "PASS107_CLICK_UPDATE");
-  assertStep("PASS107_UPDATE_CONFIRM_VISIBLE", await waitFor(win, "Boolean(document.querySelector('.plugin-cli-confirm'))", 5000));
-  assertStep("PASS107_UPDATE_NOT_RUN_BEFORE_CONFIRM", !/plugin marketplace update/.test(readCommandLog().slice(beforeUpdate.length)));
-  assertStep("PASS107_CONFIRM_UPDATE", await win.webContents.executeJavaScript(`
+  assertStep("PASS107_UPDATE_CONFIRM_VISIBLE", await waitFor(win, `
     (function() {
-      const button = document.querySelector('.plugin-cli-confirm .danger-action');
-      if (!button) return false;
-      button.click();
-      return true;
+      const confirm = document.querySelector('.plugin-cli-confirm');
+      const text = confirm?.textContent || '';
+      const button = confirm?.querySelector('.danger-action');
+      return Boolean(
+        confirm &&
+        button &&
+        !button.disabled &&
+        /plugin marketplace update/.test(text) &&
+        /pass107-market/.test(text) &&
+        /2026\\.7\\.6/.test(text) &&
+        /Read/.test(text) &&
+        /Bash/.test(text)
+      );
     })();
-  `));
+  `, 7000));
+  assertStep("PASS107_UPDATE_NOT_RUN_BEFORE_CONFIRM", !/plugin marketplace update/.test(readCommandLog().slice(beforeUpdate.length)));
+  assertStep("PASS107_CONFIRM_UPDATE", await clickCliConfirm(win, MARKETPLACE_UPDATE_COMMAND));
   assertStep("PASS107_UPDATE_RAN_AFTER_CONFIRM", await waitForLog(/plugin marketplace update/));
   assertStep("PASS107_MARKETPLACE_UPDATE_FAILURE_FOCUS", await waitFor(win, `
     (function() {
@@ -249,13 +293,26 @@ async function runTest() {
   assertStep("PASS107_FAILURE_PERSISTED", await waitFor(win, `
     (async function() {
       const state = await window.claudexDesktop.getState();
+      const failedRun = state.commandRuns?.find((run) => run.kind === 'capability' &&
+        /plugin marketplace update/.test(run.command || '') &&
+        run.code === 37 &&
+        /pass107 marketplace update failed/.test(run.stderr || ''));
+      const notice = state.notices?.find((item) => item.level === 'error' &&
+        /pass107 marketplace update failed/.test((item.title || '') + (item.detail || '')));
+      window.__PASS107_NOTICE_ID__ = notice?.id || '';
+      window.__PASS107_RUN_ID__ = notice?.runEventId || failedRun?.requestId || failedRun?.id || '';
       return Boolean(
-        state.commandRuns?.some((run) => run.kind === 'capability' &&
-          /plugin marketplace update/.test(run.command || '') &&
-          run.code === 37 &&
-          /pass107 marketplace update failed/.test(run.stderr || '')) &&
-        state.notices?.some((notice) => notice.level === 'error' &&
-          /pass107 marketplace update failed/.test((notice.title || '') + (notice.detail || '')))
+        failedRun &&
+        failedRun.capabilityContext?.tab === 'marketplace' &&
+        failedRun.capabilityContext?.kind === 'marketplace-source' &&
+        failedRun.capabilityContext?.id === ${JSON.stringify(MARKETPLACE_SOURCE_ID)} &&
+        failedRun.capabilityContext?.action === 'update' &&
+        notice &&
+        notice.action === 'capability-recovery:' + encodeURIComponent(notice.runEventId) &&
+        notice.capabilityContext?.tab === 'marketplace' &&
+        notice.capabilityContext?.kind === 'marketplace-source' &&
+        notice.capabilityContext?.id === ${JSON.stringify(MARKETPLACE_SOURCE_ID)} &&
+        notice.capabilityContext?.action === 'update'
       );
     })();
   `, 10000));
@@ -279,16 +336,9 @@ async function runTest() {
       return true;
     })();
   `));
-  assertStep("PASS107_RETRY_CONFIRM_VISIBLE", await waitFor(win, "Boolean(document.querySelector('.plugin-cli-confirm'))", 5000));
+  assertStep("PASS107_RETRY_CONFIRM_VISIBLE", await waitForCliConfirmReady(win, MARKETPLACE_UPDATE_COMMAND));
   assertStep("PASS107_RETRY_NOT_RUN_BEFORE_CONFIRM", !/plugin marketplace update/.test(readCommandLog().slice(beforeRetry.length)));
-  assertStep("PASS107_CONFIRM_RETRY", await win.webContents.executeJavaScript(`
-    (function() {
-      const button = document.querySelector('.plugin-cli-confirm .danger-action');
-      if (!button) return false;
-      button.click();
-      return true;
-    })();
-  `));
+  assertStep("PASS107_CONFIRM_RETRY", await clickCliConfirm(win, MARKETPLACE_UPDATE_COMMAND));
   assertStep("PASS107_RETRY_UPDATE_RAN", await waitForLog(/plugin marketplace update(?:.|\n)*plugin marketplace update/, 12000));
   assertStep("PASS107_RETRY_RECOVERED_INLINE", await waitFor(win, `
     (function() {
@@ -310,10 +360,18 @@ async function runTest() {
     (async function() {
       const state = await window.claudexDesktop.getState();
       const runs = state.commandRuns?.filter((run) => run.kind === 'capability' && /plugin marketplace update/.test(run.command || '')) || [];
+      const failed = runs.find((run) => run.code === 37 && /pass107 marketplace update failed/.test(run.stderr || ''));
+      const recovered = runs.find((run) => run.code === 0 && /updated pass107-market to 2026\\.7\\.8/.test(run.stdout || ''));
       return Boolean(
         runs.length >= 2 &&
-        runs.some((run) => run.code === 37 && /pass107 marketplace update failed/.test(run.stderr || '')) &&
-        runs.some((run) => run.code === 0 && /updated pass107-market to 2026\\.7\\.8/.test(run.stdout || ''))
+        failed?.capabilityContext?.tab === 'marketplace' &&
+        failed?.capabilityContext?.kind === 'marketplace-source' &&
+        failed?.capabilityContext?.id === ${JSON.stringify(MARKETPLACE_SOURCE_ID)} &&
+        failed?.capabilityContext?.action === 'update' &&
+        recovered?.capabilityContext?.tab === 'marketplace' &&
+        recovered?.capabilityContext?.kind === 'marketplace-source' &&
+        recovered?.capabilityContext?.id === ${JSON.stringify(MARKETPLACE_SOURCE_ID)} &&
+        recovered?.capabilityContext?.action === 'update'
       );
     })();
   `, 10000));
