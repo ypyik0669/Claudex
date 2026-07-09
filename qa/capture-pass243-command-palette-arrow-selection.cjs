@@ -187,7 +187,7 @@ async function runTest() {
     })();
   `));
 
-  assertStep("PASS243_FILTER_THREAD_SCOPE_COMMANDS", await win.webContents.executeJavaScript(`
+  assertStep("PASS243_FILTER_PROJECT_THREAD_SCOPE_COMMANDS", await win.webContents.executeJavaScript(`
     (async function() {
       const input = document.querySelector('.command-modal .command-search input');
       if (!input) return false;
@@ -196,11 +196,15 @@ async function runTest() {
       input.dispatchEvent(new Event('input', { bubbles: true }));
       await new Promise((resolve) => setTimeout(resolve, 180));
       const ids = Array.from(document.querySelectorAll('.command-modal [data-command-id]')).map((item) => item.getAttribute('data-command-id'));
-      return ids[0] === 'threads-current' && ids[1] === 'threads-all';
+      return ids[0]?.startsWith('project-threads-current:') &&
+        ids[1]?.startsWith('project-threads-archived:') &&
+        ids.includes('threads-current') &&
+        ids.includes('threads-all') &&
+        ids.includes('threads-archived');
     })();
   `));
 
-  assertStep("PASS243_ARROW_SELECTS_SECOND_COMMAND", await win.webContents.executeJavaScript(`
+  assertStep("PASS243_ARROW_SELECTS_SECOND_PROJECT_COMMAND", await win.webContents.executeJavaScript(`
     (async function() {
       const input = document.querySelector('.command-modal .command-search input');
       if (!input) return false;
@@ -208,7 +212,7 @@ async function runTest() {
       await new Promise((resolve) => setTimeout(resolve, 180));
       const active = document.querySelector('.command-modal [data-command-active="true"]');
       return Boolean(
-        active?.getAttribute('data-command-id') === 'threads-all' &&
+        active?.getAttribute('data-command-id')?.startsWith('project-threads-archived:') &&
         active?.getAttribute('aria-selected') === 'true' &&
         active.classList.contains('active')
       );
@@ -223,7 +227,7 @@ async function runTest() {
       await new Promise((resolve) => setTimeout(resolve, 350));
       return Boolean(
         !document.querySelector('.command-modal') &&
-        document.querySelector('[data-thread-scope="all"].active')
+        document.querySelector('[data-thread-scope="archived"].active')
       );
     })();
   `, 12000));

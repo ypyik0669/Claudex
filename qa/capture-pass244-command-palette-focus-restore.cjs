@@ -183,36 +183,23 @@ async function runTest() {
     })();
   `));
 
-  assertStep("PASS244_CTRL_K_FROM_COMPOSER_OPENS_PALETTE", await win.webContents.executeJavaScript(`
+  assertStep("PASS244_CTRL_K_FROM_COMPOSER_IS_GUARDED", await win.webContents.executeJavaScript(`
     (async function() {
       const textarea = document.querySelector('.prompt-box textarea');
       if (!textarea) return false;
-      textarea.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true, bubbles: true }));
+      const event = new KeyboardEvent('keydown', { key: 'k', code: 'KeyK', ctrlKey: true, bubbles: true, cancelable: true });
+      const notCancelled = textarea.dispatchEvent(event);
       await new Promise((resolve) => setTimeout(resolve, 350));
       return Boolean(
-        document.querySelector('.command-modal .command-search input') &&
-        document.activeElement?.matches('.command-modal .command-search input')
-      );
-    })();
-  `));
-
-  assertStep("PASS244_ESCAPE_RESTORES_COMPOSER_FOCUS", await waitFor(win, `
-    (async function() {
-      const input = document.querySelector('.command-modal .command-search input');
-      if (!input) return false;
-      input.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
-      await new Promise((resolve) => setTimeout(resolve, 350));
-      const textarea = document.querySelector('.prompt-box textarea');
-      return Boolean(
+        (event.defaultPrevented || notCancelled === false) &&
         !document.querySelector('.command-modal') &&
-        textarea &&
         document.activeElement === textarea &&
         textarea.value === ${JSON.stringify(PASS244_DRAFT)}
       );
     })();
-  `, 12000));
+  `));
 
-  console.log("PASS244_COMMAND_PALETTE_FOCUS_RESTORE_DONE");
+  console.log("PASS244_COMMAND_PALETTE_INPUT_GUARD_DONE");
   cleanup();
   app.exit(0);
 }

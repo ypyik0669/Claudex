@@ -18733,11 +18733,6 @@ export function App() {
           setShortcutsOpen(true);
           return;
         }
-        if (isPrimaryShortcut(event, "k")) {
-          event.preventDefault();
-          setCommandsOpen(true);
-          return;
-        }
         if ((event.ctrlKey || event.metaKey) && event.key === "\\") {
           event.preventDefault();
           toggleRightPanel();

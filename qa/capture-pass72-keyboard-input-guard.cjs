@@ -87,51 +87,39 @@ app.whenReady().then(async () => {
 
   assertStep("PASS72_READY", await waitFor(win, "Boolean(document.querySelector('.app-grid') && window.claudexDesktop)", 15000));
 
-  assertStep("PASS72_COMPOSER_GLOBAL_SHORTCUTS_GUARDED", await win.webContents.executeJavaScript(`
+  const composerGuard = await win.webContents.executeJavaScript(`
     (async function() {
       const textarea = document.querySelector('.prompt-box textarea');
-      if (!textarea) return false;
+      if (!textarea) return { ok: false, reason: 'missing-composer-textarea' };
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
+      setter.call(textarea, 'pass72 composer draft stays put');
+      textarea.dispatchEvent(new Event('input', { bubbles: true }));
       textarea.focus();
+      const initialRightPanelOpen = !document.querySelector('.app-grid')?.classList.contains('right-panel-hidden');
       const results = [];
-      for (const key of ['p', 't']) {
+      for (const key of ['p', 't', 'k']) {
         const event = new KeyboardEvent('keydown', { key, code: 'Key' + key.toUpperCase(), ctrlKey: true, bubbles: true, cancelable: true });
         const notCancelled = textarea.dispatchEvent(event);
         await new Promise((resolve) => setTimeout(resolve, 120));
+        const rightPanelOpen = !document.querySelector('.app-grid')?.classList.contains('right-panel-hidden');
         results.push({
           key,
           prevented: event.defaultPrevented || notCancelled === false,
           projectModal: Boolean(document.querySelector('.project-modal')),
           commandModal: Boolean(document.querySelector('.command-modal')),
-          rightPanelOpen: !document.querySelector('.app-grid')?.classList.contains('right-panel-hidden'),
+          initialRightPanelOpen,
+          rightPanelOpen,
+          rightPanelStable: rightPanelOpen === initialRightPanelOpen,
+          focusStayed: document.activeElement === textarea,
+          draftStayed: textarea.value === 'pass72 composer draft stays put',
         });
       }
-      return results.every((item) => item.prevented && !item.projectModal && !item.commandModal && !item.rightPanelOpen);
+      const ok = results.every((item) => item.prevented && !item.projectModal && !item.commandModal && item.rightPanelStable && item.focusStayed && item.draftStayed);
+      return { ok, results };
     })();
-  `));
-
-  assertStep("PASS72_COMPOSER_COMMAND_PALETTE_ALLOWED", await waitFor(win, `
-    (async function() {
-      if (!window.__pass72ComposerPalette) {
-        window.__pass72ComposerPalette = true;
-        const textarea = document.querySelector('.prompt-box textarea');
-        if (!textarea) return false;
-        textarea.focus();
-        const event = new KeyboardEvent('keydown', { key: 'k', code: 'KeyK', ctrlKey: true, bubbles: true, cancelable: true });
-        window.__pass72ComposerPalettePrevented = !textarea.dispatchEvent(event) || event.defaultPrevented;
-      }
-      await new Promise((resolve) => setTimeout(resolve, 120));
-      return window.__pass72ComposerPalettePrevented === true &&
-        Boolean(document.querySelector('.command-modal .command-search input'));
-    })();
-  `, 5000));
-
-  assertStep("PASS72_CLOSE_COMPOSER_COMMAND_PALETTE", await win.webContents.executeJavaScript(`
-    (function() {
-      document.querySelector('.command-modal .command-search input')
-        ?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
-      return true;
-    })();
-  `));
+  `);
+  if (!composerGuard?.ok) console.error("PASS72_COMPOSER_GUARD_DEBUG", JSON.stringify(composerGuard, null, 2));
+  assertStep("PASS72_COMPOSER_GLOBAL_SHORTCUTS_GUARDED", composerGuard?.ok);
 
   assertStep("PASS72_COMPOSER_SHORTCUT_HELP_ALLOWED", await waitFor(win, `
     (async function() {
@@ -172,51 +160,39 @@ app.whenReady().then(async () => {
     })();
   `, 15000));
 
-  assertStep("PASS72_EDITOR_GLOBAL_SHORTCUTS_GUARDED", await win.webContents.executeJavaScript(`
+  const editorGuard = await win.webContents.executeJavaScript(`
     (async function() {
       const textarea = document.querySelector('.file-editor textarea');
-      if (!textarea) return false;
+      if (!textarea) return { ok: false, reason: 'missing-editor-textarea' };
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLTextAreaElement.prototype, 'value').set;
+      setter.call(textarea, 'pass72 editor draft stays put');
+      textarea.dispatchEvent(new Event('input', { bubbles: true }));
       textarea.focus();
+      const initialBrowserSelected = Boolean(document.querySelector('.tool-row.active[aria-controls="browser-tool-detail"]'));
       const results = [];
-      for (const key of ['p', 't']) {
+      for (const key of ['p', 't', 'k']) {
         const event = new KeyboardEvent('keydown', { key, code: 'Key' + key.toUpperCase(), ctrlKey: true, bubbles: true, cancelable: true });
         const notCancelled = textarea.dispatchEvent(event);
         await new Promise((resolve) => setTimeout(resolve, 120));
+        const browserSelected = Boolean(document.querySelector('.tool-row.active[aria-controls="browser-tool-detail"]'));
         results.push({
           key,
           prevented: event.defaultPrevented || notCancelled === false,
           projectModal: Boolean(document.querySelector('.project-modal')),
           commandModal: Boolean(document.querySelector('.command-modal')),
-          browserSelected: Boolean(document.querySelector('.tool-row.active[aria-controls="browser-tool-detail"]')),
+          initialBrowserSelected,
+          browserSelected,
+          browserStable: browserSelected === initialBrowserSelected,
+          focusStayed: document.activeElement === textarea,
+          draftStayed: textarea.value === 'pass72 editor draft stays put',
         });
       }
-      return results.every((item) => item.prevented && !item.projectModal && !item.commandModal && !item.browserSelected);
+      const ok = results.every((item) => item.prevented && !item.projectModal && !item.commandModal && item.browserStable && item.focusStayed && item.draftStayed);
+      return { ok, results };
     })();
-  `));
-
-  assertStep("PASS72_EDITOR_COMMAND_PALETTE_ALLOWED", await waitFor(win, `
-    (async function() {
-      if (!window.__pass72EditorPalette) {
-        window.__pass72EditorPalette = true;
-        const textarea = document.querySelector('.file-editor textarea');
-        if (!textarea) return false;
-        textarea.focus();
-        const event = new KeyboardEvent('keydown', { key: 'k', code: 'KeyK', ctrlKey: true, bubbles: true, cancelable: true });
-        window.__pass72EditorPalettePrevented = !textarea.dispatchEvent(event) || event.defaultPrevented;
-      }
-      await new Promise((resolve) => setTimeout(resolve, 120));
-      return window.__pass72EditorPalettePrevented === true &&
-        Boolean(document.querySelector('.command-modal .command-search input'));
-    })();
-  `, 5000));
-
-  assertStep("PASS72_CLOSE_EDITOR_COMMAND_PALETTE", await win.webContents.executeJavaScript(`
-    (function() {
-      document.querySelector('.command-modal .command-search input')
-        ?.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true, cancelable: true }));
-      return true;
-    })();
-  `));
+  `);
+  if (!editorGuard?.ok) console.error("PASS72_EDITOR_GUARD_DEBUG", JSON.stringify(editorGuard, null, 2));
+  assertStep("PASS72_EDITOR_GLOBAL_SHORTCUTS_GUARDED", editorGuard?.ok);
 
   assertStep("PASS72_EDITOR_SHORTCUT_HELP_ALLOWED", await waitFor(win, `
     (async function() {
