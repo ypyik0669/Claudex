@@ -4636,39 +4636,294 @@ ipcMain.handle("workspace:read-file", (_event, { projectPath, relativePath } = {
 ipcMain.handle("workspace:save-file", (_event, { projectPath, relativePath, content, baseUpdatedAt, baseSha256 } = {}) => {
   const { target, relative } = resolveInsideProject(projectPath, relativePath);
   const nextContent = String(content ?? "");
-  const stat = fs.existsSync(target) ? fs.statSync(target) : null;
-  if (stat && !stat.isFile()) throw new Error("所选路径不是文件。");
-  if (stat && (baseUpdatedAt || baseSha256)) {
-    const currentBuffer = fs.readFileSync(target);
-    const currentUpdatedAt = stat.mtime.toISOString();
-    const currentSha256 = hashBuffer(currentBuffer);
-    const mtimeChanged = baseUpdatedAt && baseUpdatedAt !== currentUpdatedAt;
-    const hashChanged = baseSha256 && baseSha256 !== currentSha256;
-    if (mtimeChanged || hashChanged) {
-      return {
-        ok: false,
-        conflict: true,
-        code: "WORKSPACE_FILE_CONFLICT",
-        message: "文件已被外部修改。请重新读取后再保存，避免覆盖别人的改动。",
-        path: relative,
-        details: {
-          baseUpdatedAt: String(baseUpdatedAt || ""),
-          baseSha256: String(baseSha256 || ""),
-          currentUpdatedAt,
-          currentSha256,
-          attemptedSha256: hashBuffer(Buffer.from(nextContent, "utf8")),
-          attemptedBytes: Buffer.byteLength(nextContent, "utf8"),
-          currentBytes: currentBuffer.length,
-        },
-      };
+  const hasBaseVersion = Boolean(baseUpdatedAt || baseSha256);
+  const isMissingPathError = (error) => error?.code === "ENOENT";
+  const hasFileIdentity = (stat) =>
+    typeof stat?.dev === "bigint" && stat.dev > 0n && typeof stat?.ino === "bigint" && stat.ino > 0n;
+  const sameFileIdentity = (left, right) =>
+    hasFileIdentity(left) && hasFileIdentity(right) && left.dev === right.dev && left.ino === right.ino;
+  const sameFileState = (left, right) =>
+    typeof left?.size === "bigint" &&
+    typeof right?.size === "bigint" &&
+    typeof left?.mtimeNs === "bigint" &&
+    typeof right?.mtimeNs === "bigint" &&
+    left.size === right.size &&
+    left.mtimeNs === right.mtimeNs;
+  const safeBigIntNumber = (value, label) => {
+    if (
+      typeof value !== "bigint" ||
+      value < BigInt(Number.MIN_SAFE_INTEGER) ||
+      value > BigInt(Number.MAX_SAFE_INTEGER)
+    ) {
+      const error = new Error(`文件 ${label} 超出安全数值范围。`);
+      error.code = "WORKSPACE_FILE_METADATA_RANGE";
+      throw error;
     }
-  }
-  fs.mkdirSync(path.dirname(target), { recursive: true });
-  fs.writeFileSync(target, nextContent, "utf8");
-  return {
-    ...fileSnapshot(target),
-    path: relative,
+    return Number(value);
   };
+  const statSizeNumber = (stat) => safeBigIntNumber(stat.size, "size");
+  const statUpdatedAt = (stat) => {
+    if (typeof stat?.mtimeNs !== "bigint") {
+      const error = new Error("文件 mtime 不可用。");
+      error.code = "WORKSPACE_FILE_METADATA_UNAVAILABLE";
+      throw error;
+    }
+    const wholeMilliseconds = stat.mtimeNs / 1_000_000n;
+    const remainderNs = stat.mtimeNs % 1_000_000n;
+    const roundedMilliseconds =
+      remainderNs >= 500_000n
+        ? wholeMilliseconds + 1n
+        : remainderNs < -500_000n
+          ? wholeMilliseconds - 1n
+          : wholeMilliseconds;
+    const milliseconds = safeBigIntNumber(roundedMilliseconds, "mtime");
+    const updatedAt = new Date(milliseconds);
+    if (Number.isNaN(updatedAt.getTime())) {
+      const error = new Error("文件 mtime 无法转换为 ISO 时间。");
+      error.code = "WORKSPACE_FILE_METADATA_RANGE";
+      throw error;
+    }
+    return updatedAt.toISOString();
+  };
+  const conflictResult = ({ currentUpdatedAt = "", currentSha256 = "", currentBytes = 0, currentExists, reason }) => {
+    const attemptedBuffer = Buffer.from(nextContent, "utf8");
+    return {
+      ok: false,
+      conflict: true,
+      code: "WORKSPACE_FILE_CONFLICT",
+      message: "文件已被外部修改或删除。请确认磁盘状态后再处理草稿，避免覆盖或重建外部变更。",
+      path: relative,
+      details: {
+        baseUpdatedAt: String(baseUpdatedAt || ""),
+        baseSha256: String(baseSha256 || ""),
+        currentUpdatedAt,
+        currentSha256,
+        attemptedSha256: hashBuffer(attemptedBuffer),
+        attemptedBytes: attemptedBuffer.length,
+        currentBytes,
+        baseExists: true,
+        currentExists,
+        reason,
+      },
+    };
+  };
+  if (!hasBaseVersion) {
+    let existingStat = null;
+    try {
+      existingStat = fs.statSync(target);
+    } catch (error) {
+      if (!isMissingPathError(error)) throw error;
+    }
+    if (existingStat && !existingStat.isFile()) throw new Error("所选路径不是文件。");
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.writeFileSync(target, nextContent, "utf8");
+    return {
+      ...fileSnapshot(target),
+      path: relative,
+    };
+  }
+
+  const readOpenHandleSnapshot = (fd) => {
+    const beforeRead = fs.fstatSync(fd, { bigint: true });
+    const buffer = Buffer.alloc(statSizeNumber(beforeRead));
+    let offset = 0;
+    while (offset < buffer.length) {
+      const bytesRead = fs.readSync(fd, buffer, offset, buffer.length - offset, offset);
+      if (bytesRead === 0) break;
+      offset += bytesRead;
+    }
+    const afterRead = fs.fstatSync(fd, { bigint: true });
+    return {
+      stat: afterRead,
+      buffer: offset === buffer.length ? buffer : buffer.subarray(0, offset),
+      stable: sameFileState(beforeRead, afterRead) && BigInt(offset) === afterRead.size,
+    };
+  };
+  const evidenceFromSnapshot = (snapshot) => ({
+    currentUpdatedAt: statUpdatedAt(snapshot.stat),
+    currentSha256: hashBuffer(snapshot.buffer),
+    currentBytes: snapshot.buffer.length,
+    currentExists: true,
+  });
+  const readPathEvidence = () => {
+    let evidenceFd;
+    try {
+      evidenceFd = fs.openSync(target, "r");
+    } catch (error) {
+      if (isMissingPathError(error)) {
+        return {
+          currentUpdatedAt: "",
+          currentSha256: "",
+          currentBytes: 0,
+          currentExists: false,
+        };
+      }
+      throw error;
+    }
+    try {
+      const evidenceStat = fs.fstatSync(evidenceFd, { bigint: true });
+      if (!evidenceStat.isFile()) {
+        return {
+          currentUpdatedAt: statUpdatedAt(evidenceStat),
+          currentSha256: "",
+          currentBytes: 0,
+          currentExists: true,
+        };
+      }
+      const snapshot = readOpenHandleSnapshot(evidenceFd);
+      return evidenceFromSnapshot(snapshot);
+    } finally {
+      fs.closeSync(evidenceFd);
+    }
+  };
+  const conflictForPathState = (reason) => {
+    const evidence = readPathEvidence();
+    return conflictResult({
+      ...evidence,
+      reason: evidence.currentExists ? reason : "deleted",
+    });
+  };
+  const writeBufferToHandle = (fd, buffer) => {
+    let offset = 0;
+    while (offset < buffer.length) {
+      const bytesWritten = fs.writeSync(fd, buffer, offset, buffer.length - offset, offset);
+      if (bytesWritten === 0) {
+        const error = new Error("无法完整写入文件。");
+        error.code = "WORKSPACE_FILE_SHORT_WRITE";
+        throw error;
+      }
+      offset += bytesWritten;
+    }
+  };
+  const errorSummary = (error) => {
+    const code = error?.code ? `${error.code}: ` : "";
+    return `${code}${error?.message || String(error)}`;
+  };
+
+  let fd;
+  try {
+    try {
+      fd = fs.openSync(target, "r+");
+    } catch (error) {
+      if (isMissingPathError(error)) return conflictResult({ currentExists: false, reason: "deleted" });
+      try {
+        const currentStat = fs.statSync(target, { bigint: true });
+        if (!currentStat.isFile()) throw new Error("所选路径不是文件。");
+      } catch (statError) {
+        if (isMissingPathError(statError)) return conflictResult({ currentExists: false, reason: "deleted" });
+        throw statError;
+      }
+      throw error;
+    }
+
+    const openedStat = fs.fstatSync(fd, { bigint: true });
+    if (!openedStat.isFile()) throw new Error("所选路径不是文件。");
+    const initialSnapshot = readOpenHandleSnapshot(fd);
+    if (!hasFileIdentity(initialSnapshot.stat)) {
+      return conflictResult({ ...evidenceFromSnapshot(initialSnapshot), reason: "identity-unavailable" });
+    }
+    const initialUpdatedAt = statUpdatedAt(initialSnapshot.stat);
+    const initialSha256 = hashBuffer(initialSnapshot.buffer);
+    const mtimeChanged = baseUpdatedAt && baseUpdatedAt !== initialUpdatedAt;
+    const hashChanged = baseSha256 && baseSha256 !== initialSha256;
+    if (!initialSnapshot.stable || mtimeChanged || hashChanged) {
+      return conflictResult({
+        currentUpdatedAt: initialUpdatedAt,
+        currentSha256: initialSha256,
+        currentBytes: initialSnapshot.buffer.length,
+        currentExists: true,
+        reason: "modified",
+      });
+    }
+
+    const verifiedSnapshot = readOpenHandleSnapshot(fd);
+    if (!hasFileIdentity(verifiedSnapshot.stat)) {
+      return conflictResult({ ...evidenceFromSnapshot(verifiedSnapshot), reason: "identity-unavailable" });
+    }
+    if (
+      !verifiedSnapshot.stable ||
+      !sameFileIdentity(initialSnapshot.stat, verifiedSnapshot.stat) ||
+      !sameFileState(initialSnapshot.stat, verifiedSnapshot.stat) ||
+      !initialSnapshot.buffer.equals(verifiedSnapshot.buffer)
+    ) {
+      return conflictResult({
+        ...evidenceFromSnapshot(verifiedSnapshot),
+        reason: "modified",
+      });
+    }
+
+    let pathStatBeforeWrite;
+    try {
+      pathStatBeforeWrite = fs.statSync(target, { bigint: true });
+    } catch (error) {
+      if (isMissingPathError(error)) return conflictForPathState("deleted");
+      throw error;
+    }
+    if (!pathStatBeforeWrite.isFile()) return conflictForPathState("replaced");
+    if (!hasFileIdentity(pathStatBeforeWrite)) return conflictForPathState("identity-unavailable");
+    if (!sameFileIdentity(verifiedSnapshot.stat, pathStatBeforeWrite)) {
+      return conflictForPathState("replaced");
+    }
+
+    const nextBuffer = Buffer.from(nextContent, "utf8");
+    const originalBuffer = Buffer.from(verifiedSnapshot.buffer);
+    try {
+      fs.ftruncateSync(fd, 0);
+      writeBufferToHandle(fd, nextBuffer);
+      fs.fsyncSync(fd);
+    } catch (writeError) {
+      try {
+        fs.ftruncateSync(fd, 0);
+        writeBufferToHandle(fd, originalBuffer);
+        fs.fsyncSync(fd);
+      } catch (rollbackError) {
+        const combinedError = new Error(
+          `文件保存失败且原内容回滚失败。save=${errorSummary(writeError)}; rollback=${errorSummary(rollbackError)}`,
+        );
+        combinedError.code = "WORKSPACE_FILE_SAVE_ROLLBACK_FAILED";
+        combinedError.cause = writeError;
+        combinedError.originalError = writeError;
+        combinedError.rollbackError = rollbackError;
+        throw combinedError;
+      }
+      throw writeError;
+    }
+
+    const writtenSnapshot = readOpenHandleSnapshot(fd);
+    if (!writtenSnapshot.stable || !writtenSnapshot.buffer.equals(nextBuffer)) {
+      return conflictResult({
+        ...evidenceFromSnapshot(writtenSnapshot),
+        reason: "modified-during-save",
+      });
+    }
+    if (!hasFileIdentity(writtenSnapshot.stat)) {
+      return conflictResult({ ...evidenceFromSnapshot(writtenSnapshot), reason: "identity-unavailable" });
+    }
+
+    let pathStatAfterWrite;
+    try {
+      pathStatAfterWrite = fs.statSync(target, { bigint: true });
+    } catch (error) {
+      if (isMissingPathError(error)) return conflictForPathState("deleted");
+      throw error;
+    }
+    if (!pathStatAfterWrite.isFile()) return conflictForPathState("replaced");
+    if (!hasFileIdentity(pathStatAfterWrite)) return conflictForPathState("identity-unavailable");
+    if (!sameFileIdentity(writtenSnapshot.stat, pathStatAfterWrite)) {
+      return conflictForPathState("replaced");
+    }
+
+    return {
+      path: relative,
+      name: path.basename(target),
+      content: writtenSnapshot.buffer.toString("utf8"),
+      size: statSizeNumber(writtenSnapshot.stat),
+      updatedAt: statUpdatedAt(writtenSnapshot.stat),
+      sha256: hashBuffer(writtenSnapshot.buffer),
+    };
+  } finally {
+    if (typeof fd === "number") fs.closeSync(fd);
+  }
 });
 
 ipcMain.handle("workspace:cancel-command", (_event, { requestId } = {}) => {

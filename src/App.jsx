@@ -4212,6 +4212,9 @@ function fileSaveConflictEvidenceText({ file, content, error, t }) {
     `${t.fileSaveDraftBytes}: ${Number.isFinite(details.attemptedBytes) ? details.attemptedBytes : utf8ByteLength(content)}`,
     `${t.fileSaveDiskBytes}: ${Number.isFinite(details.currentBytes) ? details.currentBytes : "-"}`,
   ];
+  if (typeof details.reason === "string") lines.push(`冲突原因: ${details.reason}`);
+  if (typeof details.baseExists === "boolean") lines.push(`读取时存在: ${String(details.baseExists)}`);
+  if (typeof details.currentExists === "boolean") lines.push(`磁盘当前存在: ${String(details.currentExists)}`);
   return lines.join("\n");
 }
 
