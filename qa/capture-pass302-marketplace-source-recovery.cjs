@@ -32,13 +32,15 @@ const USER_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "claudex-pass302-dat
 const FAKE_BIN_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "claudex-pass302-bin-"));
 const PROJECT_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "claudex-pass302-project-"));
 const MARKETPLACE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "claudex-pass302-market-"));
+const DECOY_MARKETPLACE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "claudex-pass302-decoy-market-"));
 const DATA_FILE = path.join(USER_DATA_DIR, "desktop-data.json");
 const FAKE_CLAUDE = path.join(FAKE_BIN_DIR, "claude.cmd");
 const UPDATE_MARKER = path.join(USER_DATA_DIR, "pass302-marketplace-update-attempted.txt");
 const MARKETPLACE_NAME = "pass302-market";
+const DECOY_MARKETPLACE_NAME = "pass302-decoy-market";
 
 function cleanup() {
-  for (const dir of [USER_DATA_DIR, FAKE_BIN_DIR, PROJECT_DIR, MARKETPLACE_DIR]) {
+  for (const dir of [USER_DATA_DIR, FAKE_BIN_DIR, PROJECT_DIR, MARKETPLACE_DIR, DECOY_MARKETPLACE_DIR]) {
     try {
       fs.rmSync(dir, { recursive: true, force: true });
     } catch (_error) {
@@ -66,10 +68,15 @@ async function waitFor(win, script, timeoutMs = 10000) {
   return false;
 }
 
-async function waitForMarker(timeoutMs = 10000) {
+function updateAttemptCount() {
+  if (!fs.existsSync(UPDATE_MARKER)) return 0;
+  return fs.readFileSync(UPDATE_MARKER, "utf8").split(/\r?\n/).filter(Boolean).length;
+}
+
+async function waitForAttemptCount(expectedCount, timeoutMs = 10000) {
   const startedAt = Date.now();
   while (Date.now() - startedAt < timeoutMs) {
-    if (fs.existsSync(UPDATE_MARKER)) return true;
+    if (updateAttemptCount() === expectedCount) return true;
     await wait(150);
   }
   return false;
@@ -85,10 +92,19 @@ function writeFakeClaude() {
   const fakeClaudeScript = `
 const fs = require('fs');
 const marketplaceDir = ${JSON.stringify(MARKETPLACE_DIR)};
+const decoyMarketplaceDir = ${JSON.stringify(DECOY_MARKETPLACE_DIR)};
 const updateMarker = ${JSON.stringify(UPDATE_MARKER)};
 const args = process.argv.slice(2);
 function out(value) { process.stdout.write(typeof value === 'string' ? value + '\\n' : JSON.stringify(value, null, 2) + '\\n'); }
 const marketplaceJson = [{
+  name: '${DECOY_MARKETPLACE_NAME}',
+  source: 'path',
+  repo: decoyMarketplaceDir,
+  installLocation: decoyMarketplaceDir,
+  version: '2026.7.10-pass302-decoy',
+  status: 'ready',
+  permissions: ['Read']
+}, {
   name: '${MARKETPLACE_NAME}',
   source: 'path',
   repo: marketplaceDir,
@@ -104,9 +120,9 @@ else if (args[0] === 'plugin' && args[1] === 'list') out('Installed plugins: non
 else if (args[0] === 'mcp' && args[1] === 'list' && args.includes('--json')) out({ servers: [] });
 else if (args[0] === 'mcp' && args[1] === 'list') out('No MCP servers configured');
 else if (args[0] === 'plugin' && args[1] === 'marketplace' && args[2] === 'list' && args.includes('--json')) out(marketplaceJson);
-else if (args[0] === 'plugin' && args[1] === 'marketplace' && args[2] === 'list') out('Configured marketplaces:\\n\\n  > ${MARKETPLACE_NAME}\\n    Source: Path (' + marketplaceDir + ')');
+else if (args[0] === 'plugin' && args[1] === 'marketplace' && args[2] === 'list') out('Configured marketplaces:\\n\\n  > ${DECOY_MARKETPLACE_NAME}\\n    Source: Path (' + decoyMarketplaceDir + ')\\n\\n  > ${MARKETPLACE_NAME}\\n    Source: Path (' + marketplaceDir + ')');
 else if (args[0] === 'plugin' && args[1] === 'marketplace' && args[2] === 'update') {
-  fs.writeFileSync(updateMarker, args.join(' '), 'utf8');
+  fs.appendFileSync(updateMarker, args.join(' ') + '\\n', 'utf8');
   process.stderr.write('PASS302 marketplace update failed for ${MARKETPLACE_NAME}\\n');
   process.exitCode = 2;
 }
@@ -126,6 +142,12 @@ function writeInitialStore() {
     name: MARKETPLACE_NAME,
     description: "PASS302 marketplace source recovery fixture",
     owner: { name: "PASS302 Owner" },
+    plugins: [],
+  });
+  writeJson(path.join(DECOY_MARKETPLACE_DIR, ".claude-plugin", "marketplace.json"), {
+    name: DECOY_MARKETPLACE_NAME,
+    description: "PASS302 decoy marketplace source fixture",
+    owner: { name: "PASS302 Decoy Owner" },
     plugins: [],
   });
   const project = { name: "pass302-project", path: PROJECT_DIR };
@@ -250,12 +272,27 @@ async function runTest() {
   const sourceSelector = `.capability-modal [data-marketplace-source-id="${MARKETPLACE_NAME}"]`;
   const updateSelector = `${sourceSelector} [data-marketplace-source-action="update"]`;
   const retrySelector = `${sourceSelector} [data-marketplace-source-action="retry"]`;
+  const expectedCapabilityContext = {
+    tab: "marketplace",
+    kind: "marketplace-source",
+    id: MARKETPLACE_NAME,
+    query: MARKETPLACE_NAME,
+    action: "update",
+  };
 
   assertStep("PASS302_READY", await waitFor(win, "Boolean(document.querySelector('.app-grid') && window.claudexDesktop)", 15000));
   assertStep("PASS302_STATUS_READY", await waitFor(win, `
     (async function() {
       const status = await window.claudexDesktop.getClaudeStatus({ projectPath: ${JSON.stringify(PROJECT_DIR)} });
-      return Boolean(status.marketplaces?.some((item) => item.name === ${JSON.stringify(MARKETPLACE_NAME)} && /2026\\.7\\.10-pass302/.test(item.version || '')));
+      const marketplaces = Array.isArray(status.marketplaces) ? status.marketplaces : [];
+      const names = marketplaces.map((item) => item.name);
+      const decoyIndex = names.indexOf(${JSON.stringify(DECOY_MARKETPLACE_NAME)});
+      const targetIndex = names.indexOf(${JSON.stringify(MARKETPLACE_NAME)});
+      return Boolean(
+        decoyIndex >= 0 &&
+        targetIndex > decoyIndex &&
+        marketplaces.some((item) => item.name === ${JSON.stringify(MARKETPLACE_NAME)} && /2026\\.7\\.10-pass302/.test(item.version || ''))
+      );
     })();
   `, 15000));
 
@@ -281,7 +318,7 @@ async function runTest() {
       return true;
     })();
   `));
-  assertStep("PASS302_UPDATE_ATTEMPTED", await waitForMarker(10000));
+  assertStep("PASS302_INITIAL_UPDATE_ATTEMPT_COUNT_1", await waitForAttemptCount(1, 10000));
   assertStep("PASS302_FAILED_COMMAND_RUN_PERSISTED_WITH_CONTEXT", await waitFor(win, `
     (async function() {
       const state = await window.claudexDesktop.getState();
@@ -331,14 +368,48 @@ async function runTest() {
     })();
   `));
   assertStep("PASS302_SELECTED_EVIDENCE_RETRY_CONFIRM_VISIBLE", await waitFor(win, `
-    Boolean(
-      document.querySelector('.capability-modal [data-marketplace-source-id="${MARKETPLACE_NAME}"]') &&
-      document.querySelector('.plugin-cli-confirm') &&
-      /plugin marketplace update/.test(document.querySelector('.plugin-cli-confirm')?.textContent || '') &&
-      /pass302-market/.test(document.querySelector('.plugin-cli-confirm')?.textContent || '')
-    )
+    (function() {
+      const confirmText = document.querySelector('.plugin-cli-confirm')?.textContent || '';
+      return Boolean(
+        document.querySelector('.capability-modal [data-marketplace-source-id="${MARKETPLACE_NAME}"]') &&
+        /plugin marketplace update/.test(confirmText) &&
+        /pass302-market/.test(confirmText) &&
+        !/pass302-decoy-market/.test(confirmText)
+      );
+    })()
   `, 10000));
-  assertStep("PASS302_SELECTED_EVIDENCE_RETRY_CONFIRM_CLOSED", await win.webContents.executeJavaScript(`
+  assertStep("PASS302_SELECTED_EVIDENCE_RETRY_CONFIRM_ACTION_READY", await waitFor(win, `
+    (function() {
+      const button = document.querySelector('.plugin-cli-confirm .danger-action');
+      return Boolean(button && !button.disabled);
+    })();
+  `, 10000));
+  assertStep("PASS302_SELECTED_EVIDENCE_RETRY_CONFIRM_CLICKED", await win.webContents.executeJavaScript(`
+    (function() {
+      const button = document.querySelector('.plugin-cli-confirm .danger-action');
+      if (!button || button.disabled) return false;
+      button.click();
+      return true;
+    })();
+  `));
+  assertStep("PASS302_SECOND_UPDATE_ATTEMPT_COUNT_2", await waitForAttemptCount(2, 10000));
+  assertStep("PASS302_SECOND_FAILED_COMMAND_RUN_PERSISTED_WITH_EXACT_CONTEXT", await waitFor(win, `
+    (async function() {
+      const state = await window.claudexDesktop.getState();
+      const failedRuns = (state.commandRuns || []).filter((run) => run.kind === 'capability' && run.code === 2);
+      const latest = failedRuns[0];
+      const expectedContext = ${JSON.stringify(expectedCapabilityContext)};
+      return Boolean(
+        failedRuns.length >= 2 &&
+        latest &&
+        latest.kind === 'capability' &&
+        latest.code === 2 &&
+        latest.command === 'claude plugin marketplace update' &&
+        JSON.stringify(latest.capabilityContext) === JSON.stringify(expectedContext)
+      );
+    })();
+  `, 10000));
+  assertStep("PASS302_SECOND_CAPABILITY_SURFACE_CLOSED", await win.webContents.executeJavaScript(`
     (function() {
       const close = document.querySelector('.capability-modal .icon-only');
       if (!close) return false;
