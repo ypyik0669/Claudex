@@ -3871,6 +3871,21 @@ function runTimelineTraceAttributes(event = {}, evidence = {}) {
   };
 }
 
+function runTimelineRecoveryTraceAttributes(event = {}, evidence = {}) {
+  const capabilityContext = runTimelineCapabilityContext(event, evidence);
+  return {
+    "data-run-recovery-event-id": runTimelineEventId(event, evidence),
+    "data-run-recovery-source": evidence?.source || "event",
+    "data-run-recovery-session-id": runTimelineSessionId(event, evidence),
+    "data-run-recovery-project-path": runTimelineProjectPath(event, evidence),
+    "data-run-recovery-capability-tab": capabilityContext?.tab || "",
+    "data-run-recovery-capability-kind": capabilityContext?.kind || "",
+    "data-run-recovery-capability-id": capabilityContext?.id || "",
+    "data-run-recovery-capability-query": capabilityContext?.query || "",
+    "data-run-recovery-capability-action": capabilityContext?.action || "",
+  };
+}
+
 function runTimelineOutputEvidenceText(evidence = {}, t) {
   const stdout = String(evidence.stdout || "");
   const stderr = String(evidence.stderr || "");
@@ -8810,6 +8825,8 @@ function SelectedRunEvidencePanel({ event, evidence, recoveryActions = [], onCop
                   <button
                     type="button"
                     className="plain-action subtle-action"
+                    {...runTimelineRecoveryTraceAttributes(event, evidence)}
+                    {...(action.dataAttributes || {})}
                     data-run-recovery-action={action.key}
                     data-run-recovery-action-focused={focusedRecoveryAction === action.key ? "true" : "false"}
                     key={action.key}

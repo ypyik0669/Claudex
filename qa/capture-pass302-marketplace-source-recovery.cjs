@@ -295,6 +295,58 @@ async function runTest() {
       ));
     })();
   `, 10000));
+  assertStep("PASS302_INITIAL_CAPABILITY_SURFACE_CLOSED", await win.webContents.executeJavaScript(`
+    (function() {
+      const close = document.querySelector('.capability-modal .icon-only');
+      if (!close) return true;
+      close.click();
+      return true;
+    })();
+  `));
+  await wait(250);
+
+  assertStep("PASS302_SELECTED_EVIDENCE_RECOVERY_TRACE", await waitFor(win, `
+    (function() {
+      const panel = document.querySelector('.selected-run-evidence-panel');
+      const contextButton = panel?.querySelector('[data-run-recovery-action="open-capability-context"]');
+      const retryButton = panel?.querySelector('[data-run-recovery-action="retry-capability"]');
+      const matches = (button) => Boolean(
+        button &&
+        button.getAttribute('data-run-recovery-event-id')?.startsWith('capability_') &&
+        button.getAttribute('data-run-recovery-source') === 'command' &&
+        button.getAttribute('data-run-recovery-capability-tab') === 'marketplace' &&
+        button.getAttribute('data-run-recovery-capability-kind') === 'marketplace-source' &&
+        button.getAttribute('data-run-recovery-capability-id') === ${JSON.stringify(MARKETPLACE_NAME)} &&
+        button.getAttribute('data-run-recovery-capability-action') === 'update'
+      );
+      return matches(contextButton) && matches(retryButton);
+    })();
+  `, 10000));
+  assertStep("PASS302_SELECTED_EVIDENCE_RETRY_CLICKED", await win.webContents.executeJavaScript(`
+    (function() {
+      const button = document.querySelector('.selected-run-evidence-panel [data-run-recovery-action="retry-capability"]');
+      if (!button || button.disabled) return false;
+      button.click();
+      return true;
+    })();
+  `));
+  assertStep("PASS302_SELECTED_EVIDENCE_RETRY_CONFIRM_VISIBLE", await waitFor(win, `
+    Boolean(
+      document.querySelector('.capability-modal [data-marketplace-source-id="${MARKETPLACE_NAME}"]') &&
+      document.querySelector('.plugin-cli-confirm') &&
+      /plugin marketplace update/.test(document.querySelector('.plugin-cli-confirm')?.textContent || '') &&
+      /pass302-market/.test(document.querySelector('.plugin-cli-confirm')?.textContent || '')
+    )
+  `, 10000));
+  assertStep("PASS302_SELECTED_EVIDENCE_RETRY_CONFIRM_CLOSED", await win.webContents.executeJavaScript(`
+    (function() {
+      const close = document.querySelector('.capability-modal .icon-only');
+      if (!close) return false;
+      close.click();
+      return true;
+    })();
+  `));
+  await wait(250);
 
   const recoveryQuery = "\u91cd\u8bd5";
   const retryAttrs = await paletteCommandByPrefix(win, recoveryQuery, "capability-recovery:retry:", false);
