@@ -4167,6 +4167,12 @@ function commandRunsToHistory(runs = [], kind = "workspace") {
     .slice(0, COMMAND_HISTORY_LIMIT);
 }
 
+function richerRunEventOutput(current, incoming) {
+  const currentText = String(current || "");
+  const incomingText = String(incoming || "");
+  return incomingText.length >= currentText.length ? incomingText : currentText;
+}
+
 function prependRunEvent(current, entry, limit = RUN_EVENT_STATE_LIMIT) {
   const eventId = entry?.id || `${Date.now()}_${Math.random().toString(16).slice(2)}`;
   const existing = current.find((item) => item.id === eventId);
@@ -4178,6 +4184,8 @@ function prependRunEvent(current, entry, limit = RUN_EVENT_STATE_LIMIT) {
     ...(incomingIsStaleStart ? existing : {}),
     id: eventId,
     createdAt,
+    stdout: richerRunEventOutput(existing?.stdout, entry?.stdout),
+    stderr: richerRunEventOutput(existing?.stderr, entry?.stderr),
   };
   const items = [next, ...current.filter((item) => item.id !== eventId)];
   return Number.isFinite(limit) ? items.slice(0, limit) : items;
@@ -14893,6 +14901,14 @@ export function App() {
     if (!Array.isArray(state.runEvents)) return;
     setRunEvents((current) => mergeRunEvents(current, state.runEvents));
   }, [state.runEvents]);
+
+  useEffect(() => {
+    if (!desktopApi?.onWorkspaceCommandStream) return undefined;
+    return desktopApi.onWorkspaceCommandStream((event) => {
+      if (!event?.runEvent?.id) return;
+      setRunEvents((current) => prependRunEvent(current, event.runEvent));
+    });
+  }, []);
 
   useEffect(() => {
     if (state.capabilityStatus?.refreshedAt) setCapabilityCommandStatus(state.capabilityStatus);

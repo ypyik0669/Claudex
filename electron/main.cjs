@@ -774,6 +774,12 @@ function normalizeRunEvent(item, store) {
   };
 }
 
+function richerRunEventOutput(current, incoming) {
+  const currentText = String(current || "");
+  const incomingText = String(incoming || "");
+  return incomingText.length >= currentText.length ? incomingText : currentText;
+}
+
 function upsertRunEvent(store, event) {
   const existing = (store.runEvents || []).find((item) => item.id && item.id === event?.id);
   const incomingIsStaleStart = existing && existing.status !== "running" && event?.status === "running";
@@ -781,6 +787,8 @@ function upsertRunEvent(store, event) {
     ...existing,
     ...event,
     ...(incomingIsStaleStart ? existing : {}),
+    stdout: richerRunEventOutput(existing?.stdout, event?.stdout),
+    stderr: richerRunEventOutput(existing?.stderr, event?.stderr),
     createdAt: existing?.createdAt || event?.createdAt,
   }, store);
   store.runEvents = [
@@ -1261,13 +1269,14 @@ function trimOutput(value, maxChars = MAX_COMMAND_OUTPUT_CHARS) {
   return `${text.slice(0, maxChars)}\n\n[输出已截断]`;
 }
 
-function emitProcessChunk(sender, channel, requestId, stream, text) {
+function emitProcessChunk(sender, channel, requestId, stream, text, runEvent = null) {
   if (!sender || sender.isDestroyed?.() || !text) return;
   sender.send(channel, {
     requestId,
     type: "chunk",
     stream,
     text: stripAnsi(String(text)),
+    ...(runEvent ? { runEvent } : {}),
   });
 }
 
@@ -5248,6 +5257,10 @@ ipcMain.handle("workspace:run-command", async (_event, { projectPath, command, r
   }, "running");
   writeStore(startStore);
   broadcastStoreUpdate(startStore);
+  const liveEventStore = {
+    ...startStore,
+    runEvents: [...(startStore.runEvents || [])],
+  };
 
   const result = await new Promise((resolve) => {
     const startedAt = Date.now();
@@ -5273,6 +5286,26 @@ ipcMain.handle("workspace:run-command", async (_event, { projectPath, command, r
       startedAt: startedAtIso,
       endedAt: now(),
     });
+    const currentRunEvent = () => upsertCommandRunEvent(
+      liveEventStore,
+      {
+        ...(cancelled ? cancelledSnapshot() : {
+          id: runId,
+          requestId: runId,
+          command: cmd,
+          cwd,
+          code: null,
+          stdout,
+          stderr,
+          durationMs: Date.now() - startedAt,
+          cancelled: false,
+          startedAt: startedAtIso,
+        }),
+        kind: isGitCommandLine(cmd) ? "git" : "workspace",
+        project,
+      },
+      cancelled ? "cancelled" : "running",
+    );
     if (requestId) {
       activeRequests.set(requestId, {
         kind: "workspace-command",
@@ -5295,12 +5328,12 @@ ipcMain.handle("workspace:run-command", async (_event, { projectPath, command, r
     child.stdout.on("data", (chunk) => {
       const text = chunk.toString("utf8");
       stdout = trimOutput(stdout + text);
-      emitProcessChunk(_event.sender, "workspace:command-stream-event", requestId, "stdout", text);
+      emitProcessChunk(_event.sender, "workspace:command-stream-event", runId, "stdout", text, currentRunEvent());
     });
     child.stderr.on("data", (chunk) => {
       const text = chunk.toString("utf8");
       stderr = trimOutput(stderr + text);
-      emitProcessChunk(_event.sender, "workspace:command-stream-event", requestId, "stderr", text);
+      emitProcessChunk(_event.sender, "workspace:command-stream-event", runId, "stderr", text, currentRunEvent());
     });
     child.on("error", (error) => {
       clearTimeout(timeout);
