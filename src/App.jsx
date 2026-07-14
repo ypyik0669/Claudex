@@ -5078,6 +5078,7 @@ function WelcomeComposer({
   onSend,
   onCancel,
   busy,
+  stopping = false,
   settings,
   activeProject,
   projectPathMissing = false,
@@ -5164,12 +5165,12 @@ function WelcomeComposer({
           <button
             type={busy ? "button" : "submit"}
             className={cx("send-button", justSent && "send-success")}
-            onClick={busy ? onCancel : undefined}
-            disabled={!busy && !value.trim()}
-            title={busy ? t.cancel : justSent ? t.messageSent : t.send}
-            aria-label={busy ? t.cancel : t.send}
+            onClick={busy && !stopping ? onCancel : undefined}
+            disabled={stopping || (!busy && !value.trim())}
+            title={busy ? stopping ? t.responseStopping : t.cancel : justSent ? t.messageSent : t.send}
+            aria-label={busy ? stopping ? t.responseStopping : t.cancel : t.send}
           >
-            {busy ? <X size={18} /> : justSent ? <Check size={18} /> : <Send size={18} />}
+            {busy ? stopping ? <RefreshCw size={17} className="spin" /> : <X size={18} /> : justSent ? <Check size={18} /> : <Send size={18} />}
           </button>
         </div>
       </div>
@@ -5260,6 +5261,7 @@ function Conversation({
     const exists = base.some((message) => message.role === "user" && message.content === optimisticUser.content && message.createdAt === optimisticUser.createdAt);
     return exists ? base : [...base, { role: "user", content: optimisticUser.content, createdAt: optimisticUser.createdAt }];
   }, [session?.messages, optimisticUser]);
+  const stopping = busy && Boolean(streamingAssistant?.stopping);
 
   useEffect(() => {
     messagesRef.current?.scrollTo({
@@ -6374,6 +6376,7 @@ function Conversation({
               onSend={onSend}
               onCancel={onCancel}
               busy={busy}
+              stopping={stopping}
               settings={settings}
               activeProject={activeProject}
               projectPathMissing={projectPathMissing}
@@ -6454,11 +6457,14 @@ function Conversation({
                   <div className="message-content">
                     <div className="message-meta">
                       <strong>{t.assistant}</strong>
-                      <button type="button" onClick={onCancel}>{t.cancel}</button>
+                      <button type="button" onClick={onCancel} disabled={stopping}>{stopping ? t.responseStopping : t.cancel}</button>
                     </div>
-                    <p className={!streamingAssistant?.content ? "streaming-status" : ""}>
-                      {streamingAssistant?.content || streamingAssistant?.status || t.waiting}
-                    </p>
+                    {streamingAssistant?.content && <p>{streamingAssistant.content}</p>}
+                    {(!streamingAssistant?.content || streamingAssistant?.status) && (
+                      <p className="streaming-status" role="status" aria-live="polite">
+                        {streamingAssistant?.status || t.waiting}
+                      </p>
+                    )}
                     {streamingAssistant?.activities?.length > 0 && (
                       <ul className="activity-lines" aria-label={t.outputs}>
                         {streamingAssistant.activities.map((activity) => (
@@ -6476,6 +6482,7 @@ function Conversation({
                 onSend={onSend}
                 onCancel={onCancel}
                 busy={busy}
+                stopping={stopping}
                 settings={settings}
                 activeProject={activeProject}
                 projectPathMissing={projectPathMissing}
@@ -15005,6 +15012,7 @@ export function App() {
     return desktopApi.onChatStream((event) => {
       setStreamingAssistant((current) => {
         if (!current || current.requestId !== event.requestId) return current;
+        if (current.stopping) return current;
         if (event.type === "delta") {
           return { ...current, content: `${current.content}${event.text || ""}`, status: "" };
         }
@@ -18668,7 +18676,7 @@ export function App() {
   async function cancelMessage() {
     if (!desktopApi || !currentRequestId) return;
     const requestId = currentRequestId;
-    setStreamingAssistant((current) => current ? { ...current, status: t.responseStopping } : current);
+    setStreamingAssistant((current) => current ? { ...current, status: t.responseStopping, stopping: true } : current);
     recordRunEvent({
       id: requestId,
       sessionId: activeSession?.id || "",
