@@ -2896,12 +2896,45 @@ function sanitizeStore(store) {
   };
 }
 
-async function fetchWithTimeout(url, options, timeoutMs, requestId) {
+function isAbortError(error) {
+  return error?.name === "AbortError" || error?.code === "ABORT_ERR";
+}
+
+function providerResponseError(message, code = "PROVIDER_RESPONSE_ERROR") {
+  const error = new Error(message);
+  error.code = code;
+  error.preserveOnCancel = true;
+  return error;
+}
+
+async function fetchJsonWithTimeout(url, options, timeoutMs, requestId) {
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), Number(timeoutMs || 600000));
+  const durationMs = Number(timeoutMs || 600000);
+  let timedOut = false;
+  let response = null;
+  const timeout = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, durationMs);
   if (requestId) activeRequests.set(requestId, controller);
   try {
-    return await fetch(url, { ...options, signal: controller.signal });
+    response = await fetch(url, { ...options, signal: controller.signal });
+    const payload = await response.json().catch((error) => {
+      if (controller.signal.aborted) throw error;
+      return {};
+    });
+    return { response, payload };
+  } catch (error) {
+    if (response && !response.ok) {
+      throw providerResponseError(`服务商返回 HTTP ${response.status}`, "PROVIDER_HTTP_ERROR");
+    }
+    if (timedOut) {
+      throw providerResponseError(`模型请求超过 ${durationMs} 毫秒，已停止。`, "REQUEST_TIMEOUT");
+    }
+    if (!isAbortError(error) && error && typeof error === "object") {
+      error.preserveOnCancel = true;
+    }
+    throw error;
   } finally {
     clearTimeout(timeout);
     if (requestId) activeRequests.delete(requestId);
@@ -2978,7 +3011,7 @@ function buildSystemPrompt(store, session) {
 async function requestOpenAiCompatible(store, session, apiKey, requestId) {
   const { provider, model, baseUrl, temperature } = store.settings;
   requireKeyIfNeeded(provider, baseUrl, apiKey);
-  const response = await fetchWithTimeout(joinUrl(baseUrl, "/chat/completions"), {
+  const { response, payload } = await fetchJsonWithTimeout(joinUrl(baseUrl, "/chat/completions"), {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -2992,12 +3025,11 @@ async function requestOpenAiCompatible(store, session, apiKey, requestId) {
     }),
   }, store.settings.timeoutMs, requestId);
 
-  const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(payload?.error?.message || `服务商返回 HTTP ${response.status}`);
+    throw providerResponseError(payload?.error?.message || `服务商返回 HTTP ${response.status}`);
   }
   const content = payload?.choices?.[0]?.message?.content;
-  if (!content) throw new Error("服务商响应中没有助手内容。");
+  if (!content) throw providerResponseError("服务商响应中没有助手内容。");
   return content;
 }
 
@@ -3005,7 +3037,7 @@ async function requestAnthropic(store, session, apiKey, requestId) {
   const { model, baseUrl, temperature } = store.settings;
   const bearerToken = apiKey ? "" : envValue("ANTHROPIC_AUTH_TOKEN");
   requireKeyIfNeeded("anthropic", baseUrl, apiKey || bearerToken);
-  const response = await fetchWithTimeout(joinUrl(baseUrl || "https://api.anthropic.com/v1", "/messages"), {
+  const { response, payload } = await fetchJsonWithTimeout(joinUrl(baseUrl || "https://api.anthropic.com/v1", "/messages"), {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -3023,22 +3055,21 @@ async function requestAnthropic(store, session, apiKey, requestId) {
     }),
   }, store.settings.timeoutMs, requestId);
 
-  const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(payload?.error?.message || `Anthropic 返回 HTTP ${response.status}`);
+    throw providerResponseError(payload?.error?.message || `Anthropic 返回 HTTP ${response.status}`);
   }
   const text = (payload?.content || [])
     .filter((part) => part.type === "text")
     .map((part) => part.text)
     .join("\n")
     .trim();
-  if (!text) throw new Error("Anthropic 响应中没有文本内容。");
+  if (!text) throw providerResponseError("Anthropic 响应中没有文本内容。");
   return text;
 }
 
 async function requestOllama(store, session, requestId) {
   const { model, baseUrl, temperature } = store.settings;
-  const response = await fetchWithTimeout(joinUrl(baseUrl || "http://localhost:11434", "/api/chat"), {
+  const { response, payload } = await fetchJsonWithTimeout(joinUrl(baseUrl || "http://localhost:11434", "/api/chat"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
@@ -3049,12 +3080,11 @@ async function requestOllama(store, session, requestId) {
     }),
   }, store.settings.timeoutMs, requestId);
 
-  const payload = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new Error(payload?.error || `Ollama 返回 HTTP ${response.status}`);
+    throw providerResponseError(payload?.error || `Ollama 返回 HTTP ${response.status}`);
   }
   const content = payload?.message?.content;
-  if (!content) throw new Error("Ollama 响应中没有助手内容。");
+  if (!content) throw providerResponseError("Ollama 响应中没有助手内容。");
   return content;
 }
 
