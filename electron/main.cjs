@@ -1269,15 +1269,45 @@ function trimOutput(value, maxChars = MAX_COMMAND_OUTPUT_CHARS) {
   return `${text.slice(0, maxChars)}\n\n[输出已截断]`;
 }
 
-function emitProcessChunk(sender, channel, requestId, stream, text, runEvent = null) {
+function emitProcessChunk(sender, channel, requestId, stream, text) {
   if (!sender || sender.isDestroyed?.() || !text) return;
   sender.send(channel, {
     requestId,
     type: "chunk",
     stream,
     text: stripAnsi(String(text)),
-    ...(runEvent ? { runEvent } : {}),
   });
+}
+
+function emitProcessRunEvent(sender, channel, requestId, runEvent) {
+  if (!sender || sender.isDestroyed?.() || !runEvent) return;
+  sender.send(channel, {
+    requestId,
+    type: "run-event",
+    runEvent,
+  });
+}
+
+function createProcessRunEventEmitter(sender, channel, requestId, snapshot, intervalMs = 80) {
+  let timer = null;
+  let pending = false;
+  const emit = () => {
+    timer = null;
+    if (!pending) return;
+    pending = false;
+    emitProcessRunEvent(sender, channel, requestId, snapshot?.());
+  };
+  return {
+    schedule() {
+      pending = true;
+      if (!timer) timer = setTimeout(emit, intervalMs);
+    },
+    flush() {
+      if (timer) clearTimeout(timer);
+      timer = null;
+      emit();
+    },
+  };
 }
 
 function killChildProcess(child) {
@@ -4470,14 +4500,51 @@ ipcMain.handle("claude:status", async (_event, { projectPath } = {}) => {
   return store.capabilityStatus;
 });
 
-ipcMain.handle("claude:run", async (_event, { projectPath, args, requestId, persistCommandRun = false, commandRunKind = "claude", capabilityContext = null } = {}) => {
+ipcMain.handle("claude:run", async (_event, { projectPath, args, requestId, sessionId = "", persistCommandRun = false, commandRunKind = "claude", capabilityContext = null } = {}) => {
   const cwd = projectPath && fs.existsSync(projectPath) ? projectPath : app.getPath("home");
   const argv = Array.isArray(args) ? args.map(String).filter(Boolean) : splitArgs(args);
   if (!argv.length) throw new Error("Claude 命令为空。");
   const claudeCommand = configuredClaudeCommand();
   const runId = requestId || id("claude_command");
   const startedAtIso = now();
+  const startedAt = Date.now();
   const normalizedCapabilityContext = normalizeCapabilityContext(capabilityContext);
+  const project = projectFromPath(cwd);
+  const commandLine = `claude ${argv.join(" ")}`;
+  const runSessionId = String(sessionId || "");
+  const persistClaudeRunEvent = Boolean(persistCommandRun) && commandRunKind !== "capability";
+  const liveEventStore = persistClaudeRunEvent
+    ? (() => {
+        const store = readStore();
+        return { ...store, runEvents: [...(store.runEvents || [])] };
+      })()
+    : null;
+  const claudeRunEvent = ({ status = "running", code = null, durationMs = Date.now() - startedAt, stdout = "", stderr = "" } = {}) => ({
+    id: runId,
+    type: "claude-command",
+    status,
+    title: `Claude CLI: ${titleFromUserContent(commandLine)}`,
+    detail: status === "running" ? cwd : `退出码: ${typeof code === "number" ? code : "-"}`,
+    commandLine,
+    cwd,
+    code: typeof code === "number" ? code : null,
+    durationMs,
+    stdout,
+    stderr,
+    project,
+    sessionId: runSessionId,
+    createdAt: startedAtIso,
+  });
+  let liveStdout = "";
+  let liveStderr = "";
+  const liveRunEventEmitter = liveEventStore
+    ? createProcessRunEventEmitter(
+        _event.sender,
+        "claude:run-stream-event",
+        runId,
+        () => upsertRunEvent(liveEventStore, claudeRunEvent({ stdout: liveStdout, stderr: liveStderr })),
+      )
+    : null;
   let lastResult = null;
   for (const candidate of commandCandidates(claudeCommand)) {
     const result = await runStreamingProcess(candidate, argv, {
@@ -4485,11 +4552,20 @@ ipcMain.handle("claude:run", async (_event, { projectPath, args, requestId, pers
       requestId: runId,
       timeoutMs: CLAUDE_TIMEOUT_MS,
       env: claudeProcessEnv({ CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1" }),
-      onChunk: (stream, text) => emitProcessChunk(_event.sender, "claude:run-stream-event", runId, stream, text),
+      onChunk: (stream, text) => {
+        if (liveEventStore) {
+          const cleanText = stripAnsi(String(text || ""));
+          if (stream === "stderr") liveStderr = trimOutput(`${liveStderr}${cleanText}`);
+          else liveStdout = trimOutput(`${liveStdout}${cleanText}`);
+          liveRunEventEmitter.schedule();
+        }
+        emitProcessChunk(_event.sender, "claude:run-stream-event", runId, stream, text);
+      },
     });
     lastResult = result;
     if (!(result.code === 1 && /ENOENT/i.test(result.stderr || ""))) break;
   }
+  liveRunEventEmitter?.flush();
   const result = lastResult || {
     command: "claude",
     args: argv,
@@ -4513,19 +4589,31 @@ ipcMain.handle("claude:run", async (_event, { projectPath, args, requestId, pers
     ...sanitizedResult,
     id: runId,
     requestId: runId,
+    sessionId: runSessionId,
     kind: commandRunKind === "capability" ? "capability" : "claude",
-    command: `claude ${argv.join(" ")}`,
-    project: projectFromPath(cwd),
+    command: commandLine,
+    project,
     startedAt: startedAtIso,
     endedAt: now(),
     ...(normalizedCapabilityContext ? { capabilityContext: normalizedCapabilityContext } : {}),
   });
+  const runEvent = persistClaudeRunEvent
+    ? upsertRunEvent(store, claudeRunEvent({
+        status: sanitizedResult.code === 0 ? "ok" : "error",
+        code: sanitizedResult.code,
+        durationMs: sanitizedResult.durationMs,
+        stdout: sanitizedResult.stdout,
+        stderr: sanitizedResult.stderr,
+      }))
+    : null;
   writeStore(store);
   broadcastStoreUpdate(store);
+  const sanitized = sanitizeStore(store);
   return {
     ...sanitizedResult,
     commandRun: persisted,
-    commandRuns: sanitizeStore(store).commandRuns,
+    commandRuns: sanitized.commandRuns,
+    ...(runEvent ? { runEvent, runEvents: sanitized.runEvents } : {}),
   };
 });
 
@@ -5306,6 +5394,12 @@ ipcMain.handle("workspace:run-command", async (_event, { projectPath, command, r
       },
       cancelled ? "cancelled" : "running",
     );
+    const liveRunEventEmitter = createProcessRunEventEmitter(
+      _event.sender,
+      "workspace:command-stream-event",
+      runId,
+      currentRunEvent,
+    );
     if (requestId) {
       activeRequests.set(requestId, {
         kind: "workspace-command",
@@ -5328,16 +5422,19 @@ ipcMain.handle("workspace:run-command", async (_event, { projectPath, command, r
     child.stdout.on("data", (chunk) => {
       const text = chunk.toString("utf8");
       stdout = trimOutput(stdout + text);
-      emitProcessChunk(_event.sender, "workspace:command-stream-event", runId, "stdout", text, currentRunEvent());
+      emitProcessChunk(_event.sender, "workspace:command-stream-event", runId, "stdout", text);
+      liveRunEventEmitter.schedule();
     });
     child.stderr.on("data", (chunk) => {
       const text = chunk.toString("utf8");
       stderr = trimOutput(stderr + text);
-      emitProcessChunk(_event.sender, "workspace:command-stream-event", runId, "stderr", text, currentRunEvent());
+      emitProcessChunk(_event.sender, "workspace:command-stream-event", runId, "stderr", text);
+      liveRunEventEmitter.schedule();
     });
     child.on("error", (error) => {
       clearTimeout(timeout);
       if (requestId) activeRequests.delete(requestId);
+      liveRunEventEmitter.flush();
       resolve({
         id: runId,
         requestId: runId,
@@ -5355,6 +5452,7 @@ ipcMain.handle("workspace:run-command", async (_event, { projectPath, command, r
     child.on("close", (code) => {
       clearTimeout(timeout);
       if (requestId) activeRequests.delete(requestId);
+      liveRunEventEmitter.flush();
       resolve({
         id: runId,
         requestId: runId,

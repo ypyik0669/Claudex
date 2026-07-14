@@ -9402,6 +9402,7 @@ function ToolRail({
 
 function ToolsPanel({
   activeProject,
+  activeSessionId = "",
   settings,
   capabilityStatus = null,
   environment,
@@ -9556,6 +9557,7 @@ function ToolsPanel({
   useEffect(() => {
     if (!desktopApi?.onWorkspaceCommandStream) return undefined;
     return desktopApi.onWorkspaceCommandStream((event) => {
+      if (event?.type !== "chunk") return;
       setCommandStream((current) => (
         event.requestId && event.requestId === commandRequestRef.current
           ? appendStreamChunk(current, event.stream, event.text)
@@ -9567,6 +9569,7 @@ function ToolsPanel({
   useEffect(() => {
     if (!desktopApi?.onClaudeRunStream) return undefined;
     return desktopApi.onClaudeRunStream((event) => {
+      if (event?.type !== "chunk") return;
       setClaudeStream((current) => (
         event.requestId && event.requestId === claudeRequestRef.current
           ? appendStreamChunk(current, event.stream, event.text)
@@ -10235,6 +10238,7 @@ function ToolsPanel({
         projectPath: activeProject?.path,
         args: nextArgs,
         requestId,
+        sessionId: activeSessionId,
         persistCommandRun: true,
         commandRunKind: "claude",
       });
@@ -14911,6 +14915,14 @@ export function App() {
   }, []);
 
   useEffect(() => {
+    if (!desktopApi?.onClaudeRunStream) return undefined;
+    return desktopApi.onClaudeRunStream((event) => {
+      if (!event?.runEvent?.id) return;
+      setRunEvents((current) => prependRunEvent(current, event.runEvent));
+    });
+  }, []);
+
+  useEffect(() => {
     if (state.capabilityStatus?.refreshedAt) setCapabilityCommandStatus(state.capabilityStatus);
   }, [state.capabilityStatus?.refreshedAt]);
 
@@ -15187,6 +15199,7 @@ export function App() {
         projectPath: activeProject?.path,
         args: nextArgs,
         requestId,
+        sessionId: activeSession?.id || "",
         persistCommandRun: true,
         commandRunKind: "claude",
       });
@@ -15317,6 +15330,7 @@ export function App() {
         projectPath: activeProject?.path,
         args: nextArgs,
         requestId,
+        sessionId: activeSession?.id || "",
         persistCommandRun: true,
         commandRunKind: "capability",
         ...(capabilityContext ? { capabilityContext } : {}),
@@ -19719,6 +19733,7 @@ export function App() {
         {!surfaceOpen && (
         <ToolsPanel
           activeProject={activeProject}
+          activeSessionId={activeSession?.id || ""}
           settings={state.settings}
           capabilityStatus={state.capabilityStatus}
           environment={environment}
