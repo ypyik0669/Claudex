@@ -866,6 +866,8 @@ const copy = {
     commandRunning: "运行中",
     cancelCommand: "停止命令",
     commandCancelled: "命令已停止",
+    responseStopping: "正在停止本次回复…",
+    responseStopped: "已停止本次回复",
     commandSucceeded: "已完成",
     commandFailed: "失败",
     commandHistory: "最近运行",
@@ -6407,7 +6409,7 @@ function Conversation({
                   <div className="message-content">
                     <div className="message-meta">
                       <strong>
-                        {message.role === "user" ? t.you : message.role === "error" ? t.requestError : t.assistant}
+                        {message.role === "user" ? t.you : message.role === "error" ? t.requestError : message.role === "cancelled" ? t.responseStopped : t.assistant}
                       </strong>
                       <time>{formatDate(message.createdAt, lang)}</time>
                       <button type="button" data-error-action={message.role === "error" ? "copy" : undefined} onClick={() => onCopy(message.content)} title={t.copy} aria-label={t.copy}>
@@ -18636,13 +18638,14 @@ export function App() {
       const updatedSession = (next?.sessions || []).find((session) => session.id === sessionForSend.id) || sessionForSend;
       setState(next);
       setActiveSessionId(sessionForSend.id);
+      const requestStatus = ["ok", "error", "cancelled"].includes(next?.requestStatus) ? next.requestStatus : "ok";
       recordRunEvent({
         id: requestId,
         sessionId: sessionForSend.id,
         type: "chat",
-        status: "ok",
+        status: requestStatus,
         title: `${t.activeThread}: ${updatedSession.title || "Claudex"}`,
-        detail: t.commandSucceeded,
+        detail: requestStatus === "cancelled" ? t.responseStopped : requestStatus === "error" ? next?.requestError || t.requestError : t.commandSucceeded,
       });
     } catch (error) {
       recordRunEvent({
@@ -18664,7 +18667,17 @@ export function App() {
 
   async function cancelMessage() {
     if (!desktopApi || !currentRequestId) return;
-    await desktopApi.cancelRequest(currentRequestId);
+    const requestId = currentRequestId;
+    setStreamingAssistant((current) => current ? { ...current, status: t.responseStopping } : current);
+    recordRunEvent({
+      id: requestId,
+      sessionId: activeSession?.id || "",
+      type: "chat",
+      status: "cancelled",
+      title: `${t.activeThread}: ${activeSession?.title || "Claudex"}`,
+      detail: t.responseStopped,
+    });
+    await desktopApi.cancelRequest(requestId);
   }
 
   async function retryLast() {

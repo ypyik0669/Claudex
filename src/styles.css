@@ -1374,6 +1374,15 @@ select:focus-visible,
   color: var(--danger);
 }
 
+.message.cancelled .message-avatar,
+.message.cancelled .message-content {
+  color: var(--muted);
+}
+
+.message.cancelled .message-content p {
+  font-size: 12.5px;
+}
+
 .message-content {
   min-width: 0;
   padding-top: 3px;

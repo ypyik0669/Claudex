@@ -92,6 +92,8 @@ const MAX_SKILL_SCAN_DEPTH = 10;
 const MAX_SKILL_FILE_BYTES = 64 * 1024;
 const automationRunLocks = new Set();
 const cancelledSubagentRuns = new Set();
+const activeChatRequestIds = new Set();
+const cancelledChatRequestIds = new Set();
 let automationSchedulerTimer = null;
 let automationSchedulerRunning = false;
 
@@ -3200,6 +3202,7 @@ function emitClaudeStreamLine(sender, requestId, session, line) {
     });
   };
   if (payload.type === "system" && payload.subtype === "init") {
+    if (payload.session_id) session.claudeSessionId = payload.session_id;
     sender.send("chat:stream-event", {
       ...base,
       type: "status",
@@ -3275,6 +3278,7 @@ async function requestClaudeCodeStream(store, session, requestId, sender) {
     cwd,
     requestId,
     timeoutMs: Number(store.settings.timeoutMs || CLAUDE_TIMEOUT_MS),
+    cancelAsCode130: true,
     env: claudeProcessEnv({ CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1" }),
     onLine: (line) => {
       const payload = parseJsonOutput(line);
@@ -3283,7 +3287,15 @@ async function requestClaudeCodeStream(store, session, requestId, sender) {
     },
   });
   const payload = finalPayload || parseJsonOutput(result.stdout);
-  if (result.code !== 0 || payload?.is_error) {
+  const hasCompletedResult = payload?.type === "result" && !payload?.is_error;
+  if (payload?.is_error) {
+    const message = payload?.result || payload?.error || result.stderr || `Claude Code exited with ${result.code}`;
+    const error = new Error(stripAnsi(message));
+    error.preserveOnCancel = true;
+    throw error;
+  }
+  if (result.cancelled && !hasCompletedResult) return { cancelled: true };
+  if (result.code !== 0 && !hasCompletedResult) {
     const message = payload?.result || payload?.error || result.stderr || `Claude Code exited with ${result.code}`;
     throw new Error(stripAnsi(message));
   }
@@ -4299,6 +4311,9 @@ ipcMain.handle("chat:send-message", async (_event, { sessionId, content, request
   const store = readStore();
   const session = store.sessions.find((item) => item.id === sessionId) || store.sessions[0];
   if (!session) throw new Error("没有可用的聊天会话。");
+  const runId = requestId || id("request");
+  activeChatRequestIds.add(runId);
+  cancelledChatRequestIds.delete(runId);
   const resumeId = String(claudeSessionId || "").trim();
   if (resumeId && !session.claudeSessionId) session.claudeSessionId = resumeId;
 
@@ -4309,13 +4324,48 @@ ipcMain.handle("chat:send-message", async (_event, { sessionId, content, request
     session.title = titleFromUserContent(userContent);
   }
   session.updatedAt = createdAt;
+  const project = session.projectPath && fs.existsSync(session.projectPath)
+    ? projectFromPath(session.projectPath)
+    : store.activeProject || localWorkspaceProject();
+  const upsertChatRunEvent = (status, detail) => upsertRunEvent(store, {
+    id: runId,
+    type: "chat",
+    status,
+    title: `聊天: ${sessionDisplayTitleForStore(session)}`,
+    detail,
+    cwd: session.projectPath || project?.path || "",
+    project,
+    sessionId: session.id,
+    createdAt,
+  });
+  upsertChatRunEvent("running", userContent.slice(0, 140));
   writeStore(store);
+
+  const finishCancelled = () => {
+    session.messages.push({
+      role: "cancelled",
+      content: "已停止本次回复。",
+      requestId: runId,
+      createdAt: now(),
+    });
+    session.updatedAt = now();
+    const runEvent = upsertChatRunEvent("cancelled", "已停止本次回复。");
+    writeStore(store);
+    broadcastStoreUpdate(store);
+    return {
+      ...sanitizeStore(store),
+      requestStatus: "cancelled",
+      cancelledRequestId: runId,
+      runEvent,
+    };
+  };
 
   try {
     const assistantResult =
       store.settings.claudeCode?.executionMode !== "api"
-        ? await requestClaudeCodeStream(store, session, requestId, _event.sender)
-        : await requestAssistant(store, session, requestId);
+        ? await requestClaudeCodeStream(store, session, runId, _event.sender)
+        : await requestAssistant(store, session, runId);
+    if (assistantResult?.cancelled) return finishCancelled();
     const assistantText = typeof assistantResult === "string" ? assistantResult : assistantResult.text;
     const permissionDenials = typeof assistantResult === "object" && Array.isArray(assistantResult.permissionDenials) ? assistantResult.permissionDenials : [];
     session.messages.push({
@@ -4325,21 +4375,40 @@ ipcMain.handle("chat:send-message", async (_event, { sessionId, content, request
       ...(permissionDenials.length ? { permissionDenials } : {}),
     });
     session.updatedAt = now();
+    const runEvent = upsertChatRunEvent("ok", "已完成");
     writeStore(store);
-    return sanitizeStore(store);
+    broadcastStoreUpdate(store);
+    return {
+      ...sanitizeStore(store),
+      requestStatus: "ok",
+      runEvent,
+    };
   } catch (error) {
+    if (cancelledChatRequestIds.has(runId) && !error?.preserveOnCancel) return finishCancelled();
+    const message = error.message || "模型请求失败。";
     session.messages.push({
       role: "error",
-      content: error.message || "模型请求失败。",
+      content: message,
       createdAt: now(),
     });
     session.updatedAt = now();
+    const runEvent = upsertChatRunEvent("error", message);
     writeStore(store);
-    return sanitizeStore(store);
+    broadcastStoreUpdate(store);
+    return {
+      ...sanitizeStore(store),
+      requestStatus: "error",
+      requestError: message,
+      runEvent,
+    };
+  } finally {
+    activeChatRequestIds.delete(runId);
+    cancelledChatRequestIds.delete(runId);
   }
 });
 
 ipcMain.handle("chat:cancel-request", (_event, requestId) => {
+  if (activeChatRequestIds.has(requestId)) cancelledChatRequestIds.add(requestId);
   const request = activeRequests.get(requestId);
   if (request) {
     if (typeof request.abort === "function") request.abort();
