@@ -10254,18 +10254,21 @@ function ToolsPanel({
           durationMs: result.durationMs,
           stdout: result.stdout || "",
           stderr: result.stderr || "",
+          cancelled: Boolean(result.cancelled),
         }));
       }
       onRunEvent?.({
         id: requestId,
         type: "claude-command",
-        status: result.code === 0 ? "ok" : "error",
+        status: result.cancelled ? "cancelled" : result.code === 0 ? "ok" : "error",
         title: `${t.runClaude}: claude ${result.args?.join(" ") || nextArgs}`,
-        detail: `${t.commandExit}: ${result.code}`,
+        detail: result.cancelled ? t.commandCancelled : `${t.commandExit}: ${result.code}`,
         commandLine: `claude ${result.args?.join(" ") || nextArgs}`,
         cwd: result.cwd || activeProject?.path || "",
         code: result.code,
         durationMs: result.durationMs,
+        stdout: result.stdout || "",
+        stderr: result.stderr || "",
       });
     } catch (error) {
       setStatusError(error.message || String(error));
@@ -10282,6 +10285,26 @@ function ToolsPanel({
       setClaudeBusy(false);
       claudeRequestRef.current = "";
       setClaudeRequestId("");
+    }
+  }
+
+  async function cancelClaudeCommand() {
+    const requestId = claudeRequestRef.current || claudeRequestId;
+    if (!requestId) return;
+    onRunEvent?.({
+      id: requestId,
+      type: "claude-command",
+      status: "cancelled",
+      title: `${t.runClaude}: claude ${claudeRunningArgs || claudeArgs}`,
+      detail: t.commandCancelled,
+      commandLine: `claude ${claudeRunningArgs || claudeArgs}`,
+      cwd: activeProject?.path || "",
+      code: 130,
+    });
+    try {
+      await desktopApi?.cancelRequest?.(requestId);
+    } catch (error) {
+      setStatusError(error.message || String(error));
     }
   }
 
@@ -10497,6 +10520,7 @@ function ToolsPanel({
       stderr: claudeStream.stderr,
     }
     : null;
+  const claudeIsRunning = Boolean(claudeRequestId);
   const installedPluginItems = Array.isArray(pluginItems)
     ? pluginItems
     : Array.isArray(claudeStatus?.pluginItems)
@@ -11004,9 +11028,15 @@ function ToolsPanel({
                   <SquareTerminal size={15} />
                   {t.interactiveClaude}
                 </button>
-                <button type="button" className="primary-action compact-action" onClick={() => runClaude()} disabled={claudeBusy || !claudeArgs.trim()} title={claudeBusy ? t.workingHint : !claudeArgs.trim() ? t.claudeArgsPlaceholder : undefined}>
-                  {claudeBusy && claudeRequestId ? <RefreshCw size={14} className="spin" /> : <Bot size={14} />}
-                  {claudeBusy && claudeRequestId ? t.commandRunning : t.runClaude}
+                <button
+                  type="button"
+                  className={cx("primary-action compact-action", claudeIsRunning && "danger-action")}
+                  onClick={claudeIsRunning ? cancelClaudeCommand : () => runClaude()}
+                  disabled={!claudeIsRunning && (claudeBusy || !claudeArgs.trim())}
+                  title={claudeIsRunning ? t.cancelCommand : claudeBusy ? t.workingHint : !claudeArgs.trim() ? t.claudeArgsPlaceholder : undefined}
+                >
+                  {claudeIsRunning ? <X size={14} /> : <Bot size={14} />}
+                  {claudeIsRunning ? t.cancelCommand : t.runClaude}
                 </button>
               </div>
               <label>

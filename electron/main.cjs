@@ -1482,12 +1482,16 @@ function runStreamingProcess(command, args = [], options = {}) {
     let stderr = "";
     let lineBuffer = "";
     let settled = false;
+    let cancelled = false;
     const finish = (result) => {
       if (settled) return;
       settled = true;
       clearTimeout(timeout);
       if (lineBuffer.trim()) options.onLine?.(lineBuffer.trim());
       if (options.requestId) activeRequests.delete(options.requestId);
+      const finalResult = options.cancelAsCode130 && cancelled
+        ? { ...result, code: 130, cancelled: true }
+        : result;
       resolve({
         command,
         args,
@@ -1495,7 +1499,7 @@ function runStreamingProcess(command, args = [], options = {}) {
         durationMs: Date.now() - startedAt,
         stdout: trimOutput(stdout),
         stderr: trimOutput(stderr),
-        ...result,
+        ...finalResult,
       });
     };
     const timeout = setTimeout(() => {
@@ -1503,7 +1507,16 @@ function runStreamingProcess(command, args = [], options = {}) {
       finish({ code: 124, stderr: trimOutput(`${stderr}\n命令运行超过 ${timeoutMs} 毫秒，已停止。`) });
     }, timeoutMs);
 
-    if (options.requestId) activeRequests.set(options.requestId, child);
+    if (options.requestId) {
+      activeRequests.set(options.requestId, options.cancelAsCode130
+        ? {
+            kill: () => {
+              cancelled = true;
+              killChildProcess(child);
+            },
+          }
+        : child);
+    }
     child.stdout.on("data", (chunk) => {
       const text = chunk.toString("utf8");
       stdout = trimOutput(stdout + text);
@@ -4524,7 +4537,7 @@ ipcMain.handle("claude:run", async (_event, { projectPath, args, requestId, sess
     type: "claude-command",
     status,
     title: `Claude CLI: ${titleFromUserContent(commandLine)}`,
-    detail: status === "running" ? cwd : `退出码: ${typeof code === "number" ? code : "-"}`,
+    detail: status === "running" ? cwd : status === "cancelled" ? "命令已取消。" : `退出码: ${typeof code === "number" ? code : "-"}`,
     commandLine,
     cwd,
     code: typeof code === "number" ? code : null,
@@ -4551,6 +4564,7 @@ ipcMain.handle("claude:run", async (_event, { projectPath, args, requestId, sess
       cwd,
       requestId: runId,
       timeoutMs: CLAUDE_TIMEOUT_MS,
+      cancelAsCode130: true,
       env: claudeProcessEnv({ CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1" }),
       onChunk: (stream, text) => {
         if (liveEventStore) {
@@ -4579,8 +4593,10 @@ ipcMain.handle("claude:run", async (_event, { projectPath, args, requestId, sess
     ...result,
     requestId: runId,
     args: argv,
+    code: result.cancelled ? 130 : result.code,
     stdout: stripAnsi(result.stdout),
-    stderr: stripAnsi(result.stderr),
+    stderr: stripAnsi(result.cancelled ? trimOutput(`${result.stderr || ""}\n命令已取消。`) : result.stderr),
+    cancelled: Boolean(result.cancelled),
     ...(normalizedCapabilityContext ? { capabilityContext: normalizedCapabilityContext } : {}),
   };
   if (!persistCommandRun) return sanitizedResult;
@@ -4599,7 +4615,7 @@ ipcMain.handle("claude:run", async (_event, { projectPath, args, requestId, sess
   });
   const runEvent = persistClaudeRunEvent
     ? upsertRunEvent(store, claudeRunEvent({
-        status: sanitizedResult.code === 0 ? "ok" : "error",
+        status: sanitizedResult.cancelled ? "cancelled" : sanitizedResult.code === 0 ? "ok" : "error",
         code: sanitizedResult.code,
         durationMs: sanitizedResult.durationMs,
         stdout: sanitizedResult.stdout,
