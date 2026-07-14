@@ -2527,6 +2527,7 @@ select:focus-visible,
   display: flex;
   align-items: center;
   justify-content: space-between;
+  flex-wrap: wrap;
   gap: 10px;
 }
 
@@ -2542,6 +2543,21 @@ select:focus-visible,
 
 .tool-error-row .plain-action {
   flex-shrink: 0;
+}
+
+.tool-error-row > .tool-error-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.tool-error-row > .tool-error-actions .plain-action {
+  min-height: 28px;
+  margin-top: 0;
+  padding: 5px 8px;
+  font-size: 12px;
 }
 
 .tool-detail label {

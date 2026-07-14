@@ -59,6 +59,7 @@ const desktopApi = {
   searchWorkspaceFiles: (payload) => ipcRenderer.invoke("workspace:search-files", payload),
   readWorkspaceFile: (payload) => ipcRenderer.invoke("workspace:read-file", payload),
   saveWorkspaceFile: (payload) => ipcRenderer.invoke("workspace:save-file", payload),
+  saveWorkspaceFileAs: (payload) => ipcRenderer.invoke("workspace:save-file-as", payload),
   runWorkspaceCommand: (payload) => ipcRenderer.invoke("workspace:run-command", payload),
   cancelWorkspaceCommand: (payload) => ipcRenderer.invoke("workspace:cancel-command", payload),
   onWorkspaceCommandStream: (handler) => {

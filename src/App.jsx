@@ -35,6 +35,7 @@ import {
   Plus,
   RefreshCw,
   RotateCcw,
+  Save,
   Search,
   Send,
   Settings,
@@ -919,6 +920,9 @@ const copy = {
     diffPreview: "差异预览",
     diffPreviewSkippedLarge: "文件超过 1MB，已禁用差异预览以保持输入流畅。",
     fileConflictReload: "重新读取文件",
+    fileConflictSaveAs: "另存草稿",
+    fileConflictRefresh: "刷新磁盘状态",
+    fileConflictSaveAsCancelled: "已取消另存草稿。",
     fileSaveConflictEvidence: "保存冲突证据",
     fileSaveBaseUpdatedAt: "读取时间",
     fileSaveCurrentUpdatedAt: "磁盘时间",
@@ -2931,6 +2935,12 @@ function workspaceFileAction(pathValue = "", options = {}) {
   if (projectPath) parts.push(`project=${encodeActionPart(projectPath)}`);
   if (projectLabel) parts.push(`label=${encodeActionPart(projectLabel)}`);
   return parts.join("|");
+}
+
+function workspaceFileIdentityKey(file = {}, fallbackProjectPath = "") {
+  const projectPath = String(file?.projectPath || fallbackProjectPath || "").trim().replace(/\\/g, "/").replace(/\/+$/, "");
+  const filePath = String(file?.path || "").trim().replace(/\\/g, "/");
+  return projectPath && filePath ? `${projectPath}::${filePath}` : "";
 }
 
 function parseWorkspaceFileAction(action = "") {
@@ -9427,6 +9437,7 @@ function ToolsPanel({
   const [workspaceSearchBusy, setWorkspaceSearchBusy] = useState(false);
   const [workspaceSearchError, setWorkspaceSearchError] = useState("");
   const fileCacheRef = useRef(new Map());
+  const fileEditorRef = useRef(null);
   const [expandedDirs, setExpandedDirs] = useState(() => new Set());
   const [lazyChildren, setLazyChildren] = useState({});
   const [file, setFile] = useState(null);
@@ -9434,6 +9445,7 @@ function ToolsPanel({
   const [fileView, setFileView] = useState("edit");
   const [workspaceError, setWorkspaceError] = useState("");
   const [workspaceErrorRetry, setWorkspaceErrorRetry] = useState(null);
+  const [workspaceFileConflict, setWorkspaceFileConflict] = useState(null);
   const [workspaceBusy, setWorkspaceBusy] = useState(false);
   const [openingPath, setOpeningPath] = useState("");
   const [saveStatus, setSaveStatus] = useState("idle");
@@ -9500,6 +9512,14 @@ function ToolsPanel({
   const reviewRows = diff?.rows || [];
   const reviewBeforeSaveRequired = hasUnsavedFile && !fileTooLargeForDiff && fileView !== "review";
   const canSaveFile = hasUnsavedFile && !reviewBeforeSaveRequired;
+  const currentFileIdentityKey = workspaceFileIdentityKey(file, activeProject?.path);
+  const deletedConflictMatchesCurrentFile = Boolean(
+    workspaceFileConflict?.reason === "deleted" &&
+    workspaceFileConflict?.fileKey &&
+    workspaceFileConflict.fileKey === currentFileIdentityKey &&
+    workspaceFileIdentityKey({ path: workspaceFileConflict.path, projectPath: workspaceFileConflict.projectPath }) === currentFileIdentityKey &&
+    workspaceFileIdentityKey({ path: workspaceFileConflict.path, projectPath: activeProject?.path }) === currentFileIdentityKey,
+  );
   const changeBarTitle = saveStatus === "saved"
     ? t.savedChanges
     : reviewBeforeSaveRequired
@@ -9695,29 +9715,33 @@ function ToolsPanel({
     }
   }
 
-  async function loadTree() {
+  async function loadTree(options = {}) {
+    const manageBusy = options?.manageBusy !== false;
+    const clearFileCache = options?.clearFileCache !== false;
     if (!desktopApi?.listWorkspaceFiles) {
       setWorkspaceError(t.desktopOnly);
-      return;
+      return false;
     }
     if (!activeProject?.path) {
       setWorkspaceError(t.noProjectSelected);
-      return;
+      return false;
     }
-    setWorkspaceBusy(true);
+    if (manageBusy) setWorkspaceBusy(true);
     setWorkspaceError("");
     setWorkspaceErrorRetry(null);
     setExpandedDirs(new Set());
     setLazyChildren({});
-    fileCacheRef.current.clear();
+    if (clearFileCache) fileCacheRef.current.clear();
     try {
       const result = await desktopApi.listWorkspaceFiles({ projectPath: activeProject.path, depth: 2 });
       setTree(result.files || []);
+      return true;
     } catch (error) {
       setWorkspaceError(error.message || String(error));
       setWorkspaceErrorRetry(() => () => loadTree());
+      return false;
     } finally {
-      setWorkspaceBusy(false);
+      if (manageBusy) setWorkspaceBusy(false);
     }
   }
 
@@ -9799,11 +9823,13 @@ function ToolsPanel({
 
   async function openFile(item, options = {}) {
     if (!item || item.type !== "file") return;
+    if (workspaceBusy) return;
     if (!desktopApi?.readWorkspaceFile) {
       setWorkspaceError(t.desktopOnly);
       return;
     }
     const targetProjectPath = String(item.projectPath || options.projectPath || activeProject?.path || "").trim();
+    setWorkspaceFileConflict(null);
     const cacheKey = `${targetProjectPath}::${item.path}`;
     const cached = fileCacheRef.current.get(cacheKey);
     if (cached && !options.force) {
@@ -9819,6 +9845,7 @@ function ToolsPanel({
     setWorkspaceBusy(true);
     setWorkspaceError("");
     setWorkspaceErrorRetry(null);
+    setWorkspaceFileConflict(null);
     setOpeningPath(item.path);
     try {
       const result = await desktopApi.readWorkspaceFile({ projectPath: targetProjectPath, relativePath: item.path });
@@ -9867,6 +9894,7 @@ function ToolsPanel({
     setWorkspaceBusy(true);
     setWorkspaceError("");
     setWorkspaceErrorRetry(null);
+    setWorkspaceFileConflict(null);
     setSaveStatus("saving");
     const requestId = `file_save_${Date.now()}_${Math.random().toString(16).slice(2)}`;
     onRunEvent?.({
@@ -9919,9 +9947,20 @@ function ToolsPanel({
     } catch (error) {
       const errorMessage = error.message || String(error);
       const conflict = isFileConflictError(error.code || errorMessage);
+      const deletedConflict = conflict && error?.details?.reason === "deleted";
       const conflictEvidence = conflict ? fileSaveConflictEvidenceText({ file, content: fileDraft, error, t }) : "";
       setWorkspaceError(errorMessage);
-      setWorkspaceErrorRetry(() => () => openFile({ type: "file", path: file.path, projectPath: file.projectPath, projectLabel: file.projectLabel }, { force: true }));
+      setWorkspaceFileConflict(deletedConflict ? {
+        ...error.details,
+        fileKey: workspaceFileIdentityKey(file, activeProject?.path),
+        message: errorMessage,
+        path: file.path,
+        projectPath: file.projectPath || activeProject?.path || "",
+        projectLabel: file.projectLabel || projectLabel(activeProject, t),
+      } : null);
+      setWorkspaceErrorRetry(deletedConflict
+        ? null
+        : () => () => openFile({ type: "file", path: file.path, projectPath: file.projectPath, projectLabel: file.projectLabel }, { force: true }));
       setSaveStatus("error");
       onRunEvent?.({
         id: requestId,
@@ -9940,6 +9979,108 @@ function ToolsPanel({
       });
     } finally {
       setWorkspaceBusy(false);
+    }
+  }
+
+  async function saveDeletedDraftAs() {
+    if (!file || !deletedConflictMatchesCurrentFile) return;
+    if (reviewBeforeSaveRequired) {
+      setFileView("review");
+      return;
+    }
+    const originalFile = file;
+    const draft = fileDraft;
+    const projectPath = originalFile.projectPath || activeProject?.path || "";
+    const conflictFileKey = workspaceFileConflict.fileKey;
+    const requestId = `file_save_as_${Date.now()}_${Math.random().toString(16).slice(2)}`;
+    const eventBase = {
+      id: requestId,
+      type: "file-save",
+      title: `${t.fileConflictSaveAs}: ${originalFile.path}`,
+      cwd: projectPath,
+      path: originalFile.path,
+      action: workspaceFileAction(originalFile.path, {
+        projectPath,
+        projectLabel: originalFile.projectLabel || projectLabel(activeProject, t),
+      }),
+    };
+    if (!desktopApi?.saveWorkspaceFileAs) {
+      setWorkspaceError(t.desktopOnly);
+      onRunEvent?.({ ...eventBase, status: "error", detail: t.desktopOnly, stderr: t.desktopOnly });
+      return;
+    }
+    setWorkspaceBusy(true);
+    setWorkspaceErrorRetry(null);
+    setSaveStatus("saving");
+    onRunEvent?.({ ...eventBase, status: "running", detail: t.fileConflictSaveAs });
+    try {
+      const result = await desktopApi.saveWorkspaceFileAs({
+        projectPath,
+        relativePath: originalFile.path,
+        content: draft,
+      });
+      if (result?.canceled) {
+        setSaveStatus("error");
+        onRunEvent?.({ ...eventBase, status: "cancelled", detail: t.fileConflictSaveAsCancelled });
+        return;
+      }
+      if (!result?.ok) {
+        const saveAsError = new Error(result?.message || t.requestError);
+        saveAsError.code = result?.code || "WORKSPACE_SAVE_AS_FAILED";
+        throw saveAsError;
+      }
+
+      const nextFile = {
+        ...result,
+        projectPath,
+        projectLabel: originalFile.projectLabel || projectLabel(activeProject, t),
+      };
+      cacheFileRead(fileCacheRef, `${projectPath}::${result.path}`, nextFile);
+      setFile(nextFile);
+      setFileDraft(nextFile.content || "");
+      setFileView("edit");
+      setSaveStatus("saved");
+      setWorkspaceFileConflict((current) => current?.fileKey === conflictFileKey ? null : current);
+      if (Array.isArray(result.sourceRefs)) onSourceRefs?.(result.sourceRefs);
+      onRefreshEnvironment?.();
+      window.requestAnimationFrame(() => fileEditorRef.current?.focus());
+      const treeLoaded = await loadTree({ manageBusy: false, clearFileCache: false });
+      if (treeLoaded && !result.warning?.message) setWorkspaceError("");
+      if (treeLoaded) setWorkspaceErrorRetry(null);
+      if (treeLoaded && result.warning?.message) setWorkspaceError(result.warning.message);
+      const recoveryWarnings = [
+        treeLoaded ? "" : "草稿已另存，但文件树刷新失败。",
+        result.warning?.message || "",
+      ].filter(Boolean);
+      onRunEvent?.({
+        ...eventBase,
+        status: "ok",
+        title: `${t.fileConflictSaveAs}: ${result.path}`,
+        detail: [`${originalFile.path} -> ${result.path}`, ...recoveryWarnings].join("\n"),
+        stderr: recoveryWarnings.join("\n"),
+        path: result.path,
+        action: workspaceFileAction(result.path, {
+          projectPath,
+          projectLabel: originalFile.projectLabel || projectLabel(activeProject, t),
+        }),
+      });
+    } catch (error) {
+      const errorMessage = error.message || String(error);
+      setWorkspaceError(errorMessage);
+      setWorkspaceErrorRetry(null);
+      setSaveStatus("error");
+      onRunEvent?.({ ...eventBase, status: "error", detail: errorMessage, stderr: errorMessage });
+    } finally {
+      setWorkspaceBusy(false);
+    }
+  }
+
+  async function refreshDeletedFileConflict() {
+    if (!deletedConflictMatchesCurrentFile) return;
+    const conflictFileKey = workspaceFileConflict.fileKey;
+    const treeLoaded = await loadTree();
+    if (treeLoaded) {
+      setWorkspaceFileConflict((current) => current?.fileKey === conflictFileKey ? null : current);
     }
   }
 
@@ -10453,27 +10594,52 @@ function ToolsPanel({
                 {t.refresh}
               </button>
             </div>
-            {workspaceError && (
-              <div className="tool-error-row">
+            {(workspaceError || deletedConflictMatchesCurrentFile) && (
+              <div className="tool-error-row" role="alert" aria-live="polite">
                 <div>
-                  <p className="tool-error">{workspaceError}</p>
+                  <p className="tool-error">{workspaceError || workspaceFileConflict?.message}</p>
                   {isPermissionDeniedError(workspaceError) && <p className="tool-hint">{t.permissionErrorHint}</p>}
                 </div>
-                {workspaceErrorRetry && (
-                  <button
-                    type="button"
-                    className="plain-action subtle-action"
-                    onClick={() => {
-                      const retry = workspaceErrorRetry;
-                      setWorkspaceError("");
-                      setWorkspaceErrorRetry(null);
-                      retry();
-                    }}
-                  >
-                    <RefreshCw size={13} />
-                    {isFileConflictError(workspaceError) ? t.fileConflictReload : t.retry}
-                  </button>
-                )}
+                <div className="tool-error-actions">
+                  {deletedConflictMatchesCurrentFile ? (
+                    <>
+                      <button
+                        type="button"
+                        className="plain-action subtle-action"
+                        data-file-conflict-action="save-as"
+                        onClick={saveDeletedDraftAs}
+                        disabled={workspaceBusy}
+                      >
+                        <Save size={13} />
+                        {t.fileConflictSaveAs}
+                      </button>
+                      <button
+                        type="button"
+                        className="plain-action subtle-action"
+                        data-file-conflict-action="refresh"
+                        onClick={refreshDeletedFileConflict}
+                        disabled={workspaceBusy}
+                      >
+                        <RefreshCw size={13} />
+                        {t.fileConflictRefresh}
+                      </button>
+                    </>
+                  ) : workspaceErrorRetry ? (
+                    <button
+                      type="button"
+                      className="plain-action subtle-action"
+                      onClick={() => {
+                        const retry = workspaceErrorRetry;
+                        setWorkspaceError("");
+                        setWorkspaceErrorRetry(null);
+                        retry();
+                      }}
+                    >
+                      <RefreshCw size={13} />
+                      {isFileConflictError(workspaceError) ? t.fileConflictReload : t.retry}
+                    </button>
+                  ) : null}
+                </div>
               </div>
             )}
             <section className="workspace-find-panel" aria-label={t.workspaceFindFiles}>
@@ -10625,7 +10791,7 @@ function ToolsPanel({
                         )}
                       </div>
                     ) : (
-                      <textarea value={fileDraft} onChange={(event) => setFileDraft(event.target.value)} spellCheck="false" aria-label={file.path} />
+                      <textarea ref={fileEditorRef} value={fileDraft} onChange={(event) => setFileDraft(event.target.value)} spellCheck="false" aria-label={file.path} />
                     )}
                     {(hasUnsavedFile || saveStatus === "saved") && (
                       <div className={cx("editor-change-bar", saveStatus === "saved" && "saved", reviewBeforeSaveRequired && "needs-review")}>

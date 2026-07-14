@@ -1229,6 +1229,10 @@ function slashPath(value) {
   return String(value || "").replace(/\\/g, "/");
 }
 
+function relativePathEscapesRoot(relativePath) {
+  return relativePath === ".." || relativePath.startsWith(`..${path.sep}`) || path.isAbsolute(relativePath);
+}
+
 function resolveProjectRoot(projectPath) {
   const store = readStore();
   const candidate = projectPath || store.activeProject?.path;
@@ -1245,7 +1249,7 @@ function resolveInsideProject(projectPath, relativePath = "") {
   const root = resolveProjectRoot(projectPath);
   const target = path.resolve(root, relativePath || ".");
   const relative = path.relative(root, target);
-  if (relative.startsWith("..") || path.isAbsolute(relative)) {
+  if (relativePathEscapesRoot(relative)) {
     throw new Error("路径超出了当前项目范围。");
   }
   return { root, target, relative: slashPath(relative) };
@@ -4923,6 +4927,272 @@ ipcMain.handle("workspace:save-file", (_event, { projectPath, relativePath, cont
     };
   } finally {
     if (typeof fd === "number") fs.closeSync(fd);
+  }
+});
+
+ipcMain.handle("workspace:save-file-as", async (event, { projectPath, relativePath, content } = {}) => {
+  const failure = (code, message) => ({ ok: false, canceled: false, code, message });
+  const codedError = (code, message) => {
+    const error = new Error(message);
+    error.code = code;
+    return error;
+  };
+  const hasFileIdentity = (stat) =>
+    typeof stat?.dev === "bigint" && stat.dev > 0n && typeof stat?.ino === "bigint" && stat.ino > 0n;
+  const sameFileIdentity = (left, right) =>
+    hasFileIdentity(left) && hasFileIdentity(right) && left.dev === right.dev && left.ino === right.ino;
+  const hasSingleLink = (stat) => typeof stat?.nlink === "bigint" && stat.nlink === 1n;
+  const samePath = (left, right) => path.relative(left, right) === "" && path.relative(right, left) === "";
+  const readHandleSnapshot = (fd) => {
+    const before = fs.fstatSync(fd, { bigint: true });
+    if (before.size > BigInt(Number.MAX_SAFE_INTEGER)) {
+      throw codedError("WORKSPACE_SAVE_AS_FILE_TOO_LARGE", "另存目标过大，无法安全处理。");
+    }
+    const buffer = Buffer.alloc(Number(before.size));
+    let offset = 0;
+    while (offset < buffer.length) {
+      const bytesRead = fs.readSync(fd, buffer, offset, buffer.length - offset, offset);
+      if (bytesRead === 0) break;
+      offset += bytesRead;
+    }
+    const after = fs.fstatSync(fd, { bigint: true });
+    return {
+      stat: after,
+      buffer: offset === buffer.length ? buffer : buffer.subarray(0, offset),
+      stable: before.size === after.size && before.mtimeNs === after.mtimeNs && BigInt(offset) === after.size,
+    };
+  };
+  const writeBufferToHandle = (fd, buffer) => {
+    let offset = 0;
+    while (offset < buffer.length) {
+      const bytesWritten = fs.writeSync(fd, buffer, offset, buffer.length - offset, offset);
+      if (bytesWritten === 0) throw codedError("WORKSPACE_FILE_SHORT_WRITE", "无法完整写入文件。");
+      offset += bytesWritten;
+    }
+  };
+  const snapshotFromHandle = (target, relative, snapshot) => ({
+    path: slashPath(relative),
+    name: path.basename(target),
+    content: snapshot.buffer.toString("utf8"),
+    size: Number(snapshot.stat.size),
+    updatedAt: new Date(Number(snapshot.stat.mtimeNs / 1_000_000n)).toISOString(),
+    sha256: hashBuffer(snapshot.buffer),
+  });
+
+  try {
+    const owner = BrowserWindow.fromWebContents(event?.sender);
+    if (!owner || owner.isDestroyed()) {
+      return failure("WORKSPACE_SAVE_AS_INVALID_SENDER", "无法确认另存窗口来源。");
+    }
+
+    const initialStore = readStore();
+    const requestedRoot = resolveProjectRoot(projectPath);
+    const trustedRoot = resolveProjectRoot(initialStore.activeProject?.path);
+    const requestedRealRoot = fs.realpathSync(requestedRoot);
+    const realRoot = fs.realpathSync(trustedRoot);
+    if (!samePath(requestedRealRoot, realRoot)) {
+      return failure("WORKSPACE_SAVE_AS_PROJECT_MISMATCH", "另存请求不属于当前项目。");
+    }
+
+    const { target } = resolveInsideProject(trustedRoot, relativePath);
+    const extension = path.extname(target);
+    const basename = path.basename(target, extension);
+    const defaultPath = path.join(path.dirname(target), `${basename}.recovered${extension}`);
+    const result = await dialog.showSaveDialog(owner, {
+      title: "另存草稿",
+      buttonLabel: "另存",
+      defaultPath,
+      properties: ["createDirectory", "showOverwriteConfirmation", "dontAddToRecent"],
+      filters: [
+        { name: "文本文件", extensions: extension ? [extension.slice(1)] : ["txt"] },
+        { name: "所有文件", extensions: ["*"] },
+      ],
+    });
+    if (result.canceled || !result.filePath) return { ok: false, canceled: true };
+
+    const selectedPath = path.resolve(result.filePath);
+    const selectedRelative = path.relative(trustedRoot, selectedPath);
+    if (relativePathEscapesRoot(selectedRelative)) {
+      return failure("WORKSPACE_SAVE_AS_OUTSIDE_PROJECT", "另存位置必须在当前项目内。");
+    }
+
+    const resolved = resolveInsideProject(trustedRoot, selectedRelative);
+    let realParent;
+    try {
+      realParent = fs.realpathSync(path.dirname(resolved.target));
+    } catch (error) {
+      if (error?.code !== "ENOENT") throw error;
+      return failure("WORKSPACE_SAVE_AS_PARENT_MISSING", "另存目录不存在，请在当前项目内选择已有文件夹。");
+    }
+    if (relativePathEscapesRoot(path.relative(realRoot, realParent))) {
+      return failure("WORKSPACE_SAVE_AS_OUTSIDE_PROJECT", "另存位置必须在当前项目内。");
+    }
+
+    const canonicalTarget = path.join(realParent, path.basename(resolved.target));
+    const canonicalRelative = path.relative(realRoot, canonicalTarget);
+    if (relativePathEscapesRoot(canonicalRelative)) {
+      return failure("WORKSPACE_SAVE_AS_OUTSIDE_PROJECT", "另存位置必须在当前项目内。");
+    }
+    const parentIsStable = () => samePath(fs.realpathSync(path.dirname(canonicalTarget)), realParent);
+    if (!parentIsStable()) {
+      return failure("WORKSPACE_SAVE_AS_PARENT_CHANGED", "另存目录在确认后发生变化，请重新选择。");
+    }
+
+    let initialTargetStat = null;
+    try {
+      initialTargetStat = fs.lstatSync(canonicalTarget, { bigint: true });
+    } catch (error) {
+      if (error?.code !== "ENOENT") throw error;
+    }
+    if (initialTargetStat?.isSymbolicLink()) {
+      return failure("WORKSPACE_SAVE_AS_SYMLINK", "另存目标不能是符号链接。");
+    }
+    if (initialTargetStat && !initialTargetStat.isFile()) {
+      return failure("WORKSPACE_SAVE_AS_NOT_FILE", "另存目标不是普通文件。");
+    }
+    if (initialTargetStat && !hasSingleLink(initialTargetStat)) {
+      return failure("WORKSPACE_SAVE_AS_HARDLINK", "另存目标不能是硬链接文件。");
+    }
+    if (initialTargetStat?.size > BigInt(MAX_TEXT_FILE_BYTES)) {
+      return failure("WORKSPACE_SAVE_AS_TARGET_TOO_LARGE", "另存目标过大，无法安全覆盖。");
+    }
+
+    const nextBuffer = Buffer.from(String(content ?? ""), "utf8");
+    const createdNew = !initialTargetStat;
+    let fd;
+    let openedStat;
+    let snapshot;
+    let completed = false;
+    try {
+      try {
+        fd = fs.openSync(canonicalTarget, createdNew ? "wx" : "r+");
+      } catch (error) {
+        if (createdNew && error?.code === "EEXIST") {
+          return failure("WORKSPACE_SAVE_AS_TARGET_CHANGED", "另存目标在确认后发生变化，请重新选择。");
+        }
+        throw error;
+      }
+      openedStat = fs.fstatSync(fd, { bigint: true });
+      if (!openedStat.isFile()) return failure("WORKSPACE_SAVE_AS_NOT_FILE", "另存目标不是普通文件。");
+      if (!hasFileIdentity(openedStat)) {
+        return failure("WORKSPACE_SAVE_AS_IDENTITY_UNAVAILABLE", "无法确认另存目标身份，请重新选择。");
+      }
+      if (!hasSingleLink(openedStat)) {
+        return failure("WORKSPACE_SAVE_AS_HARDLINK", "另存目标不能是硬链接文件。");
+      }
+      if (initialTargetStat && !sameFileIdentity(initialTargetStat, openedStat)) {
+        return failure("WORKSPACE_SAVE_AS_TARGET_CHANGED", "另存目标在确认后发生变化，请重新选择。");
+      }
+      if (!parentIsStable()) {
+        return failure("WORKSPACE_SAVE_AS_PARENT_CHANGED", "另存目录在确认后发生变化，请重新选择。");
+      }
+      const pathStatBeforeWrite = fs.lstatSync(canonicalTarget, { bigint: true });
+      if (pathStatBeforeWrite.isSymbolicLink() || !sameFileIdentity(openedStat, pathStatBeforeWrite)) {
+        return failure("WORKSPACE_SAVE_AS_TARGET_CHANGED", "另存目标在确认后发生变化，请重新选择。");
+      }
+      if (!hasSingleLink(pathStatBeforeWrite)) {
+        return failure("WORKSPACE_SAVE_AS_HARDLINK", "另存目标不能是硬链接文件。");
+      }
+
+      const originalSnapshot = createdNew ? { buffer: Buffer.alloc(0), stable: true } : readHandleSnapshot(fd);
+      if (!originalSnapshot.stable) {
+        return failure("WORKSPACE_SAVE_AS_TARGET_CHANGED", "另存目标正在变化，请重新选择。");
+      }
+
+      let mutated = false;
+      try {
+        mutated = true;
+        fs.ftruncateSync(fd, 0);
+        writeBufferToHandle(fd, nextBuffer);
+        fs.fsyncSync(fd);
+        const writtenSnapshot = readHandleSnapshot(fd);
+        if (!writtenSnapshot.stable || !writtenSnapshot.buffer.equals(nextBuffer)) {
+          throw codedError("WORKSPACE_SAVE_AS_VERIFY_FAILED", "另存内容写入后校验失败。");
+        }
+        if (!parentIsStable()) {
+          throw codedError("WORKSPACE_SAVE_AS_PARENT_CHANGED", "另存目录在写入期间发生变化。");
+        }
+        const pathStatAfterWrite = fs.lstatSync(canonicalTarget, { bigint: true });
+        if (pathStatAfterWrite.isSymbolicLink() || !sameFileIdentity(writtenSnapshot.stat, pathStatAfterWrite)) {
+          throw codedError("WORKSPACE_SAVE_AS_TARGET_CHANGED", "另存目标在写入期间发生变化。");
+        }
+        if (!hasSingleLink(writtenSnapshot.stat) || !hasSingleLink(pathStatAfterWrite)) {
+          throw codedError("WORKSPACE_SAVE_AS_HARDLINK", "另存目标在写入期间变成了硬链接文件。");
+        }
+        snapshot = snapshotFromHandle(canonicalTarget, canonicalRelative, writtenSnapshot);
+        completed = true;
+      } catch (writeError) {
+        if (mutated) {
+          try {
+            fs.ftruncateSync(fd, 0);
+            writeBufferToHandle(fd, createdNew ? Buffer.alloc(0) : originalSnapshot.buffer);
+            fs.fsyncSync(fd);
+          } catch (rollbackError) {
+            const combined = codedError(
+              "WORKSPACE_SAVE_AS_ROLLBACK_FAILED",
+              `另存失败且原目标回滚失败。save=${writeError?.message || writeError}; rollback=${rollbackError?.message || rollbackError}`,
+            );
+            combined.cause = writeError;
+            combined.rollbackError = rollbackError;
+            throw combined;
+          }
+        }
+        throw writeError;
+      }
+    } finally {
+      let closeError = null;
+      if (typeof fd === "number") {
+        try {
+          fs.closeSync(fd);
+        } catch (error) {
+          closeError = error;
+        }
+      }
+      if (createdNew && !completed && openedStat && hasFileIdentity(openedStat)) {
+        try {
+          const current = fs.lstatSync(canonicalTarget, { bigint: true });
+          if (!current.isSymbolicLink() && sameFileIdentity(openedStat, current)) fs.unlinkSync(canonicalTarget);
+        } catch {
+          // The new target may already be gone or replaced; never unlink an unverified path.
+        }
+      }
+      if (closeError && !completed) throw closeError;
+    }
+
+    let sourceRef = null;
+    let sourceRefs = null;
+    let warning = null;
+    try {
+      const store = readStore();
+      const project = projectFromPath(trustedRoot);
+      sourceRef = upsertSourceRef(store, {
+        type: "file",
+        path: snapshot.path,
+        title: path.basename(snapshot.path),
+        project,
+        size: snapshot.size,
+        sha256: snapshot.sha256,
+        updatedAt: snapshot.updatedAt,
+        lastOpenedAt: now(),
+      });
+      writeStore(store);
+      broadcastStoreUpdate(store);
+      sourceRefs = sanitizeStore(store).sourceRefs;
+    } catch (error) {
+      warning = {
+        code: "WORKSPACE_SAVE_AS_METADATA_FAILED",
+        message: `草稿已另存，但来源记录更新失败：${error?.message || String(error)}`,
+      };
+    }
+    return {
+      ok: true,
+      ...snapshot,
+      sourceRef,
+      sourceRefs,
+      warning,
+    };
+  } catch (error) {
+    return failure(error?.code || "WORKSPACE_SAVE_AS_FAILED", error?.message || String(error));
   }
 });
 
