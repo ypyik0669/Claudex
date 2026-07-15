@@ -4,6 +4,7 @@ const path = require("node:path");
 const crypto = require("node:crypto");
 const { spawn } = require("node:child_process");
 
+const CLAUDEX_APP_ID = "com.ypyik0669.claudex";
 const hasSingleInstanceLock = app.requestSingleInstanceLock();
 if (!hasSingleInstanceLock) app.quit();
 
@@ -145,6 +146,7 @@ const CLAUDE_CODE_SETTINGS = {
 const GENERIC_SESSION_TITLES = new Set(["", "claudex", "new chat", "new coding session", "新聊天"]);
 
 app.setName("Claudex");
+if (process.platform === "win32") app.setAppUserModelId(CLAUDEX_APP_ID);
 
 function parseEnvFile(file) {
   if (!fs.existsSync(file)) return {};
