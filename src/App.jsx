@@ -612,7 +612,7 @@ const copy = {
     confirmDisableWarning: "这会禁用「{name}」。之后可以通过重新安装或更新来重新启用它。",
     confirmDisableButton: "确认禁用",
     confirmCliActionTitle: "确认执行本机 CLI 操作",
-    confirmCliActionWarning: "这会通过 Claude Code CLI 修改本机插件或市场状态：{command}",
+    confirmCliActionWarning: "这会通过 Claude Code CLI 修改本机插件、MCP 或市场状态：{command}",
     confirmCliActionButton: "确认执行",
     pluginMutationRisk: "会通过 Claude Code CLI 修改本机插件状态，并把执行结果写入本地命令证据。",
     pluginUninstallRisk: "卸载会从 {scope} 范围移除该插件；默认不传 --keep-data 或 --prune，插件持久化数据可能被删除，依赖不会自动清理。",
@@ -645,6 +645,9 @@ const copy = {
     mcpStatusPending: "待确认",
     mcpStatusError: "异常",
     mcpStatusUnknown: "未知",
+    removeMcpServer: "移除配置",
+    mcpRemoveRisk: "这会从 {scope} 范围移除 MCP 服务器配置，Claude Code 将不再加载该服务器提供的工具；不会卸载服务器程序或删除其外部数据。",
+    mcpRemoveScopeRequired: "Claude Code 未返回有效的 MCP 配置范围，无法安全移除。",
     installFromMarketplace: "从市场安装",
     openHomepage: "主页",
     source: "来源",
@@ -1196,6 +1199,28 @@ function parsePluginUninstallCommand(value) {
   };
 }
 
+function normalizeMcpScope(value) {
+  const scope = String(value || "").trim().toLowerCase();
+  return ["local", "user", "project"].includes(scope) ? scope : "";
+}
+
+function mcpRemoveCommandArgs(server = {}, scopeOverride = "") {
+  const name = String(server?.name || "").trim();
+  const scope = normalizeMcpScope(scopeOverride || server?.scope);
+  return name && scope ? ["mcp", "remove", "--scope", scope, name] : [];
+}
+
+function parseMcpRemoveCommand(value) {
+  const command = String(value || "").trim().replace(/^claude\s+/i, "");
+  const match = command.match(/^mcp\s+remove\s+--scope\s+(local|user|project)\s+([^\s]+)$/i);
+  if (!match) return null;
+  return {
+    action: "remove",
+    scope: normalizeMcpScope(match[1]),
+    name: String(match[2] || "").trim(),
+  };
+}
+
 function normalizeCustomMarketplaceUrl(value) {
   const source = String(value || "").trim();
   if (!source || source.length > 2048 || /[\s\u0000-\u001f\u007f]/.test(source)) return "";
@@ -1306,6 +1331,15 @@ function findRecentMcpActionRun(runs) {
   return runs.find((run) => /(?:^|\s)mcp\s+list(?=\s|$)/i.test(capabilityCommandLine(run))) || null;
 }
 
+function findRecentMcpServerActionRun(runs, serverName) {
+  const expectedName = String(serverName || "").trim();
+  if (!expectedName) return null;
+  return runs.find((run) => {
+    const remove = parseMcpRemoveCommand(capabilityCommandLine(run));
+    return Boolean(remove && remove.name === expectedName);
+  }) || null;
+}
+
 function pluginActionArgsFromRun(run, fallbackIdentifier = "") {
   const commandLine = capabilityCommandLine(run);
   const uninstall = parsePluginUninstallCommand(commandLine);
@@ -1347,6 +1381,7 @@ function mutatingCapabilityRetryArgsFromRun(run) {
   const mutatingPatterns = [
     /^plugin\s+(?:install|update|enable|disable)\s+\S+/i,
     /^plugin\s+(?:uninstall|remove)\s+--scope\s+(?:user|project|local)\s+\S+$/i,
+    /^mcp\s+remove\s+--scope\s+(?:local|user|project)\s+\S+$/i,
     /^plugin\s+marketplace\s+update$/i,
     /^plugin\s+marketplace\s+add\s+\S+$/i,
     /^plugin\s+marketplace\s+remove\s+--scope\s+user\s+\S+$/i,
@@ -1437,6 +1472,17 @@ function capabilityRetryFocusForArgs(args, context = {}) {
 }
 
 function capabilityActionFocusForCommand(args, context = {}) {
+  const mcpRemove = parseMcpRemoveCommand(args);
+  if (mcpRemove?.name && mcpRemove.scope) {
+    return {
+      tab: "mcp",
+      kind: "mcp",
+      id: mcpRemove.name,
+      query: mcpRemove.name,
+      action: "remove",
+      target: mcpRemove.scope,
+    };
+  }
   const uninstall = parsePluginUninstallCommand(args);
   if (uninstall?.identifier && uninstall.scope) {
     return {
@@ -2061,6 +2107,20 @@ function pluginUninstallReviewRows(plugin = {}, t, activeProject = null, scopeOv
   });
 }
 
+function mcpRemoveReviewRows(server = {}, t, activeProject = null, scopeOverride = "") {
+  const scope = normalizeMcpScope(scopeOverride || server.scope);
+  const commandInput = normalizeClaudeCommandInput(mcpRemoveCommandArgs(server, scope));
+  return [
+    [t.mcpServers, server.name || t.mcpServers],
+    [t.scope, scope || "-"],
+    server.transport ? [t.mcpTransport, server.transport] : null,
+    server.source ? [t.source, server.source] : null,
+    commandInput.displayArgs ? [t.commandLine, `claude ${commandInput.displayArgs}`] : null,
+    [t.commandCwd, activeProject?.path || t.localWorkspace],
+    [t.marketplaceRisk, t.mcpRemoveRisk.replace("{scope}", scope || "-")],
+  ].filter(Boolean);
+}
+
 function marketplacePluginEvidenceText(plugin = {}, t) {
   const detailLines = toolDetailLines(plugin, t);
   const rows = [
@@ -2180,6 +2240,7 @@ function mcpServerEvidenceText(server = {}, t) {
   const toolDetailLines = mcpToolDetailLines(server, t);
   const rows = [
     [t.mcpServers, server.name],
+    server.scope ? [t.scope, server.scope] : null,
     server.status ? [t.status, `${mcpStatusLabel(server.status, t)} (${server.status})`] : null,
     server.detail ? [t.description, server.detail] : null,
     typeof server.tools === "number" ? [t.tools, String(server.tools)] : null,
@@ -14155,14 +14216,54 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                 {mcpServerRows.length === 0 && <p className="empty-list">{hasStructuredMcpRows ? t.noCapabilities : t.noMcpServers}</p>}
                 {mcpServerRows.map((server) => {
                   const rowKey = mcpServerKey(server);
-                  const rowRecording = cliAction === "mcp list";
+                  const recentServerRun = findRecentMcpServerActionRun(recentCapabilityRuns, server.name);
+                  const recentServerRemove = parseMcpRemoveCommand(capabilityCommandLine(recentServerRun));
+                  const mcpRemoveScope = normalizeMcpScope(server.scope);
+                  const mcpRemoveArgs = mcpRemoveCommandArgs(server, mcpRemoveScope);
+                  const mcpRemoveDisplayArgs = normalizeClaudeCommandInput(mcpRemoveArgs).displayArgs;
+                  const rowRecording = cliAction === "mcp list" || Boolean(mcpRemoveDisplayArgs && cliAction === mcpRemoveDisplayArgs);
                   const mcpFocused = capabilityFocusMatches("mcp", server.name, rowKey);
                   const mcpOpenClaudeFocused = capabilityActionFocusMatches("mcp", "open-claude", server.name, rowKey);
                   const mcpCopyRawFocused = capabilityActionFocusMatches("mcp", "copy-raw", server.name, rowKey);
                   const mcpCopyFocused = capabilityActionFocusMatches("mcp", "copy", server.name, rowKey);
                   const mcpRefreshFocused = capabilityActionFocusMatches("mcp", "refresh", server.name, rowKey);
+                  const mcpRemoveFocused = capabilityActionFocusMatches("mcp", "remove", server.name, rowKey);
+                  const mcpRetryFocused = capabilityActionFocusMatches("mcp", "retry", server.name, rowKey);
+                  const mcpActionContext = (action, scope = mcpRemoveScope) => ({
+                    tab: "mcp",
+                    kind: "mcp",
+                    id: server.name,
+                    query: server.name,
+                    action,
+                    ...(action === "remove" && scope ? { target: scope } : {}),
+                  });
+                  const mcpRetryArgs = mcpFocused
+                    && recentServerRun?.code !== 0
+                    && recentServerRemove?.name === server.name
+                    && recentServerRemove.scope
+                    ? mcpRemoveCommandArgs({ name: recentServerRemove.name }, recentServerRemove.scope)
+                    : [];
+                  const mcpRetryContext = mcpRetryArgs.length
+                    ? normalizeCapabilityContext({
+                        tab: "mcp",
+                        kind: "mcp",
+                        id: recentServerRemove.name,
+                        query: recentServerRemove.name,
+                        action: "remove",
+                        target: recentServerRemove.scope,
+                      })
+                    : null;
+                  const mcpRetry = mcpRetryArgs.length
+                    ? () => requestCapabilityClaude(
+                        mcpRetryArgs,
+                        `${t.retry}: ${t.removeMcpServer} / ${recentServerRemove.name}`,
+                        mcpRemoveReviewRows(server, t, activeProject, recentServerRemove.scope),
+                        mcpRetryContext,
+                      )
+                    : null;
                   const toolDetails = Array.isArray(server.toolDetails) ? server.toolDetails : [];
                   const rowMeta = [
+                    server.scope ? [t.scope, server.scope] : null,
                     typeof server.tools === "number" ? [t.tools, String(server.tools)] : null,
                     server.toolsSummary ? [t.toolsList, messageExcerpt(server.toolsSummary, 72), server.toolsSummary] : null,
                     server.transport ? [t.mcpTransport, server.transport] : null,
@@ -14257,7 +14358,34 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                           <RefreshCw size={13} className={rowRecording ? "spin" : undefined} />
                           {t.recordMcpStatus}
                         </button>
+                        <button
+                          type="button"
+                          className="plain-action subtle-action danger-action"
+                          data-mcp-server-action="remove"
+                          {...capabilityActionFocusAttributes(mcpRemoveFocused)}
+                          {...surfaceTraceAttributes("mcp", "remove", server, { id: server.name, name: server.name })}
+                          onClick={() => requestCapabilityClaude(
+                            mcpRemoveArgs,
+                            `${t.removeMcpServer}: ${server.name}`,
+                            mcpRemoveReviewRows(server, t, activeProject, mcpRemoveScope),
+                            mcpActionContext("remove"),
+                          )}
+                          disabled={cliWorking || !mcpRemoveArgs.length}
+                          title={cliWorking ? t.workingHint : !mcpRemoveArgs.length ? t.mcpRemoveScopeRequired : t.mcpRemoveRisk.replace("{scope}", mcpRemoveScope)}
+                        >
+                          <Trash2 size={13} />
+                          {t.removeMcpServer}
+                        </button>
                       </div>
+                      <RowCliActionEvidence
+                        run={recentServerRun}
+                        t={t}
+                        onOpenOutputs={openCapabilityOutputs}
+                        onRetry={mcpRetry}
+                        retryActionAttributes={{ "data-mcp-server-action": "retry" }}
+                        retryFocusAttributes={capabilityActionFocusAttributes(mcpRetryFocused)}
+                        retryTraceAttributes={surfaceTraceAttributes("mcp", "retry", server, { id: server.name, name: server.name })}
+                      />
                     </article>
                   );
                 })}
@@ -15987,6 +16115,23 @@ export function App() {
     const marketplaceSources = Array.isArray(capabilityCommandStatus?.marketplaces) ? capabilityCommandStatus.marketplaces : [];
     const marketplacePlugins = Array.isArray(capabilityCommandStatus?.marketplacePlugins) ? capabilityCommandStatus.marketplacePlugins : [];
     const installedPlugins = Array.isArray(capabilityCommandStatus?.pluginItems) ? capabilityCommandStatus.pluginItems : [];
+    const mcpServers = Array.isArray(capabilityCommandStatus?.mcpServers) ? capabilityCommandStatus.mcpServers : [];
+    const mcpRemoveCommand = parseMcpRemoveCommand(nextArgs);
+    const mcpRemoveContext = mcpRemoveCommand?.name && mcpRemoveCommand.scope
+      ? normalizeCapabilityContext({
+          ...(retryContext || {}),
+          tab: "mcp",
+          kind: "mcp",
+          id: mcpRemoveCommand.name,
+          query: mcpRemoveCommand.name,
+          action: "remove",
+          target: mcpRemoveCommand.scope,
+        })
+      : null;
+    const mcpRemoveServer = mcpRemoveCommand?.name
+      ? mcpServers.find((server) => server?.name === mcpRemoveCommand.name)
+        || { name: mcpRemoveCommand.name, scope: mcpRemoveCommand.scope }
+      : null;
     const uninstallCommand = parsePluginUninstallCommand(nextArgs);
     const uninstallContext = uninstallCommand?.identifier && uninstallCommand.scope
       ? normalizeCapabilityContext({
@@ -16027,6 +16172,8 @@ export function App() {
           t,
           activeProject,
         )
+      : mcpRemoveServer && mcpRemoveCommand?.scope
+      ? mcpRemoveReviewRows(mcpRemoveServer, t, activeProject, mcpRemoveCommand.scope)
       : uninstallPlugin && uninstallCommand?.scope
       ? pluginUninstallReviewRows(uninstallPlugin, t, activeProject, uninstallCommand.scope)
       : marketplaceAddSource
@@ -16041,6 +16188,8 @@ export function App() {
       ];
     const retryLabel = marketplaceRemoveSource && marketplaceRemoveName
       ? t.retry + ": " + t.removeMarketplaceFromCli + " / " + marketplaceRemoveName
+      : mcpRemoveServer && mcpRemoveCommand?.scope
+      ? `${t.retry}: ${t.removeMcpServer} / ${mcpRemoveCommand.name}`
       : uninstallPlugin && uninstallCommand?.scope
       ? `${t.retry}: ${t.uninstallPlugin} / ${uninstallPlugin.id || uninstallCommand.identifier}`
       : marketplaceAddSource
@@ -16053,12 +16202,14 @@ export function App() {
     openCapabilitiesSurface(nextTab, {
       ...focus,
       confirmCommand: {
-        args: uninstallPlugin && uninstallCommand?.scope
+        args: mcpRemoveServer && mcpRemoveCommand?.scope
+          ? mcpRemoveCommandArgs(mcpRemoveServer, mcpRemoveCommand.scope)
+          : uninstallPlugin && uninstallCommand?.scope
           ? pluginUninstallCommandArgs(uninstallPlugin, uninstallCommand.scope)
           : nextArgs,
         label: retryLabel,
         reviewRows: retryReviewRows,
-        ...((uninstallContext || retryContext) ? { capabilityContext: uninstallContext || retryContext } : {}),
+        ...((mcpRemoveContext || uninstallContext || retryContext) ? { capabilityContext: mcpRemoveContext || uninstallContext || retryContext } : {}),
       },
     });
   }
@@ -16070,6 +16221,7 @@ export function App() {
     if (
       (focus.kind === "custom-marketplace" && ["add", "remove"].includes(focus.action))
       || (focus.kind === "plugin" && focus.action === "uninstall")
+      || (focus.kind === "mcp" && focus.action === "remove")
     ) {
       openCapabilityRetryConfirmation(args, retryContext ? { capabilityContext: retryContext } : context);
       return;
@@ -18521,6 +18673,7 @@ export function App() {
           mcpStatusLabel(server.status, t),
           typeof server.tools === "number" ? `${t.tools}: ${server.tools}` : "",
           server.toolsSummary,
+          server.scope ? `${t.scope}: ${server.scope}` : "",
           server.transport,
           server.source || server.detail,
         ].filter(Boolean).join(" · "),
@@ -18530,6 +18683,7 @@ export function App() {
         keywords: [
           "mcp server tool capability claude code transport source error",
           server.name,
+          server.scope,
           server.status,
           server.detail,
           server.raw,
@@ -18550,18 +18704,21 @@ export function App() {
     const mcpServerActionCommands = (Array.isArray(capabilityCommandStatus?.mcpServers) ? capabilityCommandStatus.mcpServers : [])
       .filter((server) => server?.name)
       .flatMap((server) => {
+        const removeScope = normalizeMcpScope(server.scope);
         const specs = [
           { action: "open-claude", label: t.openClaudePanel, keywords: "open claude panel mcp server focus" },
           { action: "copy-raw", label: t.copyRawMcpStatus, keywords: "copy raw mcp server output focus" },
           { action: "copy", label: t.copyEvidence, keywords: "copy evidence mcp server focus clipboard" },
           { action: "refresh", label: t.recordMcpStatus, keywords: "mcp server refresh record status focus action button" },
-        ];
+          removeScope ? { action: "remove", label: t.removeMcpServer, keywords: `mcp remove server scoped ${removeScope} 移除 配置` } : null,
+        ].filter(Boolean);
         return specs.map((spec) => ({
           id: `capability-mcp-action:${spec.action}:${commandIdSegment(server.name)}`,
           title: `${spec.label}: ${server.name}`,
           subtitle: [
             mcpStatusLabel(server.status, t),
             typeof server.tools === "number" ? `${t.tools}: ${server.tools}` : "",
+            server.scope ? `${t.scope}: ${server.scope}` : "",
             server.transport,
             server.source || server.detail,
           ].filter(Boolean).join(" · "),
@@ -18574,6 +18731,7 @@ export function App() {
             spec.keywords,
             spec.label,
             server.name,
+            server.scope,
             server.status,
             server.detail,
             server.raw,
@@ -18603,6 +18761,7 @@ export function App() {
           subtitle: [
             mcpStatusLabel(server.status, t),
             typeof server.tools === "number" ? `${t.tools}: ${server.tools}` : "",
+            server.scope ? `${t.scope}: ${server.scope}` : "",
             server.transport,
             server.source || server.detail,
           ].filter(Boolean).join(" · "),
@@ -18615,6 +18774,7 @@ export function App() {
             t.copyEvidence,
             t.mcpServers,
             server.name,
+            server.scope,
             server.status,
             server.detail,
             server.raw,

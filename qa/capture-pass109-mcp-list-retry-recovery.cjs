@@ -176,13 +176,20 @@ async function runTest() {
       .find((item) => /pass109-filesystem/.test(item.textContent || '')))
   `, 15000));
 
+  assertStep("PASS109_MCP_RECORD_READY", await waitFor(win, `
+    (function() {
+      const button = [...document.querySelectorAll('.structured-registry-head-actions button')]
+        .find((candidate) => /\\u8bb0\\u5f55/.test(candidate.textContent || ''));
+      return Boolean(button && !button.disabled);
+    })();
+  `, 10000));
   fs.writeFileSync(ARM_MCP_FAILURE, "1", "utf8");
   const beforeFailure = readCommandLog();
   assertStep("PASS109_RECORD_MCP_STATUS", await win.webContents.executeJavaScript(`
     (function() {
       const button = [...document.querySelectorAll('.structured-registry-head-actions button')]
         .find((candidate) => /\\u8bb0\\u5f55/.test(candidate.textContent || ''));
-      if (!button) return false;
+      if (!button || button.disabled) return false;
       button.click();
       return true;
     })();
@@ -192,7 +199,8 @@ async function runTest() {
     (function() {
       const section = [...document.querySelectorAll('.structured-registry-section')]
         .find((item) => /MCP/.test(item.textContent || ''));
-      const evidence = section?.querySelector('.row-cli-action-evidence.error');
+      const evidence = [...(section?.querySelectorAll('.row-cli-action-evidence.error') || [])]
+        .find((item) => /mcp list/.test(item.textContent || ''));
       const text = evidence?.textContent || '';
       const retry = [...(evidence?.querySelectorAll('button') || [])]
         .find((button) => /\\u91cd\\u8bd5/.test(button.textContent || ''));
@@ -212,7 +220,9 @@ async function runTest() {
     (function() {
       const section = [...document.querySelectorAll('.structured-registry-section')]
         .find((item) => /MCP/.test(item.textContent || ''));
-      const retry = [...(section?.querySelectorAll('.row-cli-action-evidence.error button') || [])]
+      const evidence = [...(section?.querySelectorAll('.row-cli-action-evidence.error') || [])]
+        .find((item) => /mcp list/.test(item.textContent || ''));
+      const retry = [...(evidence?.querySelectorAll('button') || [])]
         .find((button) => /\\u91cd\\u8bd5/.test(button.textContent || ''));
       if (!retry) return false;
       retry.click();
@@ -224,7 +234,8 @@ async function runTest() {
     (function() {
       const section = [...document.querySelectorAll('.structured-registry-section')]
         .find((item) => /MCP/.test(item.textContent || ''));
-      const evidence = section?.querySelector('.row-cli-action-evidence.ok');
+      const evidence = [...(section?.querySelectorAll('.row-cli-action-evidence.ok') || [])]
+        .find((item) => /mcp list/.test(item.textContent || ''));
       const text = section?.textContent || '';
       return Boolean(
         evidence &&

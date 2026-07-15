@@ -183,17 +183,14 @@ async function runTest() {
   `));
 
   const beforeAction = readCommandLog();
-  assertStep("PASS61_CLICK_RECORD_MCP", await win.webContents.executeJavaScript(`
+  assertStep("PASS61_CLICK_RECORD_MCP", await waitFor(win, `
     (function() {
-      const section = [...document.querySelectorAll('.structured-registry-section')]
-        .find((item) => /MCP/.test(item.textContent || ''));
-      const button = [...(section?.querySelectorAll('button') || [])]
-        .find((candidate) => /记录/.test(candidate.textContent || '') || /证据/.test(candidate.textContent || ''));
-      if (!button) return false;
+      const button = document.querySelector('[data-mcp-server-id="pass61-mcp"] [data-mcp-server-action="refresh"]');
+      if (!button || button.disabled) return false;
       button.click();
       return true;
     })();
-  `));
+  `, 10000));
   assertStep("PASS61_MCP_ACTION_RAN", await waitForLogGrowth(/mcp list/, beforeAction));
   assertStep("PASS61_MCP_ROW_EVIDENCE_VISIBLE", await waitFor(win, `
     (function() {

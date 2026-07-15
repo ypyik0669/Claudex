@@ -179,25 +179,24 @@ async function runTest() {
   `, 5000));
 
   const beforeAction = readCommandLog();
-  assertStep("PASS63_ROW_RECORD_MCP", await win.webContents.executeJavaScript(`
+  assertStep("PASS63_ROW_RECORD_MCP", await waitFor(win, `
     (function() {
-      const row = [...document.querySelectorAll('.structured-plugin-row')]
-        .find((item) => /filesystem/.test(item.textContent || ''));
-      const button = [...(row?.querySelectorAll('.structured-row-actions button') || [])]
-        .find((candidate) => /记录/.test(candidate.textContent || ''));
-      if (!button) return false;
+      const button = document.querySelector('[data-mcp-server-id="filesystem"] [data-mcp-server-action="refresh"]');
+      if (!button || button.disabled) return false;
       button.click();
       return true;
     })();
-  `));
+  `, 10000));
   assertStep("PASS63_ROW_RECORD_MCP_RAN", await waitForLogGrowth(/mcp list/, beforeAction));
   assertStep("PASS63_ROW_RECORD_MCP_EVIDENCE", await waitFor(win, `
     (function() {
       const section = [...document.querySelectorAll('.structured-registry-section')]
         .find((item) => /MCP/.test(item.textContent || ''));
-      const evidence = section?.querySelector('.row-cli-action-evidence.ok');
-      const text = evidence?.textContent || '';
-      return Boolean(evidence && /mcp list/.test(text) && /filesystem/.test(text) && /退出码/.test(text));
+      const evidences = [...(section?.querySelectorAll('.row-cli-action-evidence.ok') || [])];
+      return evidences.some((evidence) => {
+        const text = evidence.textContent || '';
+        return /mcp list/.test(text) && /filesystem/.test(text) && /退出码/.test(text);
+      });
     })();
   `, 10000));
 

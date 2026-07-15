@@ -2684,6 +2684,58 @@ function normalizeMcpStatusValue(value) {
   return "unknown";
 }
 
+function normalizeMcpScopeValue(value) {
+  const scope = String(value || "").trim().toLowerCase();
+  return ["local", "user", "project"].includes(scope) ? scope : "";
+}
+
+function parseMcpScope(segments) {
+  const text = (segments || []).map((item) => String(item || "")).join(" | ");
+  const match = text.match(/(?:^|[|\s([])scope\s*[:=]?\s*(local|user|project)(?:$|[|\s)\]])/i)
+    || text.match(/(?:^|[|\s([])(local|user|project)\s+scope(?:$|[|\s)\]])/i);
+  return String(match?.[1] || "").trim().toLowerCase();
+}
+
+function parseMcpGetScope(rawOutput) {
+  const text = stripAnsi(rawOutput);
+  const scopeLine = text.match(/^\s*Scope:\s*([^\r\n]+)$/im)?.[1] || "";
+  const scope = normalizeMcpScopeValue(scopeLine.match(/\b(local|user|project)\b/i)?.[1]);
+  if (scope) return scope;
+  const removeHint = text.match(/\bmcp\s+remove\b[^\r\n]*(?:--scope|-s)\s+(local|user|project)\b/i);
+  return normalizeMcpScopeValue(removeHint?.[1]);
+}
+
+async function hydrateMcpServerScopes(claudeCommand, cwd, servers) {
+  const rows = Array.isArray(servers) ? servers : [];
+  const unresolved = rows.filter((server) => (
+    server?.name && !normalizeMcpScopeValue(server.scope)
+  ));
+  if (!unresolved.length) return rows;
+
+  const scopeByName = new Map();
+  for (let index = 0; index < unresolved.length; index += 4) {
+    const batch = unresolved.slice(index, index + 4);
+    const results = await Promise.all(batch.map(async (server) => ({
+      name: String(server.name || "").trim(),
+      result: await runClaudeCommand(claudeCommand, ["mcp", "get", String(server.name || "").trim()], { cwd, timeoutMs: 30000 }),
+    })));
+    for (const { name, result } of results) {
+      const scope = result?.code === 0
+        ? parseMcpGetScope([result?.stdout, result?.stderr].filter(Boolean).join("\n"))
+        : "";
+      if (name && scope) scopeByName.set(name.toLowerCase(), scope);
+    }
+  }
+
+  return rows.map((server) => {
+    const existingScope = normalizeMcpScopeValue(server?.scope);
+    const hydratedScope = scopeByName.get(String(server?.name || "").trim().toLowerCase()) || "";
+    return existingScope || hydratedScope
+      ? { ...server, scope: existingScope || hydratedScope }
+      : server;
+  });
+}
+
 function parseMcpSource(segments) {
   const segment = segments.find((item) => (
     /https?:\/\/|wss?:\/\//i.test(item) ||
@@ -2746,7 +2798,8 @@ function parseMcpServers(rawOutput) {
       const source = parseMcpSource(segments);
       const transport = parseMcpTransport(segments, source);
       const error = parseMcpError(segments, status, source);
-      return { name, detail, status, raw: line, tools, transport, source, error };
+      const scope = parseMcpScope([detail, line]);
+      return { name, detail, status, raw: line, tools, transport, source, error, scope };
     })
     .filter((item) => item.name);
 }
@@ -2775,6 +2828,7 @@ function normalizeMcpServers(jsonOutput, rawOutput) {
       const transport = String(item?.transport || item?.type || rawMatch.transport || parseMcpTransport([source], source) || "").trim();
       const detail = String(item?.detail || item?.description || item?.summary || rawMatch.detail || "").trim();
       const error = pluginErrorSummary(item) || rawMatch.error || "";
+      const scope = String(item?.scope || item?.configScope || item?.configurationScope || rawMatch.scope || "").trim().toLowerCase();
       return {
         name,
         detail,
@@ -2787,6 +2841,7 @@ function normalizeMcpServers(jsonOutput, rawOutput) {
         transport,
         source,
         error,
+        scope,
       };
     })
     .filter(Boolean);
@@ -5965,6 +6020,8 @@ ipcMain.handle("claude:status", async (_event, { projectPath } = {}) => {
   const mcpJsonItems = mcpJson.code === 0 ? parseJsonListOutput(mcpJson.stdout, ["mcpServers", "servers"]) : [];
   const mcpJsonOutput = mcpJsonItems.length ? mcpJson.stdout : "";
   const mcpJsonStatus = mcpJsonItems.length ? mcpJson : null;
+  const normalizedMcpServers = normalizeMcpServers(mcpJsonOutput, mcpRaw);
+  const mcpServers = await hydrateMcpServerScopes(claudeCommand, cwd, normalizedMcpServers);
   const status = {
     refreshedAt: now(),
     project: projectFromPath(cwd),
@@ -5981,7 +6038,7 @@ ipcMain.handle("claude:status", async (_event, { projectPath } = {}) => {
     skillRoots: skillRegistry.roots,
     skillsTruncated: skillRegistry.truncated,
     mcp: mcpRaw,
-    mcpServers: normalizeMcpServers(mcpJsonOutput, mcpRaw),
+    mcpServers,
     mcpCommand: statusCommandState(mcp, mcpJsonStatus),
     marketplaces: marketplaceItems,
     marketplacePlugins: loadMarketplacePluginCatalog(marketplaceItems, pluginItems),
