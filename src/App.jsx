@@ -308,14 +308,20 @@ const copy = {
     marketplaceOutput: "市场输出",
     fetchMarketplace: "获取市场列表",
     customMarketplaces: "自定义市场",
-    marketplaceUrl: "市场 URL",
-    addMarketplace: "添加市场",
+    marketplaceUrl: "市场来源 URL",
+    addMarketplace: "添加到 Claude CLI",
     remove: "移除",
-    noCustomMarketplaces: "还没有添加自定义市场。",
-    customMarketplaceLocalOnly: "本地记录",
-    customMarketplaceNotInjected: "未注入 Claude CLI",
-    customMarketplaceLocalHint: "这些 URL 只保存到 Claudex 本地设置；当前不会修改 Claude Code 的 marketplace 配置。",
-    customMarketplaceCliHelpHint: "先查看当前 Claude Code 支持的 marketplace 命令，再到 Claude 面板执行真实 CLI 操作。",
+    noCustomMarketplaces: "还没有通过 Claudex 添加自定义市场。",
+    customMarketplaceLocalOnly: "Claudex 记录",
+    customMarketplaceCliConfirmed: "CLI 已确认",
+    customMarketplaceCliUnverified: "CLI 状态未确认",
+    customMarketplaceLocalHint: "提交后先审查并执行 Claude CLI；命令成功后才会写入 Claudex 本地记录。",
+    customMarketplaceCliHelpHint: "来源会添加到 Claude Code 用户级 Marketplace 配置；安装插件前仍需核对来源和权限。",
+    customMarketplaceInvalid: "请输入有效的 http(s) Marketplace URL；不能包含空格、控制字符或账号凭据。",
+    customMarketplaceExists: "这个 Marketplace 已在 Claudex 记录中。",
+    customMarketplaceScopeUser: "用户级 Claude Code 配置",
+    customMarketplaceAddRisk: "这会把远程 Marketplace 注册到 Claude Code 用户级配置；其中的插件在安装后可以在本机运行代码。",
+    removeMarketplaceRecord: "移除记录",
     copyMarketplaceUrl: "复制 URL",
     copiedMarketplaceUrl: "已复制 URL",
     checkMarketplaceCliSupport: "查看 CLI 支持",
@@ -1145,6 +1151,45 @@ function cliActionEvidenceDetail(evidence, t) {
   return parts.join(" · ");
 }
 
+function commandArgumentDisplay(value) {
+  const text = String(value ?? "");
+  if (/^[A-Za-z0-9_./:@?&=%+#,~-]+$/.test(text)) return text;
+  return JSON.stringify(text);
+}
+
+function normalizeClaudeCommandInput(value) {
+  if (Array.isArray(value)) {
+    const args = value.map((item) => String(item)).filter((item) => item.length > 0);
+    return {
+      args,
+      displayArgs: args.map(commandArgumentDisplay).join(" "),
+    };
+  }
+  const displayArgs = String(value || "").trim();
+  return { args: displayArgs, displayArgs };
+}
+
+function normalizeCustomMarketplaceUrl(value) {
+  const source = String(value || "").trim();
+  if (!source || source.length > 2048 || /[\s\u0000-\u001f\u007f]/.test(source)) return "";
+  try {
+    const parsed = new URL(source);
+    if (!["http:", "https:"].includes(parsed.protocol)) return "";
+    if (!parsed.hostname || parsed.username || parsed.password) return "";
+    return parsed.href;
+  } catch (_error) {
+    return "";
+  }
+}
+
+function marketplaceMatchesCustomSource(marketplace, source) {
+  const expected = normalizeCustomMarketplaceUrl(source);
+  if (!expected) return false;
+  return [marketplace?.repo, marketplace?.url, marketplace?.source, marketplace?.installLocation]
+    .map(normalizeCustomMarketplaceUrl)
+    .some((candidate) => candidate === expected);
+}
+
 function escapeRegExp(value) {
   return String(value || "").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
@@ -1182,7 +1227,7 @@ function findRecentPluginActionRun(runs, identifiers, actions) {
 }
 
 function findRecentMarketplaceActionRun(runs) {
-  return runs.find((run) => /(?:^|\s)plugin\s+marketplace\s+(?:list|update|--help)(?=\s|$)/i.test(capabilityCommandLine(run))) || null;
+  return runs.find((run) => /(?:^|\s)plugin\s+marketplace\s+(?:list|update|add|--help)(?=\s|$)/i.test(capabilityCommandLine(run))) || null;
 }
 
 function findRecentMcpActionRun(runs) {
@@ -1226,6 +1271,7 @@ function mutatingCapabilityRetryArgsFromRun(run) {
   const mutatingPatterns = [
     /^plugin\s+(?:install|update|enable|disable)\s+\S+/i,
     /^plugin\s+marketplace\s+update$/i,
+    /^plugin\s+marketplace\s+add\s+\S+$/i,
   ];
   return mutatingPatterns.some((pattern) => pattern.test(args)) ? args : "";
 }
@@ -1315,6 +1361,20 @@ function capabilityRetryFocusForArgs(args, context = {}) {
 function capabilityActionFocusForCommand(args, context = {}) {
   const parts = String(args || "").trim().split(/\s+/).filter(Boolean);
   if (parts[0] !== "plugin" || !parts[1]) return null;
+  if (parts[1] === "marketplace" && parts[2] === "add") {
+    const explicitContext = normalizeCapabilityContext(context.capabilityContext || context);
+    const source = explicitContext?.kind === "custom-marketplace"
+      ? String(explicitContext.id || "").trim()
+      : String(parts[3] || "").trim();
+    if (!source) return null;
+    return {
+      tab: "marketplace",
+      kind: "custom-marketplace",
+      id: source,
+      query: source,
+      action: explicitContext?.action || "add",
+    };
+  }
   if (parts[1] === "marketplace" && parts[2] === "update") {
     const explicitContext = normalizeCapabilityContext(context);
     const explicitSourceId = explicitContext?.kind === "marketplace-source"
@@ -1934,6 +1994,16 @@ function marketplaceSourceUpdateReviewRows(source = {}, t, activeProject = null)
     source.error ? [t.mcpError, summarizePanelPluginField(source.error)] : null,
     [t.marketplaceRisk, t.marketplaceUpdateRisk],
   ].filter(Boolean);
+}
+
+function customMarketplaceAddReviewRows(source, t, activeProject = null) {
+  return [
+    [t.source, source],
+    [t.scope, t.customMarketplaceScopeUser],
+    [t.commandLine, `claude plugin marketplace add ${commandArgumentDisplay(source)}`],
+    [t.commandCwd, activeProject?.path || t.localWorkspace],
+    [t.marketplaceRisk, t.customMarketplaceAddRisk],
+  ];
 }
 
 function toolDetailLines(item = {}, t) {
@@ -12450,6 +12520,12 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
     })) : []),
   ].filter((item) => item.focusId);
   const customMarketplaceRows = customMarketplaces.filter((item) => structuredQueryMatch({ name: item, repo: item, source: item }, normalizedQuery));
+  const customMarketplaceCliStatus = (source) => (
+    (Array.isArray(cliStatus?.marketplaces) ? cliStatus.marketplaces : [])
+      .some((marketplace) => marketplaceMatchesCustomSource(marketplace, source))
+      ? "confirmed"
+      : "unverified"
+  );
   const marketplaceTabCount = marketplacePluginRows.length + marketplaceRows.length + customMarketplaceRows.length;
   const recentCapabilityRuns = useMemo(() => capabilityRunsNewestFirst(state.commandRuns), [state.commandRuns]);
   const recentMarketplaceActionRun = findRecentMarketplaceActionRun(recentCapabilityRuns);
@@ -12657,7 +12733,8 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
   }
 
   async function runCapabilityClaude(args, options = {}) {
-    const nextArgs = String(args || "").trim();
+    const commandInput = normalizeClaudeCommandInput(args);
+    const nextArgs = commandInput.displayArgs;
     if (!desktopApi?.runClaudeCommand || !nextArgs) return;
     const requestId = `capability_${Date.now()}_${Math.random().toString(16).slice(2)}`;
     const nextCapabilityContext = normalizeCapabilityContext(options.capabilityContext);
@@ -12682,7 +12759,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
     try {
       result = await desktopApi.runClaudeCommand({
         projectPath: activeProject?.path,
-        args: nextArgs,
+        args: commandInput.args,
         requestId,
         persistCommandRun: true,
         commandRunKind: "capability",
@@ -12710,12 +12787,21 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
       if (result.code !== 0) throw new Error(result.stderr || result.stdout || t.pluginsLoadError);
       if (/plugin marketplace/i.test(nextArgs)) setMarketplaceOutput(result.stdout || result.stderr || "");
       await refreshCliStatus();
+      if (nextCapabilityContext?.kind === "custom-marketplace" && nextCapabilityContext.action === "add") {
+        const source = normalizeCustomMarketplaceUrl(result.args?.[3] || nextCapabilityContext.id);
+        if (source) {
+          setCustomMarketplaceUrl((current) => (
+            normalizeCustomMarketplaceUrl(current) === source ? "" : current
+          ));
+        }
+      }
       if (nextActionFocus && manualCapabilityTabSwitchRef.current === actionTabSwitchGeneration) {
         setActiveTab(nextActionFocus.tab);
         setFilter("all");
         setQuery(nextActionFocus.query || nextActionFocus.id || "");
         setCapabilityActionFocus({ ...nextActionFocus, nonce: Date.now() });
       }
+      return result;
     } catch (error) {
       const message = error.message || String(error);
       if (!result) {
@@ -12766,7 +12852,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
     return [
       [t.commandCwd, activeProject?.path || t.localWorkspace],
       ...sourceRows,
-      customMarketplaceRows.length ? [t.customMarketplaces, `${customMarketplaceRows.length} · ${t.customMarketplaceNotInjected}`] : null,
+      customMarketplaceRows.length ? [t.customMarketplaces, `${customMarketplaceRows.length} · ${t.customMarketplaceLocalOnly}`] : null,
       [t.marketplaceRisk, t.marketplaceUpdateRisk],
     ].filter(Boolean);
   }
@@ -12790,12 +12876,13 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
   }
 
   function requestCapabilityClaude(args, label = "", reviewRows = [], capabilityContext = null) {
-    const nextArgs = String(args || "").trim();
-    if (!nextArgs || cliWorking) return;
+    const commandInput = normalizeClaudeCommandInput(args);
+    if (!commandInput.displayArgs || cliWorking) return;
     const normalizedContext = normalizeCapabilityContext(capabilityContext);
     setConfirmingCliCommand({
-      args: nextArgs,
-      label: label || nextArgs,
+      args: commandInput.args,
+      displayArgs: commandInput.displayArgs,
+      label: label || commandInput.displayArgs,
       reviewRows,
       ...(normalizedContext ? { capabilityContext: normalizedContext } : {}),
     });
@@ -12941,7 +13028,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
   }
 
   async function saveCustomMarketplaces(items) {
-    if (!desktopApi?.saveSettings) return;
+    if (!desktopApi?.saveSettings) return null;
     try {
       const nextState = await desktopApi.saveSettings({
         ...state.settings,
@@ -12949,19 +13036,33 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
         apiKey: "",
       });
       onSaved?.(nextState);
+      return nextState;
     } catch (error) {
       const message = error.message || String(error);
       setCliError(message);
       recordCapabilityNotice(`${t.marketplace}: ${t.customMarketplaces}`, message, "capability:save-custom-marketplaces");
+      return null;
     }
   }
 
-  async function addCustomMarketplace(event) {
+  function addCustomMarketplace(event) {
     event.preventDefault();
-    const value = customMarketplaceUrl.trim();
-    if (!value || customMarketplaces.includes(value)) return;
-    await saveCustomMarketplaces([value, ...customMarketplaces].slice(0, 12));
-    setCustomMarketplaceUrl("");
+    const source = normalizeCustomMarketplaceUrl(customMarketplaceUrl);
+    if (!source) {
+      setCliError(t.customMarketplaceInvalid);
+      return;
+    }
+    if (customMarketplaces.some((item) => normalizeCustomMarketplaceUrl(item) === source)) {
+      setCliError(t.customMarketplaceExists);
+      return;
+    }
+    setCliError("");
+    requestCapabilityClaude(
+      ["plugin", "marketplace", "add", source],
+      `${t.addMarketplace}: ${compactPath(source, 72)}`,
+      customMarketplaceAddReviewRows(source, t, activeProject),
+      { tab: "marketplace", kind: "custom-marketplace", id: source, query: source, action: "add" },
+    );
   }
 
   function openRuntimeHealthTargetName(target) {
@@ -13052,9 +13153,11 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
     setCapabilityActionFocus({ tab: "", kind: "", id: "", query: "", nonce: 0 });
     if (focus.confirmCommand?.args) {
       const capabilityContext = normalizeCapabilityContext(focus.confirmCommand.capabilityContext || focus);
+      const commandInput = normalizeClaudeCommandInput(focus.confirmCommand.args);
       setConfirmingCliCommand({
-        args: String(focus.confirmCommand.args || "").trim(),
-        label: String(focus.confirmCommand.label || focus.confirmCommand.args || "").trim(),
+        args: commandInput.args,
+        displayArgs: commandInput.displayArgs,
+        label: String(focus.confirmCommand.label || commandInput.displayArgs || "").trim(),
         reviewRows: Array.isArray(focus.confirmCommand.reviewRows) ? focus.confirmCommand.reviewRows : [],
         ...(capabilityContext ? { capabilityContext } : {}),
       });
@@ -13184,8 +13287,8 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
       {confirmingCliCommand && (
         <div className="dirty-confirm-banner plugin-cli-confirm" role="alertdialog" aria-label={t.confirmCliActionTitle}>
           <div className="plugin-cli-confirm-body">
-            <span>{t.confirmCliActionWarning.replace("{command}", confirmingCliCommand.label || confirmingCliCommand.args)}</span>
-            <code>{confirmingCliCommand.args}</code>
+            <span>{t.confirmCliActionWarning.replace("{command}", confirmingCliCommand.label || confirmingCliCommand.displayArgs)}</span>
+            <code>{confirmingCliCommand.displayArgs || normalizeClaudeCommandInput(confirmingCliCommand.args).displayArgs}</code>
             {Array.isArray(confirmingCliCommand.reviewRows) && confirmingCliCommand.reviewRows.length > 0 && (
               <dl className="plugin-cli-confirm-meta" aria-label={t.marketplaceInstallReview}>
                 {confirmingCliCommand.reviewRows.map(([label, value]) => (
@@ -13537,14 +13640,14 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                 </div>
                 <em className="settings-badge">{customMarketplaceRows.length}</em>
               </div>
-              <p className="marketplace-local-note">{t.customMarketplaceLocalOnly} · {t.customMarketplaceNotInjected} · {t.customMarketplaceLocalHint}</p>
+              <p className="marketplace-local-note">{t.customMarketplaceLocalOnly} · {t.customMarketplaceLocalHint}</p>
               <p className="marketplace-local-note subtle">{t.customMarketplaceCliHelpHint}</p>
               <form className="marketplace-form" onSubmit={addCustomMarketplace}>
                 <label>
                   <span>{t.marketplaceUrl}</span>
                   <input value={customMarketplaceUrl} onChange={(event) => setCustomMarketplaceUrl(event.target.value)} placeholder="https://..." />
                 </label>
-                <button type="submit" className="plain-action" disabled={!customMarketplaceUrl.trim()}>
+                <button type="submit" className="plain-action" disabled={!customMarketplaceUrl.trim() || cliWorking} title={cliWorking ? t.workingHint : undefined}>
                   <Plus size={14} />
                   {t.addMarketplace}
                 </button>
@@ -13553,17 +13656,21 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                 {customMarketplaceRows.length === 0 && <p className="empty-list">{t.noCustomMarketplaces}</p>}
                 {customMarketplaceRows.map((item) => {
                   const customFocused = capabilityFocusMatches("custom-marketplace", item);
+                  const cliRegistrationStatus = customMarketplaceCliStatus(item);
                   return (
                     <div
                       className={cx("marketplace-source-row", customFocused && "focused-capability-row")}
                       key={item}
                       data-custom-marketplace-row
                       data-custom-marketplace-id={item}
+                      data-custom-marketplace-cli-status={cliRegistrationStatus}
                       {...capabilityFocusAttributes(customFocused)}
                     >
                       <div>
                         <strong title={item}>{compactPath(item, 76)}</strong>
-                        <span>{t.customMarketplaceLocalOnly} · {t.customMarketplaceNotInjected} · {t.settings}</span>
+                        <span>
+                          {t.customMarketplaceLocalOnly} · {cliRegistrationStatus === "confirmed" ? t.customMarketplaceCliConfirmed : t.customMarketplaceCliUnverified}
+                        </span>
                       </div>
                       <div className="marketplace-source-actions">
                         <button
@@ -13595,7 +13702,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                           onClick={() => saveCustomMarketplaces(customMarketplaces.filter((source) => source !== item))}
                         >
                           <X size={13} />
-                          {t.remove}
+                          {t.removeMarketplaceRecord}
                         </button>
                       </div>
                     </div>
@@ -14489,7 +14596,7 @@ function SettingsBackedStatus({
             </div>
             <em className="settings-badge">{t.customMarketplaceLocalOnly}</em>
           </div>
-          <p>{t.customMarketplaceNotInjected} · {t.customMarketplaceLocalHint}</p>
+          <p>{t.customMarketplaceLocalHint}</p>
           <div className="settings-chip-list">
             {customMarketplaces.length
               ? customMarketplaces.map((item) => <span key={item} title={item}>{compactPath(item, 62)}</span>)
@@ -15640,6 +15747,9 @@ export function App() {
     const nextTab = focus.tab || "plugins";
     const marketplaceSources = Array.isArray(capabilityCommandStatus?.marketplaces) ? capabilityCommandStatus.marketplaces : [];
     const marketplacePlugins = Array.isArray(capabilityCommandStatus?.marketplacePlugins) ? capabilityCommandStatus.marketplacePlugins : [];
+    const marketplaceAddSource = normalizeCustomMarketplaceUrl(
+      String(nextArgs.match(/^plugin\s+marketplace\s+add\s+(\S+)$/i)?.[1] || retryContext?.id || "").trim(),
+    );
     const marketplaceSource = /^plugin\s+marketplace\s+update$/i.test(nextArgs)
       ? marketplaceSources.find((item) => item?.name && item.name === focus.id) || marketplaceSources.find((item) => item?.name) || null
       : null;
@@ -15647,7 +15757,9 @@ export function App() {
     const marketplacePlugin = !marketplaceSource && retryContext?.kind === "marketplace-plugin" && installPluginId
       ? findPluginByIdentifiers(marketplacePlugins, [retryContext.id, focus.id, installPluginId, retryContext.query])
       : null;
-    const retryReviewRows = marketplaceSource
+    const retryReviewRows = marketplaceAddSource
+      ? customMarketplaceAddReviewRows(marketplaceAddSource, t, activeProject)
+      : marketplaceSource
       ? marketplaceSourceUpdateReviewRows(marketplaceSource, t, activeProject)
       : marketplacePlugin
         ? marketplacePluginInstallReviewRows(marketplacePlugin, t)
@@ -15655,7 +15767,9 @@ export function App() {
         [t.commandLine, `claude ${nextArgs}`],
         [t.commandCwd, activeProject?.path || t.localWorkspace],
       ];
-    const retryLabel = marketplaceSource
+    const retryLabel = marketplaceAddSource
+      ? `${t.retry}: ${t.addMarketplace} / ${compactPath(marketplaceAddSource, 72)}`
+      : marketplaceSource
       ? `${t.retry}: ${t.marketplaceSources} / ${marketplaceSource.name}`
       : marketplacePlugin
         ? `${t.retry}: ${t.installFromMarketplace} / ${marketplacePlugin.name || marketplacePlugin.id || installPluginId}`
@@ -15675,6 +15789,10 @@ export function App() {
     const retryContext = normalizeCapabilityContext(context);
     const focus = capabilityRetrySurfaceFocus(args, retryContext ? { capabilityContext: retryContext } : context);
     if (!focus) return;
+    if (focus.kind === "custom-marketplace" && focus.action === "add") {
+      openCapabilityRetryConfirmation(args, retryContext ? { capabilityContext: retryContext } : context);
+      return;
+    }
     const nextTab = focus?.tab || "plugins";
     openCapabilitiesSurface(nextTab, {
       ...focus,
@@ -18352,16 +18470,17 @@ export function App() {
         title: `${t.customMarketplaces}: ${compactPath(marketplace, 72)}`,
         subtitle: [
           t.customMarketplaceLocalOnly,
-          t.customMarketplaceNotInjected,
-          t.settings,
+          t.customMarketplaceCliUnverified,
+          t.marketplace,
         ].filter(Boolean).join(" · "),
         group: t.capabilities,
         keywords: [
-          "custom marketplace plugin catalog local settings not injected",
+          "custom marketplace plugin catalog claude cli source",
           marketplace,
           t.customMarketplaces,
           t.customMarketplaceLocalOnly,
-          t.customMarketplaceNotInjected,
+          t.customMarketplaceCliConfirmed,
+          t.customMarketplaceCliUnverified,
         ].filter(Boolean).join(" "),
         action: () => openCapabilitiesSurface("marketplace", {
           kind: "custom-marketplace",

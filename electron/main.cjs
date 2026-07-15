@@ -699,6 +699,9 @@ function normalizeCommandRun(item, store) {
   const startedAt = isoOrEmpty(item?.startedAt) || now();
   const endedAt = isoOrEmpty(item?.endedAt) || startedAt;
   const command = String(item?.command || item?.commandLine || "").trim();
+  const args = Array.isArray(item?.args)
+    ? item.args.slice(0, 64).map((arg) => String(arg).slice(0, 4096))
+    : [];
   const rawKind = String(item?.kind || "workspace").trim();
   const kind = ["workspace", "claude", "capability", "git"].includes(rawKind) ? rawKind : "workspace";
   const capabilityContext = normalizeCapabilityContext(item?.capabilityContext);
@@ -710,6 +713,7 @@ function normalizeCommandRun(item, store) {
     kind,
     command,
     commandLine: command,
+    ...(args.length ? { args } : {}),
     cwd: item?.cwd || project?.path || "",
     project,
     code: typeof item?.code === "number" ? item.code : null,
@@ -2824,6 +2828,19 @@ function splitArgs(value) {
   }
   if (current) args.push(current);
   return args;
+}
+
+function normalizeCustomMarketplaceUrl(value) {
+  const source = String(value || "").trim();
+  if (!source || source.length > 2048 || /[\s\u0000-\u001f\u007f]/.test(source)) return "";
+  try {
+    const parsed = new URL(source);
+    if (!["http:", "https:"].includes(parsed.protocol)) return "";
+    if (!parsed.hostname || parsed.username || parsed.password) return "";
+    return parsed.href;
+  } catch (_error) {
+    return "";
+  }
 }
 
 function isIgnoredWorkspaceDir(name) {
@@ -6056,6 +6073,30 @@ ipcMain.handle("claude:run", async (_event, { projectPath, args, requestId, sess
   };
   if (!persistCommandRun) return sanitizedResult;
   const store = readStore();
+  if (
+    commandRunKind === "capability"
+    && sanitizedResult.code === 0
+    && normalizedCapabilityContext?.kind === "custom-marketplace"
+    && normalizedCapabilityContext?.action === "add"
+    && argv.length === 4
+    && argv[0] === "plugin"
+    && argv[1] === "marketplace"
+    && argv[2] === "add"
+  ) {
+    const source = normalizeCustomMarketplaceUrl(argv[3]);
+    if (source) {
+      const currentSources = Array.isArray(store.settings?.customMarketplaces)
+        ? store.settings.customMarketplaces.map(String).map((item) => item.trim()).filter(Boolean)
+        : [];
+      store.settings = {
+        ...store.settings,
+        customMarketplaces: [
+          source,
+          ...currentSources.filter((item) => normalizeCustomMarketplaceUrl(item) !== source),
+        ].slice(0, 12),
+      };
+    }
+  }
   const persisted = upsertCommandRun(store, {
     ...sanitizedResult,
     id: runId,

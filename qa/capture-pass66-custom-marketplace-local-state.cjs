@@ -47,6 +47,15 @@ async function waitFor(win, script, timeoutMs = 10000) {
   return false;
 }
 
+async function waitForLog(pattern, timeoutMs = 10000) {
+  const startedAt = Date.now();
+  while (Date.now() - startedAt < timeoutMs) {
+    if (pattern.test(readCommandLog())) return true;
+    await wait(150);
+  }
+  return false;
+}
+
 function assertStep(name, ok) {
   console.log(name, ok);
   if (!ok) throw new Error(`${name} failed`);
@@ -56,14 +65,20 @@ const fakeClaudeScript = `
 const fs = require('fs');
 const args = process.argv.slice(2);
 const commandLog = ${JSON.stringify(COMMAND_LOG)};
+const customUrl = ${JSON.stringify(CUSTOM_URL)};
 fs.appendFileSync(commandLog, args.join(' ') + '\\n', 'utf8');
 function out(value) { process.stdout.write(typeof value === 'string' ? value + '\\n' : JSON.stringify(value, null, 2) + '\\n'); }
+function marketplaceAdded() {
+  try { return fs.readFileSync(commandLog, 'utf8').includes('plugin marketplace add ' + customUrl); }
+  catch (_error) { return false; }
+}
 if (args[0] === '--version') out('2.9.0 (Claude Code QA)');
 else if (args[0] === 'auth' && args[1] === 'status') out({ loggedIn: true, apiProvider: 'qa-provider', authMethod: 'api_key' });
 else if (args[0] === 'plugin' && args[1] === 'list' && args.includes('--json')) out([]);
 else if (args[0] === 'plugin' && args[1] === 'list') out('Installed plugins: none');
-else if (args[0] === 'plugin' && args[1] === 'marketplace' && args[2] === 'list' && args.includes('--json')) out([]);
-else if (args[0] === 'plugin' && args[1] === 'marketplace' && args[2] === 'list') out('Configured marketplaces: none');
+else if (args[0] === 'plugin' && args[1] === 'marketplace' && args[2] === 'list' && args.includes('--json')) out(marketplaceAdded() ? [{ name: 'pass66-market', source: 'url', repo: customUrl, status: 'ready' }] : []);
+else if (args[0] === 'plugin' && args[1] === 'marketplace' && args[2] === 'list') out(marketplaceAdded() ? 'Configured marketplaces:\\n\\n  > pass66-market\\n    Source: URL (' + customUrl + ')' : 'Configured marketplaces: none');
+else if (args[0] === 'plugin' && args[1] === 'marketplace' && args[2] === 'add' && args[3] === customUrl && args.length === 4) out('Added marketplace pass66-market');
 else if (args[0] === 'mcp' && args[1] === 'list') out('✓ pass66-mcp: connected');
 else out('fake claude command: ' + args.join(' '));
 `;
@@ -140,12 +155,12 @@ async function runTest() {
       return true;
     })();
   `));
-  assertStep("PASS66_CUSTOM_EMPTY_LOCAL_SCOPE", await waitFor(win, `
+  assertStep("PASS66_CUSTOM_EMPTY_CLI_WORKFLOW", await waitFor(win, `
     (function() {
       const cards = [...document.querySelectorAll('.marketplace-card')];
       const card = cards.find((item) => /自定义市场/.test(item.textContent || ''));
       const text = card?.textContent || '';
-      return Boolean(card && /本地记录/.test(text) && /未注入 Claude CLI/.test(text));
+      return Boolean(card && /Claudex 记录/.test(text) && /命令成功后/.test(text) && /用户级 Marketplace/.test(text));
     })();
   `, 10000));
   assertStep("PASS66_MARKETPLACE_TAB_COUNT_EMPTY_REAL", await win.webContents.executeJavaScript(`
@@ -157,48 +172,86 @@ async function runTest() {
   `));
 
   const beforeAdd = readCommandLog();
-  assertStep("PASS66_ADD_CUSTOM_MARKETPLACE", await win.webContents.executeJavaScript(`
+  assertStep("PASS66_SET_CUSTOM_MARKETPLACE", await win.webContents.executeJavaScript(`
     (function() {
       const cards = [...document.querySelectorAll('.marketplace-card')];
       const card = cards.find((item) => /自定义市场/.test(item.textContent || ''));
       const input = card?.querySelector('input');
-      const button = card?.querySelector('button[type="submit"]');
-      if (!input || !button) return false;
+      if (!input) return false;
       const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
       setter?.call(input, ${JSON.stringify(CUSTOM_URL)});
       input.dispatchEvent(new Event('input', { bubbles: true }));
+      return true;
+    })();
+  `));
+  assertStep("PASS66_ADD_ACTION_READY", await waitFor(win, `
+    (function() {
+      const card = [...document.querySelectorAll('.marketplace-card')].find((item) => /自定义市场/.test(item.textContent || ''));
+      const button = card?.querySelector('button[type="submit"]');
+      return Boolean(button && !button.disabled);
+    })();
+  `, 15000));
+  assertStep("PASS66_ADD_CUSTOM_MARKETPLACE", await win.webContents.executeJavaScript(`
+    (function() {
+      const card = [...document.querySelectorAll('.marketplace-card')].find((item) => /自定义市场/.test(item.textContent || ''));
+      const button = card?.querySelector('button[type="submit"]');
+      if (!button || button.disabled) return false;
       button.click();
       return true;
     })();
   `));
-  assertStep("PASS66_CUSTOM_ROW_LOCAL_ONLY", await waitFor(win, `
+  assertStep("PASS66_CUSTOM_CONFIRM_VISIBLE", await waitFor(win, `
     (function() {
-      const rows = [...document.querySelectorAll('.marketplace-source-row')];
-      const row = rows.find((item) => /pass66-marketplace/.test(item.textContent || ''));
-      const text = row?.textContent || '';
-      return Boolean(row && /本地记录/.test(text) && /未注入 Claude CLI/.test(text) && /设置/.test(text));
+      const confirm = document.querySelector('.plugin-cli-confirm');
+      const text = confirm?.textContent || '';
+      return Boolean(confirm && /plugin marketplace add/.test(text) && /pass66-marketplace/.test(text) && /用户级/.test(text));
+    })();
+  `, 5000));
+  assertStep("PASS66_CUSTOM_DID_NOT_RUN_BEFORE_CONFIRM", !/plugin marketplace add/.test(readCommandLog().slice(beforeAdd.length)));
+  assertStep("PASS66_CUSTOM_DID_NOT_PERSIST_BEFORE_CONFIRM", await win.webContents.executeJavaScript(`
+    (async function() {
+      const state = await window.claudexDesktop.getState();
+      return !(state.settings?.customMarketplaces || []).includes(${JSON.stringify(CUSTOM_URL)}) && !(state.commandRuns || []).length;
+    })();
+  `));
+  assertStep("PASS66_CONFIRM_CUSTOM_MARKETPLACE", await win.webContents.executeJavaScript(`
+    (function() {
+      const button = document.querySelector('.plugin-cli-confirm .danger-action');
+      if (!button || button.disabled) return false;
+      button.click();
+      return true;
+    })();
+  `));
+  assertStep("PASS66_CUSTOM_CLI_RAN_AFTER_CONFIRM", await waitForLog(/plugin marketplace add https:\/\/example\.invalid\/pass66-marketplace\.json/));
+  assertStep("PASS66_CUSTOM_ROW_CLI_CONFIRMED", await waitFor(win, `
+    (function() {
+      const row = [...document.querySelectorAll('[data-custom-marketplace-row]')]
+        .find((item) => /pass66-marketplace/.test(item.textContent || ''));
+      return Boolean(row && /Claudex 记录/.test(row.textContent || '') && /CLI 已确认/.test(row.textContent || ''));
     })();
   `, 10000));
   assertStep("PASS66_MARKETPLACE_TAB_COUNT_CUSTOM_REAL", await win.webContents.executeJavaScript(`
     (function() {
       const tab = [...document.querySelectorAll('.plugin-manager-tabs button')]
         .find((candidate) => /市场/.test(candidate.textContent || ''));
-      return tab?.querySelector('em')?.textContent?.trim() === '1';
+      return tab?.querySelector('em')?.textContent?.trim() === '2';
     })();
   `));
-  assertStep("PASS66_CUSTOM_STATE_PERSISTED", await win.webContents.executeJavaScript(`
+  assertStep("PASS66_CUSTOM_STATE_AND_COMMAND_PERSISTED", await waitFor(win, `
     (async function() {
       const state = await window.claudexDesktop.getState();
-      return state.settings?.customMarketplaces?.includes(${JSON.stringify(CUSTOM_URL)});
+      return Boolean(
+        state.settings?.customMarketplaces?.includes(${JSON.stringify(CUSTOM_URL)}) &&
+        state.commandRuns?.some((run) =>
+          run.kind === 'capability' &&
+          run.code === 0 &&
+          run.command === 'claude plugin marketplace add ${CUSTOM_URL}' &&
+          run.capabilityContext?.kind === 'custom-marketplace' &&
+          run.capabilityContext?.action === 'add'
+        )
+      );
     })();
-  `));
-  assertStep("PASS66_CUSTOM_DID_NOT_RUN_CLI", !/pass66-marketplace|marketplace add|marketplace install|marketplace update/.test(readCommandLog().slice(beforeAdd.length)));
-  assertStep("PASS66_CUSTOM_DID_NOT_PERSIST_COMMAND_RUNS", await win.webContents.executeJavaScript(`
-    (async function() {
-      const state = await window.claudexDesktop.getState();
-      return !state.commandRuns || state.commandRuns.length === 0;
-    })();
-  `));
+  `, 10000));
 
   console.log("PASS66_CUSTOM_MARKETPLACE_LOCAL_STATE_DONE");
   cleanup();

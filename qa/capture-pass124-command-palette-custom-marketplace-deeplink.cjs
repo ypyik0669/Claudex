@@ -199,7 +199,7 @@ async function runTest() {
       /\\u5e02\\u573a/.test(document.querySelector('.plugin-manager-tabs button.active')?.textContent || '') &&
       document.querySelector('.marketplace-source-row.focused-capability-row[data-custom-marketplace-row]') &&
       /pass124\\/custom-marketplace\\.json/.test(document.querySelector('.marketplace-source-row.focused-capability-row')?.textContent || '') &&
-      /\\u672a\\u6ce8\\u5165/.test(document.querySelector('.marketplace-source-row.focused-capability-row')?.textContent || '')
+      /CLI\\s*\\u72b6\\u6001\\u672a\\u786e\\u8ba4/.test(document.querySelector('.marketplace-source-row.focused-capability-row')?.textContent || '')
     )
   `, 12000));
 

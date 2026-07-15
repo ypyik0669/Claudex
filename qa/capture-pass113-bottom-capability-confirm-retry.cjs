@@ -213,6 +213,14 @@ async function runTest() {
     Boolean(document.querySelector('.plugin-manager-modal') &&
       /qa-mutating-retry-plugin@qa-market/.test(document.querySelector('.plugin-manager-list')?.textContent || ''))
   `, 15000));
+  assertStep("PASS113_DISABLE_ACTION_READY", await waitFor(win, `
+    (function() {
+      const row = [...document.querySelectorAll('.structured-plugin-row')]
+        .find((item) => /qa-mutating-retry-plugin@qa-market/.test(item.textContent || ''));
+      const button = row?.querySelector('.structured-row-actions button');
+      return Boolean(button && !button.disabled);
+    })();
+  `, 15000));
 
   const beforeDisable = readCommandLog();
   assertStep("PASS113_CLICK_DISABLE", await win.webContents.executeJavaScript(`

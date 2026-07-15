@@ -71,7 +71,7 @@ if (args[0] === '--version') out('2.9.0 (Claude Code QA)');
 else if (args[0] === 'auth' && args[1] === 'status') out({ loggedIn: true, apiProvider: 'qa-provider', authMethod: 'api_key' });
 else if (args[0] === 'plugin' && args[1] === 'list' && args.includes('--json')) out([]);
 else if (args[0] === 'plugin' && args[1] === 'list') out('Installed plugins: none');
-else if (args[0] === 'plugin' && args[1] === 'marketplace' && args[2] === '--help') out('Usage: claude plugin marketplace <command>\\nCommands: list, update\\nUse the interactive Claude panel for version-specific marketplace commands.');
+else if (args[0] === 'plugin' && args[1] === 'marketplace' && args[2] === '--help') out('Usage: claude plugin marketplace <command>\\nCommands: add, list, update, remove\\nManage Claude Code marketplaces.');
 else if (args[0] === 'plugin' && args[1] === 'marketplace' && args[2] === 'list' && args.includes('--json')) out([]);
 else if (args[0] === 'plugin' && args[1] === 'marketplace' && args[2] === 'list') out('Configured marketplaces: none');
 else if (args[0] === 'mcp' && args[1] === 'list') out('✓ pass67-mcp: connected');
@@ -150,12 +150,21 @@ async function runTest() {
       return true;
     })();
   `));
-  assertStep("PASS67_CUSTOM_HANDOFF_ACTIONS_VISIBLE", await waitFor(win, `
+  assertStep("PASS67_LEGACY_SOURCE_STATUS_AND_ACTIONS_VISIBLE", await waitFor(win, `
     (function() {
       const row = [...document.querySelectorAll('.marketplace-source-row')].find((item) => /pass67-marketplace/.test(item.textContent || ''));
       const text = row?.textContent || '';
       const cardText = row?.closest('.marketplace-card')?.textContent || '';
-      return Boolean(row && /复制 URL/.test(text) && /查看 CLI 支持/.test(text) && /打开 Claude 面板/.test(text) && /当前 Claude Code 支持/.test(cardText));
+      return Boolean(
+        row &&
+        /Claudex 记录/.test(text) &&
+        /CLI 状态未确认/.test(text) &&
+        /复制 URL/.test(text) &&
+        /查看 CLI 支持/.test(text) &&
+        /打开 Claude 面板/.test(text) &&
+        /用户级 Marketplace/.test(cardText) &&
+        !/未注入 Claude CLI/.test(cardText)
+      );
     })();
   `, 10000));
 
@@ -197,13 +206,13 @@ async function runTest() {
   assertStep("PASS67_CLI_HELP_EVIDENCE_VISIBLE", await waitFor(win, `
     (function() {
       const text = document.querySelector('.plugin-cli-action-evidence')?.textContent || '';
-      return /plugin marketplace --help/.test(text) && /Commands: list, update/.test(text);
+      return /plugin marketplace --help/.test(text) && /Commands: add, list, update, remove/.test(text);
     })();
   `, 10000));
   assertStep("PASS67_CLI_HELP_COMMAND_PERSISTED", await waitFor(win, `
     (async function() {
       const state = await window.claudexDesktop.getState();
-      return state.commandRuns?.some((run) => run.kind === 'capability' && /plugin marketplace --help/.test(run.command || '') && run.code === 0 && /Commands: list, update/.test(run.stdout || ''));
+      return state.commandRuns?.some((run) => run.kind === 'capability' && /plugin marketplace --help/.test(run.command || '') && run.code === 0 && /Commands: add, list, update, remove/.test(run.stdout || ''));
     })();
   `, 10000));
 

@@ -223,6 +223,13 @@ async function runTest() {
     Boolean([...document.querySelectorAll('.structured-plugin-row')]
       .find((item) => /pass112-filesystem/.test(item.textContent || '')))
   `, 15000));
+  assertStep("PASS112_RECORD_ACTION_READY", await waitFor(win, `
+    (function() {
+      const button = [...document.querySelectorAll('.structured-registry-head-actions button')]
+        .find((candidate) => /\u8bb0\u5f55/.test(candidate.textContent || ''));
+      return Boolean(button && !button.disabled);
+    })();
+  `, 15000));
 
   fs.writeFileSync(ARM_MCP_FAILURE, "1", "utf8");
   const beforeFailure = readCommandLog();

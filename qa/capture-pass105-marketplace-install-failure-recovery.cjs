@@ -187,6 +187,14 @@ async function runTest() {
     Boolean([...document.querySelectorAll('.marketplace-plugin-card')]
       .find((item) => /pass105-failing-plugin/.test(item.textContent || '')))
   `, 15000));
+  assertStep("PASS105_INSTALL_ACTION_READY", await waitFor(win, `
+    (function() {
+      const card = [...document.querySelectorAll('.marketplace-plugin-card')]
+        .find((item) => /pass105-failing-plugin/.test(item.textContent || ''));
+      const button = card?.querySelector('.marketplace-card-actions button');
+      return Boolean(button && !button.disabled);
+    })();
+  `, 15000));
   assertStep("PASS105_CLICK_INSTALL", await win.webContents.executeJavaScript(`
     (function() {
       const card = [...document.querySelectorAll('.marketplace-plugin-card')]
