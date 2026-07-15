@@ -9398,6 +9398,19 @@ button.git-summary-chip:hover,
   .tools-panel {
     display: none;
   }
+
+  /* Keep the workbench and its tool detail usable at the desktop minimum width. */
+  .app-grid:not(.right-panel-hidden):not(.surface-open) {
+    grid-template-columns: minmax(560px, 1fr) minmax(340px, 380px);
+  }
+
+  .app-grid:not(.right-panel-hidden):not(.surface-open) .sidebar {
+    display: none;
+  }
+
+  .app-grid:not(.right-panel-hidden):not(.surface-open) .tools-panel {
+    display: grid;
+  }
 }
 
 @media (max-width: 860px) {
