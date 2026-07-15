@@ -179,7 +179,11 @@ async function runTest() {
         (pill.getAttribute('aria-label') || '').includes(projectName) &&
         pill.getAttribute('title') === ${JSON.stringify(PROJECT_DIR)} &&
         railDot &&
-        railDot.getAttribute('title') === ${JSON.stringify(PROJECT_DIR)}
+        railDot.getAttribute('data-project-status') === 'ready' &&
+        railDot.getAttribute('role') === 'status' &&
+        (railDot.getAttribute('aria-label') || '').includes(projectName) &&
+        (railDot.getAttribute('aria-label') || '').includes(${JSON.stringify(PROJECT_DIR)}) &&
+        (railDot.getAttribute('title') || '').includes(${JSON.stringify(PROJECT_DIR)})
       );
     })();
   `, 10000));

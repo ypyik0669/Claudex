@@ -104,7 +104,9 @@ app.whenReady().then(async () => {
       return /Missing Project/.test(sidebarProject?.textContent || '') &&
         /\\u8def\\u5f84\\u5931\\u6548/.test(sidebarProject?.textContent || '') &&
         Boolean(composerProject) &&
-        Boolean(railDot) &&
+        railDot?.getAttribute('data-project-status') === 'missing' &&
+        railDot?.getAttribute('role') === 'status' &&
+        (railDot?.getAttribute('aria-label') || '').includes(${JSON.stringify(MISSING_PROJECT)}) &&
         /\\u8def\\u5f84\\u5931\\u6548/.test(environmentButton?.textContent || '');
     })();
   `, 10000));

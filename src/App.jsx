@@ -9262,6 +9262,12 @@ function ToolRail({
   ].filter(Boolean).length;
   const capabilityCount = (Array.isArray(capabilityStatus?.pluginItems) ? capabilityStatus.pluginItems.length : 0)
     + (Array.isArray(capabilityStatus?.mcpServers) ? capabilityStatus.mcpServers.length : 0);
+  const projectRailStatus = projectMissing ? "missing" : activeProject?.path ? "ready" : "idle";
+  const projectRailStatusLabel = projectMissing
+    ? `${t.projectPathMissing}: ${activeProject.path}`
+    : activeProject?.path
+      ? `${t.activeProject}: ${activeProject.path}`
+      : t.noProjectPath;
   const countBadge = (count) => count > 99 ? "99+" : count > 0 ? String(count) : "";
   const browserContext = browserVisitsContextSummary({ browserVisits, t });
   const browserRailStatus = browserContext.status === "info" ? "ready" : browserContext.status || "idle";
@@ -9417,7 +9423,7 @@ function ToolRail({
     },
     {
       id: "capabilities",
-      label: t.pluginsAndMcp,
+      label: t.capabilities,
       icon: Blocks,
       badge: latestCapabilityFailed ? "!" : pluginIssueCount ? countBadge(pluginIssueCount) : countBadge(capabilityCount),
       status: latestCapabilityFailed || pluginIssueCount ? "error" : capabilityStatus ? "ready" : "idle",
@@ -9488,16 +9494,16 @@ function ToolRail({
         })}
       </div>
       <div className="tool-rail-footer">
-        <button type="button" className="tool-rail-button rail-button" onClick={onCapabilities} title={t.capabilities} aria-label={t.capabilities}>
-          <Blocks size={16} />
-        </button>
         <button type="button" className="tool-rail-button rail-button" onClick={onSettings} title={t.settings} aria-label={t.settings}>
           <Settings size={16} />
         </button>
       </div>
       <span
-        className={cx("tool-rail-project-dot", projectMissing ? "missing" : activeProject?.path && "ready")}
-        title={projectMissing ? `${t.projectPathMissing}: ${activeProject.path}` : activeProject?.path || t.noProjectPath}
+        className={cx("tool-rail-project-dot", projectRailStatus !== "idle" && projectRailStatus)}
+        data-project-status={projectRailStatus}
+        role="status"
+        aria-label={projectRailStatusLabel}
+        title={projectRailStatusLabel}
       />
     </aside>
   );
