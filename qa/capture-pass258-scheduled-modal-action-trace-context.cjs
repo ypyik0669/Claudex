@@ -147,8 +147,8 @@ function writeInitialStore() {
       {
         id: ENABLED_AUTOMATION_ID,
         prompt: "PASS258 enabled scheduled automation",
-        schedule: { type: "once", runAt: "2026-07-08T03:58:00.000Z" },
-        nextRun: "2026-07-08T03:58:00.000Z",
+        schedule: { type: "once", runAt: "2099-07-08T03:58:00.000Z" },
+        nextRun: "2099-07-08T03:58:00.000Z",
         project,
         threadId: SESSION_ID,
         enabled: true,
@@ -161,8 +161,8 @@ function writeInitialStore() {
       {
         id: PAUSED_AUTOMATION_ID,
         prompt: "PASS258 paused scheduled automation",
-        schedule: { type: "once", runAt: "2026-07-08T04:58:00.000Z" },
-        nextRun: "2026-07-08T04:58:00.000Z",
+        schedule: { type: "once", runAt: "2099-07-08T04:58:00.000Z" },
+        nextRun: "2099-07-08T04:58:00.000Z",
         project,
         threadId: SESSION_ID,
         enabled: false,

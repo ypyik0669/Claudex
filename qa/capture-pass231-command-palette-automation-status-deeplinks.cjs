@@ -32,18 +32,36 @@ const USER_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "claudex-pass231-dat
 const FAKE_BIN_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "claudex-pass231-bin-"));
 const PROJECT_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "claudex-pass231-project-"));
 const DATA_FILE = path.join(USER_DATA_DIR, "desktop-data.json");
-const FAKE_CLAUDE = path.join(FAKE_BIN_DIR, "claude.cmd");
+const FAKE_CLAUDE = path.join(FAKE_BIN_DIR, process.platform === "win32" ? "claude.cmd" : "claude");
+const RUNNING_MARKER = path.join(PROJECT_DIR, "pass231-running.pid");
+const RUNNING_RUN_ID = "pass231-running-run";
 const RUNNING_AUTOMATION_ID = "pass231-running-automation";
 const SCHEDULED_AUTOMATION_ID = "pass231-scheduled-automation";
 const PAUSED_AUTOMATION_ID = "pass231-paused-automation";
 
 function cleanup() {
+  try {
+    const pid = Number(fs.readFileSync(RUNNING_MARKER, "utf8"));
+    if (processIsAlive(pid)) process.kill(pid, "SIGKILL");
+  } catch (_error) {
+    // best-effort process cleanup
+  }
   for (const dir of [USER_DATA_DIR, FAKE_BIN_DIR, PROJECT_DIR]) {
     try {
       fs.rmSync(dir, { recursive: true, force: true });
     } catch (_error) {
       // best-effort cleanup
     }
+  }
+}
+
+function processIsAlive(pid) {
+  if (!Number.isFinite(pid) || pid <= 0) return false;
+  try {
+    process.kill(pid, 0);
+    return true;
+  } catch (_error) {
+    return false;
   }
 }
 
@@ -72,7 +90,8 @@ function assertStep(name, ok) {
 }
 
 function writeFakeClaude() {
-  const fakeClaudeScript = `
+const fakeClaudeScript = `
+const fs = require('fs');
 const args = process.argv.slice(2);
 function out(value) { process.stdout.write(typeof value === 'string' ? value + '\\n' : JSON.stringify(value) + '\\n'); }
 if (args[0] === '--version') out('2.31.0 (Claude Code PASS231)');
@@ -83,11 +102,18 @@ else if (args[0] === 'plugin' && args[1] === 'marketplace' && args[2] === 'list'
 else if (args[0] === 'plugin' && args[1] === 'marketplace' && args[2] === 'list') out('Configured marketplaces: none');
 else if (args[0] === 'mcp' && args[1] === 'list' && args.includes('--json')) out({ servers: [] });
 else if (args[0] === 'mcp' && args[1] === 'list') out('No MCP servers configured');
+else if (args[0] === '-p') {
+  fs.writeFileSync(${JSON.stringify(RUNNING_MARKER)}, String(process.pid), 'utf8');
+  setInterval(() => {}, 1000);
+}
 else out('pass231 fake claude command: ' + args.join(' '));
 `;
   fs.mkdirSync(FAKE_BIN_DIR, { recursive: true });
   fs.writeFileSync(path.join(FAKE_BIN_DIR, "fake-claude.cjs"), fakeClaudeScript, "utf8");
-  fs.writeFileSync(FAKE_CLAUDE, `@echo off\r\nnode "%~dp0fake-claude.cjs" %*\r\n`, "utf8");
+  fs.writeFileSync(path.join(FAKE_BIN_DIR, "claude.cmd"), `@echo off\r\nnode "%~dp0fake-claude.cjs" %*\r\n`, "utf8");
+  const posixShim = path.join(FAKE_BIN_DIR, "claude");
+  fs.writeFileSync(posixShim, `#!/bin/sh\nexec node "$(dirname "$0")/fake-claude.cjs" "$@"\n`, "utf8");
+  fs.chmodSync(posixShim, 0o755);
   process.env.PATH = `${FAKE_BIN_DIR}${path.delimiter}${process.env.PATH || ""}`;
 }
 
@@ -142,19 +168,10 @@ function writeInitialStore() {
         project,
         threadId: "pass231-session",
         enabled: false,
-        status: "running",
+        status: "idle",
         createdAt: "2026-07-08T02:31:00.000Z",
         updatedAt: "2026-07-08T02:31:02.000Z",
-        lastRun: {
-          id: "pass231-running-run",
-          trigger: "manual",
-          status: "running",
-          startedAt: "2026-07-08T02:31:01.000Z",
-          durationMs: 0,
-          sessionId: "pass231-session",
-          detail: "PASS231 running detail",
-          summary: "PASS231 running summary",
-        },
+        lastRun: null,
         history: [],
       },
       {
@@ -217,6 +234,20 @@ async function runTest() {
   await wait(700);
 
   assertStep("PASS231_READY", await waitFor(win, "Boolean(document.querySelector('.app-grid') && window.claudexDesktop)", 15000));
+  assertStep("PASS231_START_REAL_RUNNING_AUTOMATION", await waitFor(win, `
+    (async function() {
+      if (!window.__pass231RunStarted) {
+        window.__pass231RunStarted = true;
+        window.claudexDesktop.runAutomationNow({
+          automationId: ${JSON.stringify(RUNNING_AUTOMATION_ID)},
+          requestId: ${JSON.stringify(RUNNING_RUN_ID)}
+        }).catch((error) => { window.__pass231RunError = String(error?.message || error); });
+      }
+      const state = await window.claudexDesktop.getState();
+      const automation = state.automations?.find((item) => item.id === ${JSON.stringify(RUNNING_AUTOMATION_ID)});
+      return automation?.status === 'running' && automation.lastRun?.id === ${JSON.stringify(RUNNING_RUN_ID)};
+    })();
+  `, 10000));
 
   assertStep(
     "PASS231_OPEN_SCHEDULED_AUTOMATION_FROM_PALETTE",
@@ -269,6 +300,13 @@ async function runTest() {
       );
     })();
   `, 12000));
+
+  assertStep("PASS231_STOP_REAL_RUNNING_AUTOMATION", await win.webContents.executeJavaScript(`
+    window.claudexDesktop.cancelAutomation({
+      automationId: ${JSON.stringify(RUNNING_AUTOMATION_ID)},
+      runId: ${JSON.stringify(RUNNING_RUN_ID)}
+    }).then((state) => state.automationRun?.status === 'cancelled')
+  `));
 
   console.log("PASS231_COMMAND_PALETTE_AUTOMATION_STATUS_DEEPLINKS_DONE");
   cleanup();

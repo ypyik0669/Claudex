@@ -40,6 +40,7 @@ import {
   Send,
   Settings,
   Shield,
+  Square,
   SquareTerminal,
   Store,
   Trash2,
@@ -531,6 +532,7 @@ const copy = {
     subagentNicknamePlaceholder: "例如 Reviewer / QA",
     runSubagent: "运行子代理",
     cancelSubagent: "停止子代理",
+    subagentStopping: "正在停止子代理",
     subagentWorkbenchHint: "使用当前 Claude Code CLI 在项目里执行子任务，结果会写入本地 evidence。",
     subagentCount: "{count} 条子代理记录",
     subagentStatusRunning: "运行中",
@@ -759,6 +761,7 @@ const copy = {
     automationStatusRunning: "运行中",
     automationStatusSucceeded: "已完成",
     automationStatusFailed: "失败",
+    automationStatusCancelled: "已停止",
     automationTriggerManual: "手动触发",
     automationTriggerScheduled: "计划触发",
     automationEvidence: "运行证据",
@@ -797,8 +800,11 @@ const copy = {
     automationPaused: "自动化已暂停",
     automationResumed: "自动化已恢复",
     automationRunning: "自动化正在运行",
+    automationStopping: "正在停止自动化",
+    automationStopped: "自动化已停止",
     automationSucceeded: "自动化已完成",
     automationFailed: "自动化失败",
+    stopAutomation: "停止自动化",
     pauseAutomation: "暂停",
     resumeAutomation: "恢复",
     noAutomationHistory: "还没有运行记录",
@@ -865,6 +871,7 @@ const copy = {
     reopenBrowserVisit: "重新打开",
     commandRunning: "运行中",
     cancelCommand: "停止命令",
+    commandStopping: "正在停止命令",
     commandCancelled: "命令已停止",
     responseStopping: "正在停止本次回复…",
     responseStopped: "已停止本次回复",
@@ -2488,6 +2495,7 @@ function automationStatusLabel(status, t) {
   if (status === "running") return t.automationStatusRunning;
   if (status === "succeeded") return t.automationStatusSucceeded;
   if (status === "failed") return t.automationStatusFailed;
+  if (status === "cancelled") return t.automationStatusCancelled;
   return t.automationStatusIdle;
 }
 
@@ -3187,6 +3195,7 @@ function automationRunEntries(automation = {}) {
 }
 
 function automationRunNeedsRecovery(entry = {}) {
+  if (entry?.status === "cancelled" || entry?.cancelled || entry?.code === 130) return false;
   return entry?.status === "failed"
     || entry?.status === "error"
     || (typeof entry?.code === "number" && entry.code !== 0);
@@ -3194,9 +3203,8 @@ function automationRunNeedsRecovery(entry = {}) {
 
 function automationNeedsRecovery(automation = {}) {
   if (!automation?.id) return false;
-  return automation.status === "failed"
-    || automationRunNeedsRecovery(automation.lastRun)
-    || automationRunEntries(automation).some(automationRunNeedsRecovery);
+  const latestRun = automation.lastRun || automationRunEntries(automation)[0];
+  return latestRun ? automationRunNeedsRecovery(latestRun) : automation.status === "failed";
 }
 
 function automationRecoveryFocusAction(automation = {}) {
@@ -3209,10 +3217,8 @@ function automationRunTimelineFocusAction(automation = {}, entry = {}) {
 }
 
 function automationRecoveryEntry(automation = {}) {
-  const entries = automationRunEntries(automation);
-  return entries.find(automationRunNeedsRecovery)
-    || (automationRunNeedsRecovery(automation.lastRun) ? automation.lastRun : null)
-    || null;
+  const latestRun = automation.lastRun || automationRunEntries(automation)[0] || null;
+  return automationNeedsRecovery(automation) && automationRunNeedsRecovery(latestRun) ? latestRun : null;
 }
 
 function taskCenterFailureBuckets(automations = [], subagentRuns = []) {
@@ -5243,6 +5249,7 @@ function Conversation({
   onDismissNotice,
   onClearNotices,
   onRunAutomationNow,
+  onCancelAutomation,
   onToggleAutomationEnabled,
   onDeleteAutomation,
   onRunSubagent,
@@ -7139,6 +7146,7 @@ function Conversation({
                 sessions={sessions}
                 activeProject={activeProject}
                 onRunAutomationNow={onRunAutomationNow}
+                onCancelAutomation={onCancelAutomation}
                 onToggleAutomationEnabled={onToggleAutomationEnabled}
                 onDeleteAutomation={onDeleteAutomation}
                 onRunSubagent={onRunSubagent}
@@ -7550,12 +7558,49 @@ function SubagentRecoveryStrip({
   );
 }
 
+function useAutomationActionLocks() {
+  const [locks, setLocks] = useState(() => new Map());
+  const locksRef = useRef(new Map());
+  const tokenRef = useRef(0);
+
+  function workingAction(automationId) {
+    return locks.get(automationId)?.action || "";
+  }
+
+  async function runAction(automationId, actionName, action) {
+    if (!automationId) return undefined;
+    const current = locksRef.current.get(automationId);
+    const cancelCanTakeOverPendingRun = actionName === "cancel" && current?.action === "run-now";
+    if (current && !cancelCanTakeOverPendingRun) return undefined;
+
+    tokenRef.current += 1;
+    const lock = { action: actionName, token: tokenRef.current };
+    const nextLocks = new Map(locksRef.current);
+    nextLocks.set(automationId, lock);
+    locksRef.current = nextLocks;
+    setLocks(nextLocks);
+    try {
+      return await action?.();
+    } finally {
+      if (locksRef.current.get(automationId)?.token === lock.token) {
+        const releasedLocks = new Map(locksRef.current);
+        releasedLocks.delete(automationId);
+        locksRef.current = releasedLocks;
+        setLocks(releasedLocks);
+      }
+    }
+  }
+
+  return { workingAction, runAction };
+}
+
 function SubagentWorkbench({
   runs = [],
   automations = [],
   sessions = [],
   activeProject,
   onRunAutomationNow,
+  onCancelAutomation,
   onToggleAutomationEnabled,
   onDeleteAutomation,
   onRunSubagent,
@@ -7574,7 +7619,8 @@ function SubagentWorkbench({
   const [task, setTask] = useState("");
   const [nickname, setNickname] = useState("");
   const [running, setRunning] = useState(false);
-  const [automationWorkingId, setAutomationWorkingId] = useState("");
+  const automationActions = useAutomationActionLocks();
+  const subagentActions = useAutomationActionLocks();
   const [showArchivedRuns, setShowArchivedRuns] = useState(false);
   const [taskStatusFilter, setTaskStatusFilter] = useState("all");
   const [copiedAutomationRunId, setCopiedAutomationRunId] = useState("");
@@ -7671,15 +7717,12 @@ function SubagentWorkbench({
     }
   }
 
-  async function handleAutomationAction(item, action) {
+  async function handleAutomationAction(item, actionName, action) {
     if (!item?.id) return;
-    setAutomationWorkingId(item.id);
     try {
-      await action?.(item);
+      await automationActions.runAction(item.id, actionName, () => action?.(item));
     } catch {
       // The parent action already displays a toast and timeline/notice entry.
-    } finally {
-      setAutomationWorkingId("");
     }
   }
 
@@ -7869,6 +7912,9 @@ function SubagentWorkbench({
           <div className="automation-task-list">
             {visibleAutomationCards.map((item) => {
               const isFocusedAutomation = focusedAutomationId === item.id;
+              const automationWorkingAction = automationActions.workingAction(item.id);
+              const automationWorking = Boolean(automationWorkingAction);
+              const automationStopping = automationWorkingAction === "cancel";
               const openFocusedAutomationEvidence = Boolean(isFocusedAutomation && focusedTaskOptions?.expandEvidence);
               const openFocusedAutomationHistory = Boolean(isFocusedAutomation && (focusedTaskOptions?.expandHistory || focusedTaskOptions?.expandEvidence || focusedAutomationHistoryRunId));
               const lastRunDetail = item.lastRun?.error || item.lastRun?.detail || "";
@@ -7933,9 +7979,9 @@ function SubagentWorkbench({
                       item={item}
                       entry={recoveryEntry}
                       surface="task-center"
-                      working={automationWorkingId === item.id}
+                      working={automationWorking}
                       copied={Boolean(recoveryEntry?.id && copiedAutomationRunId === recoveryEntry.id)}
-                      onRunNow={() => handleAutomationAction(item, onRunAutomationNow)}
+                      onRunNow={() => handleAutomationAction(item, "run-now", onRunAutomationNow)}
                       onCopyEvidence={() => copyAutomationEvidence(item, recoveryEntry)}
                       onOpenTimeline={() => recoveryEntry?.id && onOpenRunTimeline?.(recoveryEntry.id, {
                         action: automationRunTimelineFocusAction(item, recoveryEntry),
@@ -8023,19 +8069,35 @@ function SubagentWorkbench({
                       </details>
                     )}
                     <div className="automation-task-actions">
-                      <button
-                        type="button"
-                        className="plain-action subtle-action"
-                        data-automation-task-action="run-now"
-                        {...taskActionFocusAttributes(isFocusedAutomation && focusedTaskAction === "run-now")}
-                        {...taskSurfaceTraceAttributes({ kind: "automation", action: "run-now", item, entry: traceEntry })}
-                        onClick={() => handleAutomationAction(item, onRunAutomationNow)}
-                        disabled={automationWorkingId === item.id || item.status === "running"}
-                        title={t.runNow}
-                      >
-                        <Send size={13} />
-                        {automationWorkingId === item.id ? t.automationRunning : t.runNow}
-                      </button>
+                      {item.status === "running" || automationStopping ? (
+                        <button
+                          type="button"
+                          className="plain-action subtle-action danger-inline-action"
+                          data-automation-task-action="cancel"
+                          {...taskActionFocusAttributes(isFocusedAutomation && focusedTaskAction === "cancel")}
+                          {...taskSurfaceTraceAttributes({ kind: "automation", action: "cancel", item, entry: traceEntry })}
+                          onClick={() => handleAutomationAction(item, "cancel", onCancelAutomation)}
+                          disabled={Boolean(automationWorkingAction && automationWorkingAction !== "run-now")}
+                          title={t.stopAutomation}
+                        >
+                          <Square size={12} />
+                          {automationStopping ? t.automationStopping : t.stopAutomation}
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          className="plain-action subtle-action"
+                          data-automation-task-action="run-now"
+                          {...taskActionFocusAttributes(isFocusedAutomation && focusedTaskAction === "run-now")}
+                          {...taskSurfaceTraceAttributes({ kind: "automation", action: "run-now", item, entry: traceEntry })}
+                          onClick={() => handleAutomationAction(item, "run-now", onRunAutomationNow)}
+                          disabled={automationWorking}
+                          title={t.runNow}
+                        >
+                          <Send size={13} />
+                          {automationWorkingAction === "run-now" ? t.automationRunning : t.runNow}
+                        </button>
+                      )}
                       {item.lastRun && (
                         <button
                           type="button"
@@ -8072,8 +8134,8 @@ function SubagentWorkbench({
                         data-automation-task-action={item.enabled ? "pause" : "resume"}
                         {...taskActionFocusAttributes(isFocusedAutomation && focusedTaskAction === (item.enabled ? "pause" : "resume"))}
                         {...taskSurfaceTraceAttributes({ kind: "automation", action: item.enabled ? "pause" : "resume", item, entry: traceEntry })}
-                        onClick={() => handleAutomationAction(item, () => onToggleAutomationEnabled?.(item, !item.enabled))}
-                        disabled={!item.schedule?.runAt || automationWorkingId === item.id || item.status === "running"}
+                        onClick={() => handleAutomationAction(item, item.enabled ? "pause" : "resume", () => onToggleAutomationEnabled?.(item, !item.enabled))}
+                        disabled={!item.schedule?.runAt || automationWorking || item.status === "running"}
                         title={item.enabled ? t.pauseAutomation : t.resumeAutomation}
                       >
                         <Clock3 size={13} />
@@ -8085,8 +8147,8 @@ function SubagentWorkbench({
                         data-automation-task-action="delete"
                         {...taskActionFocusAttributes(isFocusedAutomation && focusedTaskAction === "delete")}
                         {...taskSurfaceTraceAttributes({ kind: "automation", action: "delete", item, entry: traceEntry })}
-                        onClick={() => handleAutomationAction(item, onDeleteAutomation)}
-                        disabled={automationWorkingId === item.id}
+                        onClick={() => handleAutomationAction(item, "delete", onDeleteAutomation)}
+                        disabled={automationWorking || item.status === "running"}
                         title={t.delete}
                       >
                         <Trash2 size={13} />
@@ -8147,6 +8209,9 @@ function SubagentWorkbench({
           const isFocusedRun = focusedSubagentId === run.id || focusedSubagentId === run.requestId;
           const openFocusedEvidence = Boolean(isFocusedRun && focusedTaskOptions?.expandEvidence);
           const openFocusedArtifacts = Boolean(isFocusedRun && (focusedTaskOptions?.expandArtifacts || focusedSubagentArtifactIndex));
+          const subagentActionKey = run.requestId || run.id;
+          const subagentWorkingAction = subagentActions.workingAction(subagentActionKey);
+          const subagentStopping = subagentWorkingAction === "cancel";
           return (
           <article
             className={cx("subagent-run-card", run.status, run.archivedAt && "archived", isFocusedRun && "focused-task-card")}
@@ -8341,16 +8406,22 @@ function SubagentWorkbench({
                   </button>
                 </>
               )}
-              {run.status === "running" && (
+              {(run.status === "running" || subagentStopping) && (
                 <button
                   type="button"
                   className="plain-action subtle-action"
                   data-subagent-run-action="cancel"
                   {...taskSurfaceTraceAttributes({ kind: "subagent", action: "cancel", item: run })}
-                  onClick={() => onCancelSubagent?.(run)}
+                  onClick={() => subagentActions.runAction(
+                    subagentActionKey,
+                    "cancel",
+                    () => onCancelSubagent?.(run),
+                  )}
+                  disabled={subagentStopping}
+                  title={subagentStopping ? t.subagentStopping : t.cancelSubagent}
                 >
-                  <X size={13} />
-                  {t.cancelSubagent}
+                  {subagentStopping ? <RefreshCw size={13} className="spin" /> : <Square size={13} />}
+                  {subagentStopping ? t.subagentStopping : t.cancelSubagent}
                 </button>
               )}
             </div>
@@ -9495,6 +9566,7 @@ function ToolsPanel({
   const [commandHistory, setCommandHistory] = useState(() => commandRunsToHistory(commandRuns, "workspace"));
   const [commandStream, setCommandStream] = useState({ stdout: "", stderr: "" });
   const [commandRequestId, setCommandRequestId] = useState("");
+  const [commandStopping, setCommandStopping] = useState(false);
   const commandRequestRef = useRef("");
   const workspaceOutputRef = useRef(null);
   const [claudeStatus, setClaudeStatus] = useState(() => capabilityStatus || null);
@@ -9886,6 +9958,7 @@ function ToolsPanel({
       return;
     }
     setWorkspaceBusy(true);
+    setCommandStopping(false);
     setWorkspaceError("");
     setWorkspaceErrorRetry(null);
     setWorkspaceFileConflict(null);
@@ -10212,6 +10285,7 @@ function ToolsPanel({
       });
     } finally {
       setWorkspaceBusy(false);
+      setCommandStopping(false);
       commandRequestRef.current = "";
       setCommandRequestId("");
     }
@@ -10219,25 +10293,24 @@ function ToolsPanel({
 
   async function cancelWorkspaceCommand() {
     const requestId = commandRequestRef.current || commandRequestId;
-    if (!requestId) return;
-    onRunEvent?.({
-      id: requestId,
-      type: "workspace-command",
-      status: "cancelled",
-      title: `${t.runCommand}: ${command.trim() || commandResult?.command || ""}`,
-      detail: t.commandCancelled,
-      commandLine: command.trim() || commandResult?.command || "",
-      cwd: activeProject?.path || "",
-      code: 130,
-    });
+    if (!requestId || commandStopping) return;
+    setCommandStopping(true);
+    setWorkspaceError("");
     try {
+      let result;
       if (desktopApi?.cancelWorkspaceCommand) {
-        await desktopApi.cancelWorkspaceCommand({ requestId });
+        result = await desktopApi.cancelWorkspaceCommand({ requestId });
       } else {
-        await desktopApi?.cancelRequest?.(requestId);
+        result = await desktopApi?.cancelRequest?.(requestId);
+      }
+      if (result?.commandRun) setCommandResult(result);
+      if (Array.isArray(result?.commandRuns)) {
+        onCommandRuns?.(result.commandRuns);
       }
     } catch (error) {
       setWorkspaceError(error.message || String(error));
+    } finally {
+      setCommandStopping(false);
     }
   }
 
@@ -10940,12 +11013,12 @@ function ToolsPanel({
               <button
                 type="button"
                 className={cx("plain-action", commandIsRunning && "danger-action")}
-                onClick={commandIsRunning ? cancelWorkspaceCommand : runCommand}
-                disabled={!commandIsRunning && (workspaceBusy || !command.trim())}
-                title={commandIsRunning ? t.cancelCommand : workspaceBusy ? t.workingHint : !command.trim() ? t.commandPlaceholder : t.runCommand}
+                onClick={commandIsRunning && !commandStopping ? cancelWorkspaceCommand : commandIsRunning ? undefined : runCommand}
+                disabled={commandStopping || (!commandIsRunning && (workspaceBusy || !command.trim()))}
+                title={commandIsRunning ? commandStopping ? t.commandStopping : t.cancelCommand : workspaceBusy ? t.workingHint : !command.trim() ? t.commandPlaceholder : t.runCommand}
               >
-                {commandIsRunning ? <X size={14} /> : <SquareTerminal size={14} />}
-                {commandIsRunning ? t.cancelCommand : t.runCommandShort}
+                {commandIsRunning ? commandStopping ? <RefreshCw size={14} className="spin" /> : <Square size={14} /> : <SquareTerminal size={14} />}
+                {commandIsRunning ? commandStopping ? t.commandStopping : t.cancelCommand : t.runCommandShort}
               </button>
             </div>
             <div className="command-history-slot" ref={workspaceOutputRef}>
@@ -14586,6 +14659,7 @@ function ScheduledModal({
   onClose,
   onCreate,
   onRunNow,
+  onCancel,
   onDelete,
   onToggleEnabled,
   onCopy,
@@ -14596,7 +14670,7 @@ function ScheduledModal({
   const [prompt, setPrompt] = useState("");
   const [time, setTime] = useState("");
   const [scheduleType, setScheduleType] = useState("once");
-  const [workingId, setWorkingId] = useState("");
+  const automationActions = useAutomationActionLocks();
   const [submitting, setSubmitting] = useState(false);
   const [copiedAutomationRunId, setCopiedAutomationRunId] = useState("");
   const [highlightedAutomationId, setHighlightedAutomationId] = useState("");
@@ -14634,14 +14708,11 @@ function ScheduledModal({
     };
   }, [focusedScheduleAutomationId, focusedScheduleAction, focus?.nonce, items.length]);
 
-  async function handleAction(id, action) {
-    setWorkingId(id);
+  async function handleAction(id, actionName, action) {
     try {
-      await action();
+      await automationActions.runAction(id, actionName, action);
     } catch {
       // The parent action already surfaces the error through the desktop toast.
-    } finally {
-      setWorkingId("");
     }
   }
 
@@ -14719,6 +14790,9 @@ function ScheduledModal({
           </div>
           <div className="schedule-list">
             {items.map((item) => {
+              const automationWorkingAction = automationActions.workingAction(item.id);
+              const automationWorking = Boolean(automationWorkingAction);
+              const automationStopping = automationWorkingAction === "cancel";
               const recoveryEntry = automationRecoveryEntry(item);
               const traceEntry = recoveryEntry || item.lastRun || (Array.isArray(item.history) ? item.history[0] : null) || {};
               return (
@@ -14767,9 +14841,9 @@ function ScheduledModal({
                     item={item}
                     entry={recoveryEntry}
                     surface="scheduled"
-                    working={workingId === item.id}
+                    working={automationWorking}
                     copied={Boolean(recoveryEntry?.id && copiedAutomationRunId === recoveryEntry.id)}
-                    onRunNow={() => handleAction(item.id, () => onRunNow?.(item))}
+                    onRunNow={() => handleAction(item.id, "run-now", () => onRunNow?.(item))}
                     onCopyEvidence={() => copyAutomationEvidence(item, recoveryEntry)}
                     onOpenTimeline={() => recoveryEntry?.id && onOpenRunTimeline?.(recoveryEntry.id, {
                       action: automationRunTimelineFocusAction(item, recoveryEntry),
@@ -14845,25 +14919,40 @@ function ScheduledModal({
                   </details>
                 </div>
                 <div className="schedule-item-actions">
-                  <button
-                    type="button"
-                    data-automation-schedule-action="run-now"
-                    {...taskSurfaceTraceAttributes({ kind: "automation", action: "run-now", surface: "scheduled", item, entry: traceEntry })}
-                    {...taskActionFocusAttributes(scheduleActionFocused(item, "run-now"))}
-                    onClick={() => handleAction(item.id, () => onRunNow?.(item))}
-                    disabled={workingId === item.id || item.status === "running"}
-                    title={t.runNow}
-                  >
-                    <Send size={14} />
-                    {workingId === item.id ? t.automationRunning : t.runNow}
-                  </button>
+                  {item.status === "running" || automationStopping ? (
+                    <button
+                      type="button"
+                      data-automation-schedule-action="cancel"
+                      {...taskSurfaceTraceAttributes({ kind: "automation", action: "cancel", surface: "scheduled", item, entry: traceEntry })}
+                      {...taskActionFocusAttributes(scheduleActionFocused(item, "cancel"))}
+                      onClick={() => handleAction(item.id, "cancel", () => onCancel?.(item))}
+                      disabled={Boolean(automationWorkingAction && automationWorkingAction !== "run-now")}
+                      title={t.stopAutomation}
+                    >
+                      <Square size={13} />
+                      {automationStopping ? t.automationStopping : t.stopAutomation}
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      data-automation-schedule-action="run-now"
+                      {...taskSurfaceTraceAttributes({ kind: "automation", action: "run-now", surface: "scheduled", item, entry: traceEntry })}
+                      {...taskActionFocusAttributes(scheduleActionFocused(item, "run-now"))}
+                      onClick={() => handleAction(item.id, "run-now", () => onRunNow?.(item))}
+                      disabled={automationWorking}
+                      title={t.runNow}
+                    >
+                      <Send size={14} />
+                      {automationWorkingAction === "run-now" ? t.automationRunning : t.runNow}
+                    </button>
+                  )}
                   <button
                     type="button"
                     data-automation-schedule-action={item.enabled ? "pause" : "resume"}
                     {...taskSurfaceTraceAttributes({ kind: "automation", action: item.enabled ? "pause" : "resume", surface: "scheduled", item, entry: traceEntry })}
                     {...taskActionFocusAttributes(scheduleActionFocused(item, item.enabled ? "pause" : "resume"))}
-                    onClick={() => handleAction(item.id, () => onToggleEnabled?.(item, !item.enabled))}
-                    disabled={!item.schedule?.runAt || workingId === item.id || item.status === "running"}
+                    onClick={() => handleAction(item.id, item.enabled ? "pause" : "resume", () => onToggleEnabled?.(item, !item.enabled))}
+                    disabled={!item.schedule?.runAt || automationWorking || item.status === "running"}
                     title={item.enabled ? t.pauseAutomation : t.resumeAutomation}
                   >
                     <Clock3 size={14} />
@@ -14903,8 +14992,8 @@ function ScheduledModal({
                     data-automation-schedule-action="delete"
                     {...taskSurfaceTraceAttributes({ kind: "automation", action: "delete", surface: "scheduled", item, entry: traceEntry })}
                     {...taskActionFocusAttributes(scheduleActionFocused(item, "delete"))}
-                    onClick={() => handleAction(item.id, () => onDelete?.(item))}
-                    disabled={workingId === item.id}
+                    onClick={() => handleAction(item.id, "delete", () => onDelete?.(item))}
+                    disabled={automationWorking || item.status === "running"}
                     title={t.delete}
                   >
                     <Trash2 size={14} />
@@ -17250,8 +17339,8 @@ export function App() {
         const statusFilter = taskCenterFilterForAutomation(automation);
         const automationId = commandIdSegment(automation.id);
         const scheduleActionKeywords = [
-          "scheduled modal automation action focus command palette deep link run pause resume delete copy evidence timeline",
-          "计划任务 自动化 操作 聚焦 运行 暂停 恢复 删除 复制 证据 时间线",
+          "scheduled modal automation action focus command palette deep link run stop cancel pause resume delete copy evidence timeline",
+          "计划任务 自动化 操作 聚焦 运行 停止 取消 暂停 恢复 删除 复制 证据 时间线",
           automation.id,
           automation.prompt,
           automation.status,
@@ -17288,11 +17377,12 @@ export function App() {
           action: () => openScheduledSurface({ automationId: automation.id, action }),
         });
         return [
+          automation.status === "running" && makeScheduledActionCommand({ action: "cancel", title: t.stopAutomation, priority: 13 }),
           automation.status !== "running" && makeScheduledActionCommand({ action: "run-now", title: t.runNow, priority: 12 }),
-          makeScheduledActionCommand({ action: automation.enabled ? "pause" : "resume", title: automation.enabled ? t.pauseAutomation : t.resumeAutomation, priority: 11 }),
+          automation.status !== "running" && makeScheduledActionCommand({ action: automation.enabled ? "pause" : "resume", title: automation.enabled ? t.pauseAutomation : t.resumeAutomation, priority: 11 }),
           automation.lastRun && makeScheduledActionCommand({ action: "copy-evidence", title: t.copyAutomationEvidence, entry: automation.lastRun, priority: 10 }),
           automation.lastRun?.id && makeScheduledActionCommand({ action: "timeline", title: t.openRunTimeline, entry: automation.lastRun, priority: 10 }),
-          makeScheduledActionCommand({ action: "delete", title: t.delete, priority: 9 }),
+          automation.status !== "running" && makeScheduledActionCommand({ action: "delete", title: t.delete, priority: 9 }),
         ].filter(Boolean);
       });
 
@@ -18605,11 +18695,16 @@ export function App() {
     if (Array.isArray(next?.runEvents)) setRunEvents((current) => mergeRunEvents(current, next.runEvents));
     const run = next.automationRun;
     const succeeded = run?.status === "succeeded";
-    const finalDetail = succeeded ? (run.detail || t.automationSucceeded) : (run?.error || t.automationFailed);
+    const cancelled = run?.status === "cancelled";
+    const finalDetail = succeeded
+      ? (run.detail || t.automationSucceeded)
+      : cancelled
+        ? (run?.detail || t.automationStopped)
+        : (run?.error || t.automationFailed);
     recordRunEvent({
       id: requestId,
       type: "automation",
-      status: succeeded ? "ok" : "error",
+      status: succeeded ? "ok" : cancelled ? "cancelled" : "error",
       title: `${t.scheduled}: ${messageExcerpt(automation.prompt, 60)}`,
       detail: [t.automationTriggerManual, automationProjectLabel(automation, t), finalDetail].filter(Boolean).join(" · "),
       projectPath: automation.project?.path || "",
@@ -18621,7 +18716,27 @@ export function App() {
       code: typeof run?.code === "number" ? run.code : null,
       durationMs: typeof run?.durationMs === "number" ? run.durationMs : null,
     });
-    showToast(succeeded ? t.automationSucceeded : t.automationFailed);
+    showToast(succeeded ? t.automationSucceeded : cancelled ? t.automationStopped : t.automationFailed);
+  }
+
+  async function cancelAutomation(automation) {
+    if (!desktopApi?.cancelAutomation || !automation) return;
+    const runId = automation.lastRun?.id
+      || automation.history?.find((entry) => entry.status === "running")?.id
+      || "";
+    try {
+      const next = await desktopApi.cancelAutomation({ automationId: automation.id, runId });
+      setState(next);
+      if (Array.isArray(next?.runEvents)) setRunEvents((current) => mergeRunEvents(current, next.runEvents));
+      const entry = next?.automationRun;
+      showToast(entry?.status === "cancelled"
+        ? t.automationStopped
+        : (entry?.error || t.automationFailed));
+      return next;
+    } catch (error) {
+      showToast(error.message || String(error));
+      throw error;
+    }
   }
 
   async function runSubagent(task, nickname = "", context = {}) {
@@ -18652,6 +18767,7 @@ export function App() {
     if (Array.isArray(next?.runEvents)) setRunEvents((current) => mergeRunEvents(current, next.runEvents));
     const run = next.subagentRun;
     const ok = run?.status === "done";
+    const cancelled = run?.status === "cancelled";
     recordRunEvent({
       id: run?.requestId || requestId,
       type: "subagent",
@@ -18661,21 +18777,31 @@ export function App() {
       projectPath: run?.project?.path || projectPath,
       sessionId: run?.sessionId || sessionId,
     });
-    showToast(ok ? t.subagentFinished : t.subagentFailed);
+    showToast(ok ? t.subagentFinished : cancelled ? t.subagentStatusCancelled : t.subagentFailed);
   }
 
   async function cancelSubagent(run) {
     if (!desktopApi?.cancelSubagent || !run) return;
-    const next = await desktopApi.cancelSubagent({ runId: run.id, requestId: run.requestId });
-    setState(next);
-    if (Array.isArray(next?.runEvents)) setRunEvents((current) => mergeRunEvents(current, next.runEvents));
-    recordRunEvent({
-      id: run.requestId || run.id,
-      type: "subagent",
-      status: "cancelled",
-      title: `${t.subagents}: ${run.nickname || "Subagent"}`,
-      detail: t.subagentStatusCancelled,
-    });
+    try {
+      const next = await desktopApi.cancelSubagent({ runId: run.id, requestId: run.requestId });
+      setState(next);
+      if (Array.isArray(next?.runEvents)) setRunEvents((current) => mergeRunEvents(current, next.runEvents));
+      const finalRun = next?.subagentRun;
+      const cancelled = finalRun?.status === "cancelled";
+      recordRunEvent({
+        id: finalRun?.requestId || run.requestId || run.id,
+        type: "subagent",
+        status: cancelled ? "cancelled" : finalRun?.status === "done" ? "ok" : "error",
+        title: `${t.subagents}: ${finalRun?.nickname || run.nickname || "Subagent"}`,
+        detail: finalRun?.summary || finalRun?.stderr || (cancelled ? t.subagentStatusCancelled : t.subagentFailed),
+        code: typeof finalRun?.code === "number" ? finalRun.code : null,
+      });
+      showToast(cancelled ? t.subagentStatusCancelled : finalRun?.summary || finalRun?.stderr || t.subagentFailed);
+      return next;
+    } catch (error) {
+      showToast(error.message || String(error));
+      throw error;
+    }
   }
 
   async function archiveSubagent(run, archived = true) {
@@ -19843,6 +19969,7 @@ export function App() {
           onDismissNotice={dismissNotice}
           onClearNotices={clearNotices}
           onRunAutomationNow={runAutomationNow}
+          onCancelAutomation={cancelAutomation}
           onToggleAutomationEnabled={toggleAutomationEnabled}
           onDeleteAutomation={deleteAutomation}
           onRunSubagent={runSubagent}
@@ -19965,6 +20092,7 @@ export function App() {
           onClose={() => setScheduledOpen(false)}
           onCreate={createAutomation}
           onRunNow={runAutomationNow}
+          onCancel={cancelAutomation}
           onDelete={deleteAutomation}
           onToggleEnabled={toggleAutomationEnabled}
           onCopy={copyMessage}

@@ -17,6 +17,7 @@ const desktopApi = {
   setAutomationEnabled: (payload) => ipcRenderer.invoke("automation:set-enabled", payload),
   deleteAutomation: (payload) => ipcRenderer.invoke("automation:delete", payload),
   runAutomationNow: (payload) => ipcRenderer.invoke("automation:run-now", payload),
+  cancelAutomation: (payload) => ipcRenderer.invoke("automation:cancel", payload),
   runSubagent: (payload) => ipcRenderer.invoke("subagent:run", payload),
   cancelSubagent: (payload) => ipcRenderer.invoke("subagent:cancel", payload),
   archiveSubagent: (payload) => ipcRenderer.invoke("subagent:archive", payload),

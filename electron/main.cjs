@@ -4,6 +4,9 @@ const path = require("node:path");
 const crypto = require("node:crypto");
 const { spawn } = require("node:child_process");
 
+const hasSingleInstanceLock = app.requestSingleInstanceLock();
+if (!hasSingleInstanceLock) app.quit();
+
 const DEFAULT_SYSTEM_PROMPT =
   "你是一名务实的资深编程助手。回答要简洁、准确，并专注于可执行的实现。";
 const OPENAI_COMPATIBLE_PROVIDERS = new Set([
@@ -50,6 +53,7 @@ const CAPABILITY_CONTEXT = {
   "test-writer": "需要测试时，优先通过公开接口写行为测试。",
 };
 const activeRequests = new Map();
+const childTreeTerminationAttempts = new WeakMap();
 const IGNORED_DIRS = new Set([".git", "node_modules", "dist", "build", "release", ".npm-cache", ".next", "coverage"]);
 const IGNORED_DIR_PATTERNS = [/^release/i, /^out$/i, /^tmp$/i, /^temp$/i];
 const PROJECT_MARKERS = [
@@ -90,8 +94,19 @@ const NOTICE_LIMIT = 80;
 const MAX_SKILL_REGISTRY_ITEMS = 500;
 const MAX_SKILL_SCAN_DEPTH = 10;
 const MAX_SKILL_FILE_BYTES = 64 * 1024;
+const AUTOMATION_INTERRUPTED_MESSAGE = "Claudex 上次退出时，自动化运行已中断。";
+const SUBAGENT_INTERRUPTED_MESSAGE = "Claudex 上次退出时，子代理运行已中断。";
+const WORKSPACE_COMMAND_INTERRUPTED_MESSAGE = "Claudex 上次退出时，Workspace 命令已中断。";
+const RUN_STOP_WAIT_MS = 9000;
+const QUIT_DRAIN_WAIT_MS = 8000;
+const WINDOWS_TASKKILL_TIMEOUT_MS = 2000;
+const WINDOWS_WMIC_SNAPSHOT_TIMEOUT_MS = 1500;
+const WINDOWS_CIM_SNAPSHOT_TIMEOUT_MS = 2500;
 const automationRunLocks = new Set();
-const cancelledSubagentRuns = new Set();
+const activeAutomationRuns = new Map();
+const activeSubagentRuns = new Map();
+const activeWorkspaceCommandRuns = new Map();
+const runtimeInstanceId = id("runtime_instance");
 const activeChatRequestIds = new Set();
 const cancelledChatRequestIds = new Set();
 const activeChatRequestRuntime = new Map();
@@ -365,6 +380,7 @@ function normalizeAutomation(item, store) {
     if (automation.nextRun) automation.status = "scheduled";
     else if (!automation.enabled && automation.schedule.runAt && !automation.lastRun) automation.status = "paused";
     else if (automation.lastRun?.status === "failed") automation.status = "failed";
+    else if (automation.lastRun?.status === "cancelled") automation.status = "cancelled";
     else if (automation.lastRun?.status === "succeeded") automation.status = "succeeded";
     else if (automation.status === "paused") automation.status = "paused";
     else automation.status = automation.schedule.runAt && !automation.enabled ? "paused" : "idle";
@@ -379,6 +395,7 @@ function updateAutomationAfterMutation(automation) {
     if (automation.nextRun) automation.status = "scheduled";
     else if (!automation.enabled && automation.schedule?.runAt && !automation.lastRun) automation.status = "paused";
     else if (automation.lastRun?.status === "failed") automation.status = "failed";
+    else if (automation.lastRun?.status === "cancelled") automation.status = "cancelled";
     else if (automation.lastRun?.status === "succeeded") automation.status = "succeeded";
     else automation.status = automation.schedule?.runAt && !automation.enabled ? "paused" : "idle";
   }
@@ -539,6 +556,7 @@ function normalizeSubagentRun(item, store) {
     archivedAt: isoOrEmpty(item?.archivedAt),
     continuedAt: isoOrEmpty(item?.continuedAt),
     continuedSessionId: String(item?.continuedSessionId || ""),
+    runtimeOwner: String(item?.runtimeOwner || ""),
   };
 }
 
@@ -575,6 +593,7 @@ function upsertSubagentRunEvent(store, run, status) {
     stderr: run.stderr || "",
     project: run.project,
     sessionId: run.sessionId || "",
+    runtimeOwner: run.runtimeOwner || "",
     createdAt: run.startedAt || now(),
   });
 }
@@ -685,6 +704,7 @@ function normalizeCommandRun(item, store) {
     id: item?.id || id("command"),
     requestId: item?.requestId || "",
     sessionId: String(item?.sessionId || item?.threadId || ""),
+    runtimeOwner: String(item?.runtimeOwner || ""),
     kind,
     command,
     commandLine: command,
@@ -748,6 +768,7 @@ function upsertCommandRunEvent(store, run, status, fallbackType = "workspace-com
     stderr: normalized.stderr || "",
     project: normalized.project,
     sessionId: String(run?.sessionId || normalized.requestId || normalized.id || ""),
+    runtimeOwner: normalized.runtimeOwner || "",
     createdAt: normalized.startedAt || now(),
   });
 }
@@ -772,6 +793,7 @@ function normalizeRunEvent(item, store) {
     stderr: String(item?.stderr || ""),
     project,
     sessionId: String(item?.sessionId || ""),
+    runtimeOwner: String(item?.runtimeOwner || ""),
     createdAt: isoOrEmpty(item?.createdAt) || now(),
     ...(capabilityContext ? { capabilityContext } : {}),
   };
@@ -1313,20 +1335,421 @@ function createProcessRunEventEmitter(sender, channel, requestId, snapshot, inte
   };
 }
 
-function killChildProcess(child) {
-  if (!child || child.killed) return;
-  if (process.platform === "win32" && child.pid) {
+function waitMilliseconds(durationMs) {
+  return new Promise((resolve) => setTimeout(resolve, durationMs));
+}
+
+function posixProcessGroupExists(processGroupId) {
+  try {
+    process.kill(-processGroupId, 0);
+    return true;
+  } catch (error) {
+    return error?.code !== "ESRCH";
+  }
+}
+
+async function waitForPosixProcessGroupExit(processGroupId, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (!posixProcessGroupExists(processGroupId)) return true;
+    await waitMilliseconds(50);
+  }
+  return !posixProcessGroupExists(processGroupId);
+}
+
+async function terminatePosixProcessTree(child) {
+  const processGroupId = Number(child?.pid || 0);
+  if (!processGroupId) return false;
+  if (!posixProcessGroupExists(processGroupId)) return true;
+  try {
+    process.kill(-processGroupId, "SIGTERM");
+  } catch (error) {
+    if (error?.code === "ESRCH") return true;
+    return false;
+  }
+  if (await waitForPosixProcessGroupExit(processGroupId, 1500)) return true;
+  try {
+    process.kill(-processGroupId, "SIGKILL");
+  } catch (error) {
+    if (error?.code === "ESRCH") return true;
+    return false;
+  }
+  return waitForPosixProcessGroupExit(processGroupId, 3000);
+}
+
+function runWindowsTaskkill(pid) {
+  return new Promise((resolve) => {
+    let killer;
     try {
-      spawn("taskkill", ["/pid", String(child.pid), "/t", "/f"], {
+      killer = spawn("taskkill", ["/pid", String(pid), "/t", "/f"], {
         windowsHide: true,
         stdio: "ignore",
       });
+    } catch (_error) {
+      resolve(false);
       return;
-    } catch {
-      // Fall through to child.kill().
+    }
+    let settled = false;
+    const finish = (confirmed) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      resolve(Boolean(confirmed));
+    };
+    const timeout = setTimeout(() => {
+      try {
+        if (!killer.killed) killer.kill();
+      } catch {
+        // The process may have exited while the timeout callback was queued.
+      }
+      killer.unref?.();
+      finish(false);
+    }, WINDOWS_TASKKILL_TIMEOUT_MS);
+    killer.once("error", () => finish(false));
+    killer.once("close", (code) => finish(code === 0));
+  });
+}
+
+function captureWindowsProcessSnapshot(command, args, parseOutput, timeoutMs) {
+  return new Promise((resolve) => {
+    let child;
+    try {
+      child = spawn(command, args, {
+        windowsHide: true,
+        stdio: ["ignore", "pipe", "ignore"],
+      });
+    } catch (_error) {
+      resolve(null);
+      return;
+    }
+    let stdout = "";
+    let settled = false;
+    let timeout = null;
+    const finish = (value) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeout);
+      resolve(value);
+    };
+    const stopChild = () => {
+      child.stdout?.destroy();
+      try {
+        if (!child.killed) child.kill();
+      } catch {
+        // The process may have exited between the timeout and cleanup.
+      }
+      child.unref?.();
+    };
+    timeout = setTimeout(() => {
+      stopChild();
+      finish(null);
+    }, timeoutMs);
+    child.stdout.on("data", (chunk) => {
+      stdout += chunk.toString("utf8");
+      if (stdout.length > 2 * 1024 * 1024) {
+        stopChild();
+        finish(null);
+      }
+    });
+    child.once("error", () => finish(null));
+    child.once("close", (code) => {
+      if (code !== 0) {
+        finish(null);
+        return;
+      }
+      try {
+        finish(parseOutput(stdout));
+      } catch (_error) {
+        finish(null);
+      }
+    });
+  });
+}
+
+function parseWmicProcessSnapshot(output) {
+  const rows = String(output || "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => line.split(",").map((part) => part.trim()));
+  const headerIndex = rows.findIndex((parts) => (
+    parts.includes("ProcessId") && parts.includes("ParentProcessId")
+  ));
+  if (headerIndex < 0) return null;
+  const header = rows[headerIndex];
+  const processIdIndex = header.indexOf("ProcessId");
+  const parentProcessIdIndex = header.indexOf("ParentProcessId");
+  const processes = rows
+    .slice(headerIndex + 1)
+    .map((parts) => ({
+      pid: Number(parts[processIdIndex] || 0),
+      parentPid: Number(parts[parentProcessIdIndex] || 0),
+    }))
+    .filter((item) => item.pid > 0 && Number.isFinite(item.parentPid));
+  return processes.length ? processes : null;
+}
+
+function parseCimProcessSnapshot(output) {
+  const parsed = JSON.parse(String(output || "").trim() || "[]");
+  const processes = (Array.isArray(parsed) ? parsed : [parsed])
+    .map((item) => ({
+      pid: Number(item?.ProcessId || 0),
+      parentPid: Number(item?.ParentProcessId || 0),
+    }))
+    .filter((item) => item.pid > 0);
+  return processes.length ? processes : null;
+}
+
+async function listWindowsProcesses() {
+  const systemRoot = process.env.SystemRoot || "C:\\Windows";
+  const wmic = path.join(systemRoot, "System32", "Wbem", "WMIC.exe");
+  if (fs.existsSync(wmic)) {
+    const snapshot = await captureWindowsProcessSnapshot(
+      wmic,
+      ["process", "get", "ProcessId,ParentProcessId", "/format:csv"],
+      parseWmicProcessSnapshot,
+      WINDOWS_WMIC_SNAPSHOT_TIMEOUT_MS,
+    );
+    if (snapshot) return snapshot;
+  }
+
+  const powershell = path.join(
+    systemRoot,
+    "System32",
+    "WindowsPowerShell",
+    "v1.0",
+    "powershell.exe",
+  );
+  return captureWindowsProcessSnapshot(
+    fs.existsSync(powershell) ? powershell : "powershell.exe",
+    [
+      "-NoLogo",
+      "-NoProfile",
+      "-NonInteractive",
+      "-Command",
+      "$ErrorActionPreference='Stop'; Get-CimInstance Win32_Process | Select-Object ProcessId,ParentProcessId | ConvertTo-Json -Compress",
+    ],
+    parseCimProcessSnapshot,
+    WINDOWS_CIM_SNAPSHOT_TIMEOUT_MS,
+  );
+}
+
+function windowsProcessTreeIds(processes, rootPid) {
+  const children = new Map();
+  for (const item of processes || []) {
+    if (!children.has(item.parentPid)) children.set(item.parentPid, []);
+    children.get(item.parentPid).push(item.pid);
+  }
+  const ids = [];
+  const seen = new Set([rootPid]);
+  const pending = [rootPid];
+  while (pending.length) {
+    const parentPid = pending.shift();
+    for (const childPid of children.get(parentPid) || []) {
+      if (seen.has(childPid)) continue;
+      seen.add(childPid);
+      ids.push(childPid);
+      pending.push(childPid);
     }
   }
-  child.kill();
+  return ids;
+}
+
+async function inspectWindowsProcessTree(knownPids) {
+  const processes = await listWindowsProcesses();
+  if (!processes) return null;
+  let expanded = true;
+  while (expanded) {
+    expanded = false;
+    for (const item of processes) {
+      if (!knownPids.has(item.parentPid) || knownPids.has(item.pid)) continue;
+      knownPids.add(item.pid);
+      expanded = true;
+    }
+  }
+  const livePids = new Set(processes.map((item) => item.pid));
+  const knownAlive = [...knownPids].filter((pid) => livePids.has(pid));
+  return { gone: knownAlive.length === 0, livePids: knownAlive };
+}
+
+async function terminateWindowsProcessTree(child) {
+  const pid = Number(child?.pid || 0);
+  if (!pid) return false;
+  const before = await listWindowsProcesses();
+  const knownPids = new Set([pid, ...windowsProcessTreeIds(before, pid)]);
+  const taskkillConfirmed = await runWindowsTaskkill(pid);
+  if (!taskkillConfirmed && knownPids.size > 1) {
+    await Promise.all([...knownPids].reverse().map((processId) => runWindowsTaskkill(processId)));
+  }
+
+  const deadline = Date.now() + 2000;
+  let cleanSnapshots = 0;
+  const observeInspection = (inspection) => {
+    if (!inspection) {
+      cleanSnapshots = 0;
+      return false;
+    }
+    if (inspection.gone) {
+      cleanSnapshots += 1;
+      return true;
+    }
+    cleanSnapshots = 0;
+    return false;
+  };
+  while (Date.now() < deadline) {
+    const inspection = await inspectWindowsProcessTree(knownPids);
+    if (observeInspection(inspection)) {
+      if (cleanSnapshots >= 2) return true;
+    } else {
+      if (inspection?.livePids?.length) {
+        await Promise.all(inspection.livePids.map((processId) => runWindowsTaskkill(processId)));
+      }
+    }
+    await waitMilliseconds(75);
+  }
+  const inspection = await inspectWindowsProcessTree(knownPids);
+  if (!inspection) return false;
+  if (!observeInspection(inspection)) return false;
+  if (cleanSnapshots >= 2) return true;
+
+  await waitMilliseconds(75);
+  const confirmation = await inspectWindowsProcessTree(knownPids);
+  return observeInspection(confirmation) && cleanSnapshots >= 2;
+}
+
+function terminateChildProcessTree(child) {
+  if (!child?.pid) return Promise.resolve(false);
+  return process.platform === "win32"
+    ? terminateWindowsProcessTree(child)
+    : terminatePosixProcessTree(child);
+}
+
+function killChildProcess(child) {
+  if (!child || typeof child !== "object") return Promise.resolve(false);
+  const currentAttempt = childTreeTerminationAttempts.get(child);
+  if (currentAttempt) return currentAttempt;
+  const attempt = terminateChildProcessTree(child).then((confirmed) => {
+    if (!confirmed) childTreeTerminationAttempts.delete(child);
+    return confirmed;
+  });
+  childTreeTerminationAttempts.set(child, attempt);
+  return attempt;
+}
+
+function createProcessRequestHandle(child, onCancel) {
+  let stopRequested = false;
+  let stopConfirmed = false;
+  let processClosed = false;
+  let stopAttempt = null;
+  let resolveTreeStopped;
+  const treeStopped = new Promise((resolve) => {
+    resolveTreeStopped = resolve;
+  });
+  const requestStop = (notifyCancel) => {
+    if (!stopRequested && notifyCancel) onCancel?.();
+    stopRequested = true;
+    confirmPidlessStop();
+    if (stopConfirmed) return Promise.resolve(true);
+    if (stopAttempt) return stopAttempt;
+    stopAttempt = terminateChildProcessTree(child).then((confirmed) => {
+      stopAttempt = null;
+      if (confirmed && !stopConfirmed) {
+        stopConfirmed = true;
+        resolveTreeStopped(true);
+      }
+      return confirmed;
+    });
+    return stopAttempt;
+  };
+  const confirmPidlessStop = () => {
+    if (!stopRequested || stopConfirmed || child.pid || !processClosed) return;
+    stopConfirmed = true;
+    resolveTreeStopped(true);
+  };
+  const handle = {
+    pid: child.pid,
+    child,
+    get stopRequested() {
+      return stopRequested;
+    },
+    kill() {
+      return requestStop(true);
+    },
+    terminate() {
+      return requestStop(false);
+    },
+    markProcessClosed() {
+      processClosed = true;
+      confirmPidlessStop();
+    },
+    waitForTreeStop() {
+      return stopRequested ? treeStopped : Promise.resolve(true);
+    },
+  };
+  return handle;
+}
+
+function activeRequestIdError(requestId) {
+  const error = new Error(`REQUEST_ID_ACTIVE: 请求 ${requestId} 正在运行。`);
+  error.code = "REQUEST_ID_ACTIVE";
+  return error;
+}
+
+function assertActiveRequestIdAvailable(requestId) {
+  if (!requestId || !activeRequests.has(requestId)) return;
+  throw activeRequestIdError(requestId);
+}
+
+function stopActiveRequest(requestId) {
+  const request = activeRequests.get(requestId);
+  if (!request) return false;
+  if (typeof request.abort === "function") request.abort();
+  else if (typeof request.kill === "function") request.kill();
+  else if (request.pid) killChildProcess(request);
+  return true;
+}
+
+function runtimeCompletion(properties = {}) {
+  let resolveDone;
+  const done = new Promise((resolve) => {
+    resolveDone = resolve;
+  });
+  return { ...properties, done, resolveDone };
+}
+
+function waitForRuntimeCompletion(runtime, timeoutMs) {
+  if (!runtime?.done) return Promise.resolve(false);
+  return new Promise((resolve) => {
+    const timeout = setTimeout(() => resolve(false), timeoutMs);
+    runtime.done.then(() => {
+      clearTimeout(timeout);
+      resolve(true);
+    });
+  });
+}
+
+let quitDrainPromise = null;
+let quitDrainComplete = false;
+
+function activeRunRuntimes() {
+  return new Set([
+    ...activeAutomationRuns.values(),
+    ...activeSubagentRuns.values(),
+    ...activeWorkspaceCommandRuns.values(),
+  ]);
+}
+
+async function drainActiveRequestsForQuit(timeoutMs = QUIT_DRAIN_WAIT_MS) {
+  const deadline = Date.now() + timeoutMs;
+  while ((activeRequests.size || activeRunRuntimes().size) && Date.now() < deadline) {
+    for (const requestId of [...activeRequests.keys()]) stopActiveRequest(requestId);
+    const runtimes = [...activeRunRuntimes()];
+    await Promise.race([
+      waitMilliseconds(250),
+      ...runtimes.map((runtime) => runtime.done),
+    ]);
+  }
+  return !activeRequests.size && !activeRunRuntimes().size;
 }
 
 function hashBuffer(buffer) {
@@ -1390,6 +1813,20 @@ function runProcess(command, args = [], options = {}) {
   const maxOutputChars = Number(options.maxOutputChars || MAX_COMMAND_OUTPUT_CHARS);
   return new Promise((resolve) => {
     const startedAt = Date.now();
+    try {
+      assertActiveRequestIdAvailable(options.requestId);
+    } catch (error) {
+      resolve({
+        command,
+        args,
+        cwd: options.cwd || app.getPath("home"),
+        durationMs: Date.now() - startedAt,
+        stdout: "",
+        stderr: error.message,
+        code: 1,
+      });
+      return;
+    }
     let child;
     try {
       const childEnv = { ...process.env, ...(options.env || {}) };
@@ -1401,6 +1838,7 @@ function runProcess(command, args = [], options = {}) {
         cwd: options.cwd || app.getPath("home"),
         windowsHide: true,
         env: childEnv,
+        detached: process.platform !== "win32",
       });
     } catch (error) {
       resolve({
@@ -1417,11 +1855,18 @@ function runProcess(command, args = [], options = {}) {
     let stdout = "";
     let stderr = "";
     let settled = false;
-    const finish = (result) => {
-      if (settled) return;
+    let settling = false;
+    let timedOut = false;
+    const requestHandle = createProcessRequestHandle(child);
+    const finish = async (result) => {
+      if (settled || settling) return;
+      settling = true;
+      if (requestHandle.stopRequested) await requestHandle.waitForTreeStop();
       settled = true;
       clearTimeout(timeout);
-      if (options.requestId) activeRequests.delete(options.requestId);
+      if (options.requestId && activeRequests.get(options.requestId) === requestHandle) {
+        activeRequests.delete(options.requestId);
+      }
       resolve({
         command,
         args,
@@ -1433,11 +1878,11 @@ function runProcess(command, args = [], options = {}) {
       });
     };
     const timeout = setTimeout(() => {
-      killChildProcess(child);
-      finish({ code: 124, stderr: trimOutput(`${stderr}\n命令运行超过 ${timeoutMs} 毫秒，已停止。`, maxOutputChars) });
+      timedOut = true;
+      requestHandle.terminate();
     }, timeoutMs);
 
-    if (options.requestId) activeRequests.set(options.requestId, child);
+    if (options.requestId) activeRequests.set(options.requestId, requestHandle);
     child.stdout.on("data", (chunk) => {
       stdout = trimOutput(stdout + chunk.toString("utf8"), maxOutputChars);
     });
@@ -1445,10 +1890,16 @@ function runProcess(command, args = [], options = {}) {
       stderr = trimOutput(stderr + chunk.toString("utf8"), maxOutputChars);
     });
     child.on("error", (error) => {
-      finish({ code: 1, stderr: trimOutput(`${stderr}\n${error.message}`, maxOutputChars) });
+      requestHandle.markProcessClosed();
+      void finish(timedOut
+        ? { code: 124, stderr: trimOutput(`${stderr}\n命令运行超过 ${timeoutMs} 毫秒，已停止。`, maxOutputChars) }
+        : { code: 1, stderr: trimOutput(`${stderr}\n${error.message}`, maxOutputChars) });
     });
     child.on("close", (code) => {
-      finish({ code });
+      requestHandle.markProcessClosed();
+      void finish(timedOut
+        ? { code: 124, stderr: trimOutput(`${stderr}\n命令运行超过 ${timeoutMs} 毫秒，已停止。`, maxOutputChars) }
+        : { code });
     });
   });
 }
@@ -1457,6 +1908,20 @@ function runStreamingProcess(command, args = [], options = {}) {
   const timeoutMs = Number(options.timeoutMs || CLAUDE_TIMEOUT_MS);
   return new Promise((resolve) => {
     const startedAt = Date.now();
+    try {
+      assertActiveRequestIdAvailable(options.requestId);
+    } catch (error) {
+      resolve({
+        command,
+        args,
+        cwd: options.cwd || app.getPath("home"),
+        durationMs: Date.now() - startedAt,
+        stdout: "",
+        stderr: error.message,
+        code: 1,
+      });
+      return;
+    }
     let child;
     try {
       const childEnv = { ...process.env, ...(options.env || {}) };
@@ -1468,6 +1933,7 @@ function runStreamingProcess(command, args = [], options = {}) {
         cwd: options.cwd || app.getPath("home"),
         windowsHide: true,
         env: childEnv,
+        detached: process.platform !== "win32",
       });
     } catch (error) {
       resolve({
@@ -1485,13 +1951,22 @@ function runStreamingProcess(command, args = [], options = {}) {
     let stderr = "";
     let lineBuffer = "";
     let settled = false;
+    let settling = false;
     let cancelled = false;
-    const finish = (result) => {
-      if (settled) return;
+    let timedOut = false;
+    const requestHandle = createProcessRequestHandle(child, () => {
+      cancelled = true;
+    });
+    const finish = async (result) => {
+      if (settled || settling) return;
+      settling = true;
+      if (requestHandle.stopRequested) await requestHandle.waitForTreeStop();
       settled = true;
       clearTimeout(timeout);
       if (lineBuffer.trim()) options.onLine?.(lineBuffer.trim());
-      if (options.requestId) activeRequests.delete(options.requestId);
+      if (options.requestId && activeRequests.get(options.requestId) === requestHandle) {
+        activeRequests.delete(options.requestId);
+      }
       const finalResult = options.cancelAsCode130 && cancelled
         ? { ...result, code: 130, cancelled: true }
         : result;
@@ -1506,20 +1981,11 @@ function runStreamingProcess(command, args = [], options = {}) {
       });
     };
     const timeout = setTimeout(() => {
-      killChildProcess(child);
-      finish({ code: 124, stderr: trimOutput(`${stderr}\n命令运行超过 ${timeoutMs} 毫秒，已停止。`) });
+      timedOut = true;
+      requestHandle.terminate();
     }, timeoutMs);
 
-    if (options.requestId) {
-      activeRequests.set(options.requestId, options.cancelAsCode130
-        ? {
-            kill: () => {
-              cancelled = true;
-              killChildProcess(child);
-            },
-          }
-        : child);
-    }
+    if (options.requestId) activeRequests.set(options.requestId, requestHandle);
     child.stdout.on("data", (chunk) => {
       const text = chunk.toString("utf8");
       stdout = trimOutput(stdout + text);
@@ -1537,10 +2003,16 @@ function runStreamingProcess(command, args = [], options = {}) {
       options.onChunk?.("stderr", text);
     });
     child.on("error", (error) => {
-      finish({ code: 1, stderr: trimOutput(`${stderr}\n${error.message}`) });
+      requestHandle.markProcessClosed();
+      void finish(timedOut
+        ? { code: 124, stderr: trimOutput(`${stderr}\n命令运行超过 ${timeoutMs} 毫秒，已停止。`) }
+        : { code: 1, stderr: trimOutput(`${stderr}\n${error.message}`) });
     });
     child.on("close", (code) => {
-      finish({ code });
+      requestHandle.markProcessClosed();
+      void finish(timedOut
+        ? { code: 124, stderr: trimOutput(`${stderr}\n命令运行超过 ${timeoutMs} 毫秒，已停止。`) }
+        : { code });
     });
   });
 }
@@ -2942,6 +3414,7 @@ function providerResponseError(message, code = "PROVIDER_RESPONSE_ERROR") {
 }
 
 async function fetchWithTimeout(url, options, timeoutMs, requestId, consumeResponse) {
+  assertActiveRequestIdAvailable(requestId);
   const controller = new AbortController();
   const durationMs = Number(timeoutMs || 600000);
   let timedOut = false;
@@ -3798,10 +4271,26 @@ function ensureAutomationSession(store, automation) {
   return session;
 }
 
+function commitClaudeSessionIdIfCurrent(session, expectedSessionId, nextSessionId) {
+  if (!session) return false;
+  const expected = String(expectedSessionId || "");
+  const next = String(nextSessionId || "");
+  if (!next || String(session.claudeSessionId || "") !== expected) return false;
+  session.claudeSessionId = next;
+  return true;
+}
+
 function findAutomationOrThrow(store, automationId) {
   const automation = (store.automations || []).find((item) => item.id === automationId);
   if (!automation) throw new Error("没有找到这个自动化任务。");
   return automation;
+}
+
+function assertAutomationNotRunning(automationId) {
+  if (!automationRunLocks.has(automationId) && !activeAutomationRuns.has(automationId)) return;
+  const error = new Error("AUTOMATION_RUNNING: 请先停止正在运行的自动化任务。");
+  error.code = "AUTOMATION_RUNNING";
+  throw error;
 }
 
 function findAutomationRunEntry(store, runId) {
@@ -3816,153 +4305,417 @@ function findAutomationRunEntry(store, runId) {
   return null;
 }
 
+function interruptedAutomationEntry(entry, endedAt) {
+  const startedAt = isoOrEmpty(entry?.startedAt) || endedAt;
+  const startedMs = new Date(startedAt).getTime();
+  const endedMs = new Date(endedAt).getTime();
+  return {
+    ...entry,
+    status: "failed",
+    startedAt,
+    endedAt,
+    durationMs: Number.isFinite(startedMs) && Number.isFinite(endedMs)
+      ? Math.max(0, endedMs - startedMs)
+      : Number(entry?.durationMs || 0),
+    detail: AUTOMATION_INTERRUPTED_MESSAGE,
+    error: AUTOMATION_INTERRUPTED_MESSAGE,
+    summary: AUTOMATION_INTERRUPTED_MESSAGE,
+    stderr: trimOutput([entry?.stderr || "", AUTOMATION_INTERRUPTED_MESSAGE].filter(Boolean).join("\n")),
+    code: null,
+  };
+}
+
+function recoverInterruptedAutomationRuns() {
+  const store = readStore();
+  const endedAt = now();
+  const recoveredRunIds = new Set();
+  let changed = false;
+
+  for (const automation of store.automations || []) {
+    const history = Array.isArray(automation.history) ? automation.history : [];
+    const runningEntries = history.filter((entry) => entry?.status === "running");
+    let currentRunningEntry = automation.lastRun?.status === "running"
+      ? automation.lastRun
+      : history[0]?.status === "running"
+        ? history[0]
+        : null;
+    if (
+      automation.lastRun?.status === "running" &&
+      !runningEntries.some((entry) => entry.id === automation.lastRun.id)
+    ) {
+      runningEntries.push(automation.lastRun);
+    }
+    if (!currentRunningEntry && automation.status === "running") {
+      const scheduledOnceWasDue = automation.enabled &&
+        automation.schedule?.type === "once" &&
+        automation.schedule?.runAt &&
+        new Date(automation.schedule.runAt).getTime() <= Date.now();
+      currentRunningEntry = {
+        id: id("automation_run"),
+        trigger: scheduledOnceWasDue ? "scheduled" : "manual",
+        status: "running",
+        startedAt: automation.updatedAt || automation.createdAt || endedAt,
+        endedAt: "",
+        durationMs: 0,
+        sessionId: automation.threadId || "",
+        detail: "",
+        error: "",
+        summary: "",
+        stdout: "",
+        stderr: "",
+        code: null,
+        artifacts: [],
+      };
+      runningEntries.push(currentRunningEntry);
+    }
+    if (!runningEntries.length) continue;
+
+    const recoveredById = new Map(
+      runningEntries.map((entry) => [entry.id, interruptedAutomationEntry(entry, endedAt)]),
+    );
+    const syntheticEntries = runningEntries.filter(
+      (entry) => !history.some((historyEntry) => historyEntry.id === entry.id),
+    );
+    automation.history = [
+      ...syntheticEntries.map((entry) => recoveredById.get(entry.id)),
+      ...history.map((entry) => recoveredById.get(entry.id) || entry),
+    ].slice(0, AUTOMATION_HISTORY_LIMIT);
+
+    const recoveredLastRun = automation.lastRun?.id
+      ? recoveredById.get(automation.lastRun.id)
+      : null;
+    const recoveredCurrentRun = currentRunningEntry?.id
+      ? recoveredById.get(currentRunningEntry.id)
+      : recoveredLastRun;
+    if (recoveredCurrentRun) automation.lastRun = recoveredCurrentRun;
+
+    for (const recoveredEntry of recoveredById.values()) {
+      recoveredRunIds.add(recoveredEntry.id);
+      upsertAutomationRunEvent(store, automation, recoveredEntry, "error");
+      if (recoveredEntry.trigger === "scheduled" && automation.schedule?.type === "once") {
+        automation.enabled = false;
+      }
+      const session = (store.sessions || []).find((item) => item.id === recoveredEntry.sessionId);
+      if (session) {
+        session.messages = Array.isArray(session.messages) ? session.messages : [];
+        const hasTerminalMessage = session.messages.some((message) => (
+          message?.automationRunId === recoveredEntry.id &&
+          ["assistant", "cancelled", "error"].includes(message?.role)
+        ));
+        if (!hasTerminalMessage) {
+          session.messages.push({
+            role: "error",
+            content: AUTOMATION_INTERRUPTED_MESSAGE,
+            createdAt: endedAt,
+            automationId: automation.id,
+            automationRunId: recoveredEntry.id,
+          });
+          session.updatedAt = endedAt;
+        }
+      }
+    }
+
+    if (automation.status === "running" || recoveredLastRun) {
+      automation.status = "failed";
+      updateAutomationAfterMutation(automation);
+    } else {
+      automation.updatedAt = endedAt;
+    }
+    changed = true;
+  }
+
+  for (const event of [...(store.runEvents || [])]) {
+    if (event?.type !== "automation" || event.status !== "running" || recoveredRunIds.has(event.id)) continue;
+    const startedMs = new Date(event.createdAt || endedAt).getTime();
+    upsertRunEvent(store, {
+      ...event,
+      status: "error",
+      detail: [event.detail || "", AUTOMATION_INTERRUPTED_MESSAGE].filter(Boolean).join(" · "),
+      code: null,
+      durationMs: Number.isFinite(startedMs) ? Math.max(0, Date.now() - startedMs) : event.durationMs,
+      stderr: trimOutput([event.stderr || "", AUTOMATION_INTERRUPTED_MESSAGE].filter(Boolean).join("\n")),
+    });
+    changed = true;
+  }
+
+  if (changed) writeStore(store);
+  return store;
+}
+
+function interruptedDurationMs(startedAt, endedAt, fallback = 0) {
+  const startedMs = new Date(startedAt || endedAt).getTime();
+  const endedMs = new Date(endedAt).getTime();
+  return Number.isFinite(startedMs) && Number.isFinite(endedMs)
+    ? Math.max(0, endedMs - startedMs)
+    : Number(fallback || 0);
+}
+
+function recoverInterruptedLocalRuns() {
+  const store = readStore();
+  const endedAt = now();
+  const recoveredSubagentEventIds = new Set();
+  let changed = false;
+
+  for (const item of [...(store.subagentRuns || [])]) {
+    const run = normalizeSubagentRun(item, store);
+    if (run.status !== "running" || !run.runtimeOwner || run.runtimeOwner === runtimeInstanceId) continue;
+    const recovered = normalizeSubagentRun({
+      ...run,
+      status: "error",
+      summary: SUBAGENT_INTERRUPTED_MESSAGE,
+      stderr: trimOutput([run.stderr || "", SUBAGENT_INTERRUPTED_MESSAGE].filter(Boolean).join("\n")),
+      code: null,
+      durationMs: interruptedDurationMs(run.startedAt, endedAt, run.durationMs),
+      endedAt,
+      runtimeOwner: "",
+    }, store);
+    upsertSubagentRun(store, recovered);
+    upsertSubagentRunEvent(store, recovered, "error");
+    recoveredSubagentEventIds.add(recovered.requestId || recovered.id);
+    changed = true;
+  }
+
+  for (const event of [...(store.runEvents || [])]) {
+    if (
+      event?.status !== "running" ||
+      !event.runtimeOwner ||
+      event.runtimeOwner === runtimeInstanceId ||
+      recoveredSubagentEventIds.has(event.id)
+    ) {
+      continue;
+    }
+    const isSubagent = event.type === "subagent";
+    const isWorkspaceCommand = event.type === "workspace-command" || event.type === "git-command";
+    if (!isSubagent && !isWorkspaceCommand) continue;
+    const message = isSubagent ? SUBAGENT_INTERRUPTED_MESSAGE : WORKSPACE_COMMAND_INTERRUPTED_MESSAGE;
+    upsertRunEvent(store, {
+      ...event,
+      status: "error",
+      detail: [event.detail || "", message].filter(Boolean).join(" · "),
+      code: null,
+      durationMs: interruptedDurationMs(event.createdAt, endedAt, event.durationMs),
+      stderr: trimOutput([event.stderr || "", message].filter(Boolean).join("\n")),
+      runtimeOwner: "",
+    });
+    changed = true;
+  }
+
+  if (changed) writeStore(store);
+  return store;
+}
+
 async function runAutomationById(automationId, { requestId = "", trigger = "manual" } = {}) {
   if (automationRunLocks.has(automationId)) {
     throw new Error("这个自动化任务正在运行。");
   }
+  if (requestId && [...activeAutomationRuns.values()].some((runtime) => runtime.runId === requestId)) {
+    const error = new Error("AUTOMATION_REQUEST_ACTIVE: 这个自动化运行标识正在使用。");
+    error.code = "AUTOMATION_REQUEST_ACTIVE";
+    throw error;
+  }
+  assertActiveRequestIdAvailable(requestId);
   automationRunLocks.add(automationId);
   const runId = requestId || id("automation_run");
+  const runtime = {
+    automationId,
+    runId,
+    requestId: requestId || runId,
+    cancelled: false,
+    done: null,
+    resolveDone: null,
+  };
+  runtime.done = new Promise((resolve) => {
+    runtime.resolveDone = resolve;
+  });
+  activeAutomationRuns.set(automationId, runtime);
   const startedAt = now();
   const startedMs = Date.now();
-  let store = readStore();
-  let automation = findAutomationOrThrow(store, automationId);
-  if (!automation.prompt) {
-    automationRunLocks.delete(automationId);
-    throw new Error("自动化提示词为空。");
-  }
-  const session = ensureAutomationSession(store, automation);
-  const automationArtifactRoot = automation.project?.path && fs.existsSync(automation.project.path)
-    ? automation.project.path
-    : "";
-  const automationArtifactBefore = automationArtifactRoot
-    ? workspaceArtifactSnapshot(automationArtifactRoot)
-    : new Map();
-  const runningEntry = {
-    id: runId,
-    trigger,
-    status: "running",
-    startedAt,
-    endedAt: "",
-    durationMs: 0,
-    sessionId: session.id,
-    detail: "",
-    error: "",
-    summary: "",
-    stdout: "",
-    stderr: "",
-    code: null,
-  };
-  automation.status = "running";
-  prependAutomationHistory(automation, runningEntry);
-  upsertAutomationRunEvent(store, automation, runningEntry, "running");
-  writeStore(store);
-  if (trigger === "scheduled") broadcastStoreUpdate(store);
-
   try {
+    const store = readStore();
+    const automation = findAutomationOrThrow(store, automationId);
+    if (!automation.prompt) throw new Error("自动化提示词为空。");
+    const session = ensureAutomationSession(store, automation);
+    const startedClaudeSessionId = String(session.claudeSessionId || "");
+    const automationArtifactRoot = automation.project?.path && fs.existsSync(automation.project.path)
+      ? automation.project.path
+      : "";
+    const automationArtifactBefore = automationArtifactRoot
+      ? workspaceArtifactSnapshot(automationArtifactRoot)
+      : new Map();
+    const runningEntry = {
+      id: runId,
+      trigger,
+      status: "running",
+      startedAt,
+      endedAt: "",
+      durationMs: 0,
+      sessionId: session.id,
+      detail: "",
+      error: "",
+      summary: "",
+      stdout: "",
+      stderr: "",
+      code: null,
+    };
+    automation.status = "running";
+    prependAutomationHistory(automation, runningEntry);
+    upsertAutomationRunEvent(store, automation, runningEntry, "running");
+
     const userContent = automation.prompt.trim();
-    session.messages.push({
-      role: "user",
-      content: userContent,
-      createdAt: startedAt,
-      automationId: automation.id,
-      automationRunId: runId,
-    });
+    if (!session.messages.some((message) => message.automationRunId === runId && message.role === "user")) {
+      session.messages.push({
+        role: "user",
+        content: userContent,
+        createdAt: startedAt,
+        automationId: automation.id,
+        automationRunId: runId,
+      });
+    }
     if (isGenericSessionTitle(session.title)) {
       session.title = titleFromUserContent(userContent);
     }
     session.updatedAt = startedAt;
     writeStore(store);
+    broadcastStoreUpdate(store);
+
+    const commitOutcome = ({
+      status,
+      eventStatus,
+      messageRole,
+      messageContent,
+      detail = "",
+      error = "",
+      summary = "",
+      stdout = "",
+      stderr = "",
+      code = null,
+      artifacts = [],
+      claudeSessionId = "",
+    }) => {
+      const latestStore = readStore();
+      const latestAutomation = findAutomationOrThrow(latestStore, automationId);
+      const latestSession = (latestStore.sessions || []).find((item) => item.id === session.id);
+      if (latestSession) {
+        latestSession.messages = Array.isArray(latestSession.messages) ? latestSession.messages : [];
+        if (
+          messageContent &&
+          !latestSession.messages.some((message) => message.automationRunId === runId && message.role === messageRole)
+        ) {
+          latestSession.messages.push({
+            role: messageRole,
+            content: messageContent,
+            createdAt: now(),
+            automationId: latestAutomation.id,
+            automationRunId: runId,
+          });
+        }
+        commitClaudeSessionIdIfCurrent(latestSession, startedClaudeSessionId, claudeSessionId);
+        latestSession.updatedAt = now();
+      }
+
+      const existingEntry = (latestAutomation.history || []).find((entry) => entry.id === runId)
+        || (latestAutomation.lastRun?.id === runId ? latestAutomation.lastRun : null);
+      const finalEntry = {
+        ...runningEntry,
+        ...(existingEntry || {}),
+        status,
+        endedAt: now(),
+        durationMs: Date.now() - startedMs,
+        detail,
+        error,
+        summary,
+        stdout: stdout || existingEntry?.stdout || "",
+        stderr: stderr || existingEntry?.stderr || "",
+        code,
+        artifacts,
+      };
+      prependAutomationHistory(latestAutomation, finalEntry);
+      if (trigger === "scheduled" && latestAutomation.schedule?.type === "once") {
+        latestAutomation.enabled = false;
+      }
+      latestAutomation.status = status;
+      updateAutomationAfterMutation(latestAutomation);
+      if (status === "failed" && trigger === "scheduled") {
+        upsertNotice(latestStore, {
+          level: "error",
+          source: "automation",
+          title: "Scheduled automation failed",
+          detail: error,
+          key: `automation:${latestAutomation.id}:scheduled-failure`,
+          action: `automation:${latestAutomation.id}`,
+          sessionId: latestSession?.id || session.id,
+          project: latestAutomation.project,
+        });
+      }
+      upsertAutomationRunEvent(latestStore, latestAutomation, finalEntry, eventStatus);
+      writeStore(latestStore);
+      broadcastStoreUpdate(latestStore);
+      return { store: latestStore, entry: finalEntry };
+    };
 
     const runtimeStore = {
       ...store,
       activeProject: automation.project || store.activeProject || localWorkspaceProject(),
     };
-    const assistantResult = await requestAssistant(runtimeStore, session, requestId || runId);
-    const assistantText = typeof assistantResult === "string" ? assistantResult : assistantResult.text;
-    const stdout = typeof assistantResult === "object" ? assistantResult.stdout || "" : "";
-    const stderr = typeof assistantResult === "object" ? assistantResult.stderr || "" : "";
-    const code = typeof assistantResult === "object" && typeof assistantResult.code === "number" ? assistantResult.code : 0;
-    const workspaceFileArtifacts = workspaceFileArtifactsSince(automationArtifactBefore, automationArtifactRoot, automation.project);
-    session.messages.push({
-      role: "assistant",
-      content: assistantText || "自动化任务已完成。",
-      createdAt: now(),
-      automationId: automation.id,
-      automationRunId: runId,
-    });
-    session.updatedAt = now();
-
-    const finalEntry = {
-      ...runningEntry,
-      status: "succeeded",
-      endedAt: now(),
-      durationMs: Date.now() - startedMs,
-      detail: titleFromUserContent(assistantText || "自动化任务已完成。"),
-      summary: titleFromUserContent(assistantText || "自动化任务已完成。"),
-      stdout,
-      stderr,
-      code,
-      artifacts: workspaceFileArtifacts,
-    };
-    prependAutomationHistory(automation, finalEntry);
-    if (trigger === "scheduled" && automation.schedule?.type === "once") automation.enabled = false;
-    automation.status = "succeeded";
-    updateAutomationAfterMutation(automation);
-    upsertAutomationRunEvent(store, automation, finalEntry, "ok");
-    writeStore(store);
-    if (trigger === "scheduled") broadcastStoreUpdate(store);
-    return {
-      ...sanitizeStore(store),
-      automationRun: finalEntry,
-    };
-  } catch (error) {
-    const message = error.message || String(error);
-    session.messages.push({
-      role: "error",
-      content: message,
-      createdAt: now(),
-      automationId: automation.id,
-      automationRunId: runId,
-    });
-    session.updatedAt = now();
-    const finalEntry = {
-      ...runningEntry,
-      status: "failed",
-      endedAt: now(),
-      durationMs: Date.now() - startedMs,
-      detail: "",
-      error: message,
-      summary: "",
-      stdout: error.stdout || "",
-      stderr: error.stderr || "",
-      code: typeof error.code === "number" ? error.code : 1,
-      artifacts: workspaceFileArtifactsSince(automationArtifactBefore, automationArtifactRoot, automation.project),
-    };
-    prependAutomationHistory(automation, finalEntry);
-    if (trigger === "scheduled" && automation.schedule?.type === "once") automation.enabled = false;
-    automation.status = "failed";
-    updateAutomationAfterMutation(automation);
-    if (trigger === "scheduled") {
-      upsertNotice(store, {
-        level: "error",
-        source: "automation",
-        title: "Scheduled automation failed",
-        detail: message,
-        key: `automation:${automation.id}:scheduled-failure`,
-        action: `automation:${automation.id}`,
-        sessionId: session.id,
-        project: automation.project,
+    try {
+      const assistantPromise = requestAssistant(runtimeStore, session, runtime.requestId);
+      if (runtime.cancelled) stopActiveRequest(runtime.requestId);
+      const assistantResult = await assistantPromise;
+      if (runtime.cancelled) {
+        const error = new Error("自动化已停止。");
+        error.code = 130;
+        throw error;
+      }
+      const assistantText = typeof assistantResult === "string" ? assistantResult : assistantResult.text;
+      const stdout = typeof assistantResult === "object" ? assistantResult.stdout || "" : "";
+      const stderr = typeof assistantResult === "object" ? assistantResult.stderr || "" : "";
+      const code = typeof assistantResult === "object" && typeof assistantResult.code === "number" ? assistantResult.code : 0;
+      const summary = titleFromUserContent(assistantText || "自动化任务已完成。");
+      const committed = commitOutcome({
+        status: "succeeded",
+        eventStatus: "ok",
+        messageRole: "assistant",
+        messageContent: assistantText || "自动化任务已完成。",
+        detail: summary,
+        summary,
+        stdout,
+        stderr,
+        code,
+        artifacts: workspaceFileArtifactsSince(automationArtifactBefore, automationArtifactRoot, automation.project),
+        claudeSessionId: assistantResult?.claudeSessionId || session.claudeSessionId || "",
       });
+      return {
+        ...sanitizeStore(committed.store),
+        automationRun: committed.entry,
+      };
+    } catch (error) {
+      const wasCancelled = runtime.cancelled && !error?.preserveOnCancel;
+      const message = wasCancelled ? "自动化已停止。" : error.message || String(error);
+      const stderr = wasCancelled
+        ? trimOutput([error.stderr || "", message].filter(Boolean).join("\n"))
+        : error.stderr || "";
+      const committed = commitOutcome({
+        status: wasCancelled ? "cancelled" : "failed",
+        eventStatus: wasCancelled ? "cancelled" : "error",
+        messageRole: wasCancelled ? "cancelled" : "error",
+        messageContent: message,
+        detail: wasCancelled ? message : "",
+        error: wasCancelled ? "" : message,
+        summary: wasCancelled ? message : "",
+        stdout: error.stdout || "",
+        stderr,
+        code: wasCancelled ? 130 : typeof error.code === "number" ? error.code : 1,
+        artifacts: workspaceFileArtifactsSince(automationArtifactBefore, automationArtifactRoot, automation.project),
+      });
+      return {
+        ...sanitizeStore(committed.store),
+        automationRun: committed.entry,
+      };
     }
-    upsertAutomationRunEvent(store, automation, finalEntry, "error");
-    writeStore(store);
-    if (trigger === "scheduled") broadcastStoreUpdate(store);
-    return {
-      ...sanitizeStore(store),
-      automationRun: finalEntry,
-    };
   } finally {
+    if (activeAutomationRuns.get(automationId) === runtime) activeAutomationRuns.delete(automationId);
     automationRunLocks.delete(automationId);
+    runtime.resolveDone?.();
   }
 }
 
@@ -4173,6 +4926,15 @@ async function runSubagent(payload = {}, sender) {
     : new Map();
   const runId = id("subagent");
   const requestId = payload.requestId || id("subagent_request");
+  if (activeSubagentRuns.has(runId) || activeSubagentRuns.has(requestId)) {
+    const error = new Error("SUBAGENT_REQUEST_ACTIVE: 这个子代理请求正在运行。");
+    error.code = "SUBAGENT_REQUEST_ACTIVE";
+    throw error;
+  }
+  assertActiveRequestIdAvailable(requestId);
+  const runtime = runtimeCompletion({ runId, requestId, cancelled: false });
+  activeSubagentRuns.set(runId, runtime);
+  activeSubagentRuns.set(requestId, runtime);
   const startedAt = now();
   const nickname = String(payload.nickname || "Subagent").trim() || "Subagent";
   const session = {
@@ -4197,80 +4959,92 @@ async function runSubagent(payload = {}, sender) {
     args,
     startedAt,
     artifacts: [],
+    runtimeOwner: runtimeInstanceId,
   }, store);
-  upsertSubagentRun(store, run);
-  upsertSubagentRunEvent(store, run, "running");
-  writeStore(store);
-  emitSubagentEvent(sender, { type: "start", run });
+  try {
+    upsertSubagentRun(store, run);
+    upsertSubagentRunEvent(store, run, "running");
+    writeStore(store);
+    emitSubagentEvent(sender, { type: "start", run });
 
-  let stdout = "";
-  let stderr = "";
-  const result = await runStreamingProcess(commandCandidates(claudeCommand)[0], args, {
-    cwd,
-    requestId,
-    timeoutMs: Number(store.settings.timeoutMs || CLAUDE_TIMEOUT_MS),
-    env: claudeProcessEnv({ CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1" }),
-    onChunk: (stream, text) => {
-      if (stream === "stderr") stderr = trimOutput(`${stderr}${text || ""}`);
-      else stdout = trimOutput(`${stdout}${text || ""}`);
-      persistSubagentChunk({ runId, requestId, stream, text });
-      emitSubagentEvent(sender, {
-        type: "chunk",
-        runId,
-        requestId,
-        stream,
-        text: stripAnsi(text || ""),
-      });
-    },
-  });
-  const parsed = parseJsonOutput(result.stdout);
-  const wasCancelled = cancelledSubagentRuns.delete(runId) || cancelledSubagentRuns.delete(requestId);
-  const finalStatus = wasCancelled ? "cancelled" : result.code === 0 && !parsed?.is_error ? "done" : "error";
-  const summary = parsed?.result || (result.stdout || result.stderr || "").trim();
-  const cleanStdout = stripAnsi(result.stdout || stdout);
-  const cleanStderr = stripAnsi(result.stderr || stderr);
-  const cleanSummary = stripAnsi(summary);
-  const workspaceArtifactAfter = project?.path && path.resolve(cwd) === path.resolve(project.path)
-    ? workspaceArtifactSnapshot(cwd)
-    : new Map();
-  const workspaceFileArtifacts = subagentWorkspaceFileArtifacts({
-    before: workspaceArtifactBefore,
-    after: workspaceArtifactAfter,
-    root: cwd,
-    project,
-  });
-  const nextStore = readStore();
-  const existing = (nextStore.subagentRuns || []).find((item) => item.id === runId) || run;
-  const finalRun = normalizeSubagentRun({
-    ...existing,
-    status: finalStatus,
-    stdout: cleanStdout,
-    stderr: cleanStderr,
-    summary: cleanSummary,
-    code: wasCancelled ? 130 : result.code,
-    durationMs: result.durationMs,
-    endedAt: now(),
-    artifacts: [
-      ...subagentArtifactsFromResult({
-        summary: cleanSummary,
-        stdout: cleanStdout,
-        stderr: cleanStderr,
-      }),
-      ...workspaceFileArtifacts,
-    ].slice(0, 12),
-  }, nextStore);
-  upsertSubagentRun(nextStore, finalRun);
-  upsertSubagentRunEvent(
-    nextStore,
-    finalRun,
-    finalStatus === "done" ? "ok" : finalStatus === "cancelled" ? "cancelled" : "error",
-  );
-  writeStore(nextStore);
-  emitSubagentEvent(sender, { type: finalStatus, run: finalRun });
-  return {
-    ...sanitizeStore(nextStore),
-    subagentRun: finalRun,
-  };
+    let stdout = "";
+    let stderr = "";
+    const resultPromise = runStreamingProcess(commandCandidates(claudeCommand)[0], args, {
+      cwd,
+      requestId,
+      timeoutMs: Number(store.settings.timeoutMs || CLAUDE_TIMEOUT_MS),
+      env: claudeProcessEnv({ CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1" }),
+      onChunk: (stream, text) => {
+        if (stream === "stderr") stderr = trimOutput(`${stderr}${text || ""}`);
+        else stdout = trimOutput(`${stdout}${text || ""}`);
+        persistSubagentChunk({ runId, requestId, stream, text });
+        emitSubagentEvent(sender, {
+          type: "chunk",
+          runId,
+          requestId,
+          stream,
+          text: stripAnsi(text || ""),
+        });
+      },
+    });
+    if (runtime.cancelled) stopActiveRequest(requestId);
+    const result = await resultPromise;
+    const parsed = parseJsonOutput(result.stdout);
+    const wasCancelled = runtime.cancelled;
+    const finalStatus = wasCancelled ? "cancelled" : result.code === 0 && !parsed?.is_error ? "done" : "error";
+    const summary = parsed?.result || (result.stdout || result.stderr || "").trim();
+    const cleanStdout = stripAnsi(result.stdout || stdout);
+    const cleanStderr = stripAnsi(wasCancelled
+      ? [result.stderr || stderr, "子代理已停止。"].filter(Boolean).join("\n")
+      : result.stderr || stderr);
+    const cleanSummary = stripAnsi(wasCancelled ? "子代理已停止。" : summary);
+    const workspaceArtifactAfter = project?.path && path.resolve(cwd) === path.resolve(project.path)
+      ? workspaceArtifactSnapshot(cwd)
+      : new Map();
+    const workspaceFileArtifacts = subagentWorkspaceFileArtifacts({
+      before: workspaceArtifactBefore,
+      after: workspaceArtifactAfter,
+      root: cwd,
+      project,
+    });
+    const nextStore = readStore();
+    const existing = (nextStore.subagentRuns || []).find((item) => item.id === runId) || run;
+    const finalRun = normalizeSubagentRun({
+      ...existing,
+      status: finalStatus,
+      stdout: cleanStdout,
+      stderr: cleanStderr,
+      summary: cleanSummary,
+      code: wasCancelled ? 130 : result.code,
+      durationMs: result.durationMs,
+      endedAt: now(),
+      runtimeOwner: "",
+      artifacts: [
+        ...subagentArtifactsFromResult({
+          summary: cleanSummary,
+          stdout: cleanStdout,
+          stderr: cleanStderr,
+        }),
+        ...workspaceFileArtifacts,
+      ].slice(0, 12),
+    }, nextStore);
+    upsertSubagentRun(nextStore, finalRun);
+    upsertSubagentRunEvent(
+      nextStore,
+      finalRun,
+      finalStatus === "done" ? "ok" : finalStatus === "cancelled" ? "cancelled" : "error",
+    );
+    writeStore(nextStore);
+    emitSubagentEvent(sender, { type: finalStatus, run: finalRun });
+    return {
+      ...sanitizeStore(nextStore),
+      subagentRun: finalRun,
+    };
+  } finally {
+    if (activeSubagentRuns.get(runId) === runtime) activeSubagentRuns.delete(runId);
+    if (activeSubagentRuns.get(requestId) === runtime) activeSubagentRuns.delete(requestId);
+    runtime.resolveDone?.();
+  }
 }
 
 function createWindow() {
@@ -4300,7 +5074,28 @@ function createWindow() {
   return window;
 }
 
+app.on("second-instance", () => {
+  const window = BrowserWindow.getAllWindows()[0];
+  if (!window) return;
+  if (window.isMinimized()) window.restore();
+  window.show();
+  window.focus();
+});
+
+app.on("before-quit", (event) => {
+  if (quitDrainComplete || (!activeRequests.size && !activeRunRuntimes().size)) return;
+  event.preventDefault();
+  if (quitDrainPromise) return;
+  quitDrainPromise = drainActiveRequestsForQuit().catch(() => false).then(() => {
+    quitDrainComplete = true;
+    app.quit();
+  });
+});
+
 app.whenReady().then(() => {
+  if (!hasSingleInstanceLock) return;
+  recoverInterruptedAutomationRuns();
+  recoverInterruptedLocalRuns();
   createWindow();
   startAutomationScheduler();
 
@@ -4469,6 +5264,7 @@ ipcMain.handle("automation:create", (_event, payload = {}) => {
 });
 
 ipcMain.handle("automation:set-enabled", (_event, { automationId, enabled } = {}) => {
+  assertAutomationNotRunning(automationId);
   const store = readStore();
   const automation = findAutomationOrThrow(store, automationId);
   automation.enabled = Boolean(enabled);
@@ -4484,6 +5280,7 @@ ipcMain.handle("automation:set-enabled", (_event, { automationId, enabled } = {}
 });
 
 ipcMain.handle("automation:delete", (_event, { automationId } = {}) => {
+  assertAutomationNotRunning(automationId);
   const store = readStore();
   const automation = findAutomationOrThrow(store, automationId);
   const runEvent = upsertAutomationActionRunEvent(store, automation, "delete");
@@ -4500,31 +5297,92 @@ ipcMain.handle("automation:run-now", async (_event, { automationId, requestId } 
   return runAutomationById(automationId, { requestId, trigger: "manual" });
 });
 
+ipcMain.handle("automation:cancel", async (_event, { automationId, runId } = {}) => {
+  const runtime = activeAutomationRuns.get(automationId);
+  if (!runtime || (runId && runtime.runId !== runId)) {
+    const error = new Error("AUTOMATION_NOT_RUNNING: 没有找到对应的运行中自动化任务。");
+    error.code = "AUTOMATION_NOT_RUNNING";
+    throw error;
+  }
+
+  runtime.cancelled = true;
+  stopActiveRequest(runtime.requestId);
+
+  const settled = await new Promise((resolve) => {
+    const timeout = setTimeout(() => resolve(false), RUN_STOP_WAIT_MS);
+    runtime.done.then(() => {
+      clearTimeout(timeout);
+      resolve(true);
+    });
+  });
+  if (!settled) {
+    const error = new Error(
+      `AUTOMATION_STOP_TIMEOUT: ${RUN_STOP_WAIT_MS} 毫秒内未确认底层任务停止，请稍后重试。`,
+    );
+    error.code = "AUTOMATION_STOP_TIMEOUT";
+    throw error;
+  }
+
+  const latestStore = readStore();
+  const latestAutomation = findAutomationOrThrow(latestStore, automationId);
+  const latestEntry = (latestAutomation.history || []).find((entry) => entry.id === runtime.runId)
+    || (latestAutomation.lastRun?.id === runtime.runId ? latestAutomation.lastRun : null);
+  if (!latestEntry || latestEntry.status === "running") {
+    const error = new Error("AUTOMATION_STOP_NOT_CONFIRMED: 自动化运行尚未进入终态。");
+    error.code = "AUTOMATION_STOP_NOT_CONFIRMED";
+    throw error;
+  }
+  return {
+    ...sanitizeStore(latestStore),
+    automationRun: latestEntry,
+  };
+});
+
 ipcMain.handle("subagent:run", async (_event, payload = {}) => {
   return runSubagent(payload, _event.sender);
 });
 
-ipcMain.handle("subagent:cancel", (_event, { runId, requestId } = {}) => {
-  const key = requestId || runId;
-  const request = activeRequests.get(key);
-  if (request) {
-    if (typeof request.abort === "function") request.abort();
-    else if (typeof request.kill === "function") request.kill();
-    activeRequests.delete(key);
+ipcMain.handle("subagent:cancel", async (_event, { runId, requestId } = {}) => {
+  const runtimeByRunId = runId ? activeSubagentRuns.get(runId) : null;
+  const runtimeByRequestId = requestId ? activeSubagentRuns.get(requestId) : null;
+  if (runtimeByRunId && runtimeByRequestId && runtimeByRunId !== runtimeByRequestId) {
+    const error = new Error("SUBAGENT_RUN_MISMATCH: runId 与 requestId 不属于同一次运行。");
+    error.code = "SUBAGENT_RUN_MISMATCH";
+    throw error;
   }
-  if (runId) cancelledSubagentRuns.add(runId);
-  if (requestId) cancelledSubagentRuns.add(requestId);
+  const runtime = runtimeByRunId || runtimeByRequestId;
+  if (!runtime) {
+    const error = new Error("SUBAGENT_NOT_RUNNING: 没有找到对应的运行中子代理。");
+    error.code = "SUBAGENT_NOT_RUNNING";
+    throw error;
+  }
+  if ((runId && runtime.runId !== runId) || (requestId && runtime.requestId !== requestId)) {
+    const error = new Error("SUBAGENT_RUN_MISMATCH: 运行标识不匹配。");
+    error.code = "SUBAGENT_RUN_MISMATCH";
+    throw error;
+  }
+  runtime.cancelled = true;
+  stopActiveRequest(runtime.requestId);
+
+  if (!await waitForRuntimeCompletion(runtime, RUN_STOP_WAIT_MS)) {
+    const error = new Error(
+      `SUBAGENT_STOP_TIMEOUT: ${RUN_STOP_WAIT_MS} 毫秒内未确认底层任务停止，请稍后重试。`,
+    );
+    error.code = "SUBAGENT_STOP_TIMEOUT";
+    throw error;
+  }
+
   const store = readStore();
-  const run = (store.subagentRuns || []).find((item) => item.id === runId || item.requestId === requestId);
-  if (run) {
-    run.status = "cancelled";
-    run.endedAt = now();
-    run.stderr = trimOutput(`${run.stderr || ""}\n子代理已停止。`);
-    const cancelledRun = upsertSubagentRun(store, normalizeSubagentRun(run, store));
-    upsertSubagentRunEvent(store, cancelledRun, "cancelled");
-    writeStore(store);
+  const run = findSubagentRun(store, { runId: runtime.runId, requestId: runtime.requestId });
+  if (!run || run.status === "running") {
+    const error = new Error("SUBAGENT_STOP_NOT_CONFIRMED: 子代理尚未进入终态。");
+    error.code = "SUBAGENT_STOP_NOT_CONFIRMED";
+    throw error;
   }
-  return sanitizeStore(store);
+  return {
+    ...sanitizeStore(store),
+    subagentRun: run,
+  };
 });
 
 ipcMain.handle("subagent:archive", (_event, { runId, requestId, archived = true } = {}) => {
@@ -4769,12 +5627,7 @@ function cancelActiveChatRequest(requestId) {
   if (!activeChatRequestIds.has(requestId)) return false;
   cancelledChatRequestIds.add(requestId);
   broadcastStoreUpdate(readStore());
-  const request = activeRequests.get(requestId);
-  if (request) {
-    if (typeof request.abort === "function") request.abort();
-    else if (typeof request.kill === "function") request.kill();
-    activeRequests.delete(requestId);
-  }
+  stopActiveRequest(requestId);
   return true;
 }
 
@@ -4831,6 +5684,7 @@ ipcMain.handle("chat:send-message", async (_event, { sessionId, content, request
   try {
     const resumeId = String(claudeSessionId || "").trim();
     if (resumeId && !session.claudeSessionId) session.claudeSessionId = resumeId;
+    const startedClaudeSessionId = String(session.claudeSessionId || "");
     const userContent = String(content).trim();
     session.messages.push({ role: "user", content: userContent, requestId: runId, createdAt });
     if (isGenericSessionTitle(session.title)) {
@@ -4869,7 +5723,7 @@ ipcMain.handle("chat:send-message", async (_event, { sessionId, content, request
           else latestSession.messages.push(nextMessage);
           latestSession.updatedAt = nextMessage.createdAt || now();
         }
-        if (session.claudeSessionId) latestSession.claudeSessionId = session.claudeSessionId;
+        commitClaudeSessionIdIfCurrent(latestSession, startedClaudeSessionId, session.claudeSessionId);
       }
       const runEvent = upsertRunEvent(
         latestStore,
@@ -5908,37 +6762,42 @@ ipcMain.handle("workspace:save-file-as", async (event, { projectPath, relativePa
   }
 });
 
-ipcMain.handle("workspace:cancel-command", (_event, { requestId } = {}) => {
-  if (!String(requestId || "").startsWith("workspace_")) return { cancelled: false };
-  const request = activeRequests.get(requestId);
-  let snapshot = null;
-  if (request) {
-    if (typeof request.cancel === "function") snapshot = request.cancel();
-    else if (typeof request.abort === "function") request.abort();
-    else if (typeof request.kill === "function") request.kill();
-    activeRequests.delete(requestId);
-    if (snapshot && request.kind === "workspace-command") {
-      const store = readStore();
-      const persisted = upsertCommandRun(store, {
-        ...snapshot,
-        kind: isGitCommandLine(snapshot.command || snapshot.commandLine) ? "git" : "workspace",
-        project: projectFromPath(snapshot.cwd),
-      });
-      const runEvent = upsertCommandRunEvent(store, persisted, "cancelled");
-      writeStore(store);
-      broadcastStoreUpdate(store);
-      const sanitized = sanitizeStore(store);
-      return {
-        ...snapshot,
-        commandRun: persisted,
-        commandRuns: sanitized.commandRuns,
-        runEvent,
-        runEvents: sanitized.runEvents,
-        cancelled: true,
-      };
-    }
+ipcMain.handle("workspace:cancel-command", async (_event, { requestId } = {}) => {
+  const key = String(requestId || "");
+  if (!key.startsWith("workspace_")) return { cancelled: false };
+  const runtime = activeWorkspaceCommandRuns.get(key);
+  if (!runtime) return { cancelled: false };
+
+  stopActiveRequest(runtime.requestId);
+  if (!await waitForRuntimeCompletion(runtime, RUN_STOP_WAIT_MS)) {
+    const error = new Error(
+      `WORKSPACE_COMMAND_STOP_TIMEOUT: ${RUN_STOP_WAIT_MS} 毫秒内未确认底层命令停止，请稍后重试。`,
+    );
+    error.code = "WORKSPACE_COMMAND_STOP_TIMEOUT";
+    throw error;
   }
-  return { cancelled: Boolean(request) };
+
+  const store = readStore();
+  const commandRun = (store.commandRuns || []).find(
+    (item) => item.id === runtime.runId || item.requestId === runtime.requestId,
+  );
+  const runEvent = (store.runEvents || []).find(
+    (item) => item.id === runtime.requestId,
+  );
+  if (!commandRun || runEvent?.status === "running") {
+    const error = new Error("WORKSPACE_COMMAND_STOP_NOT_CONFIRMED: Workspace 命令尚未进入终态。");
+    error.code = "WORKSPACE_COMMAND_STOP_NOT_CONFIRMED";
+    throw error;
+  }
+  const sanitized = sanitizeStore(store);
+  return {
+    ...commandRun,
+    commandRun,
+    commandRuns: sanitized.commandRuns,
+    runEvent,
+    runEvents: sanitized.runEvents,
+    cancelled: Boolean(commandRun.cancelled),
+  };
 });
 
 ipcMain.handle("workspace:run-command", async (_event, { projectPath, command, requestId } = {}) => {
@@ -5946,6 +6805,12 @@ ipcMain.handle("workspace:run-command", async (_event, { projectPath, command, r
   const cmd = String(command || "").trim();
   if (!cmd) throw new Error("命令为空。");
   const runId = requestId || id("workspace_command");
+  if (activeWorkspaceCommandRuns.has(runId) || activeRequests.has(runId)) {
+    const error = new Error("WORKSPACE_COMMAND_RUNNING: 这个 Workspace 命令正在运行。");
+    error.code = "WORKSPACE_COMMAND_RUNNING";
+    throw error;
+  }
+  const runtime = runtimeCompletion({ runId, requestId: runId, cancelled: false });
   const startedAtIso = now();
   const project = projectFromPath(cwd);
   const startStore = readStore();
@@ -5957,6 +6822,7 @@ ipcMain.handle("workspace:run-command", async (_event, { projectPath, command, r
     cwd,
     project,
     startedAt: startedAtIso,
+    runtimeOwner: runtimeInstanceId,
   }, "running");
   writeStore(startStore);
   broadcastStoreUpdate(startStore);
@@ -5965,34 +6831,47 @@ ipcMain.handle("workspace:run-command", async (_event, { projectPath, command, r
     runEvents: [...(startStore.runEvents || [])],
   };
 
-  const result = await new Promise((resolve) => {
-    const startedAt = Date.now();
-    const child = spawn(cmd, [], {
-      cwd,
-      windowsHide: process.platform === "win32",
-      env: process.env,
-      shell: process.platform === "win32" ? process.env.ComSpec || true : true,
-    });
-    let stdout = "";
-    let stderr = "";
-    let cancelled = false;
-    const cancelledSnapshot = () => ({
-      id: runId,
-      requestId: runId,
-      command: cmd,
-      cwd,
-      code: 130,
-      stdout,
-      stderr: trimOutput(`${stderr}\n命令已取消。`),
-      durationMs: Date.now() - startedAt,
-      cancelled: true,
-      startedAt: startedAtIso,
-      endedAt: now(),
-    });
-    const currentRunEvent = () => upsertCommandRunEvent(
-      liveEventStore,
-      {
-        ...(cancelled ? cancelledSnapshot() : {
+  activeWorkspaceCommandRuns.set(runId, runtime);
+  try {
+    const result = await new Promise((resolve) => {
+      const startedAt = Date.now();
+      let child;
+      try {
+        child = spawn(cmd, [], {
+          cwd,
+          windowsHide: process.platform === "win32",
+          env: process.env,
+          shell: process.platform === "win32" ? process.env.ComSpec || true : true,
+          detached: process.platform !== "win32",
+        });
+      } catch (error) {
+        resolve({
+          id: runId,
+          requestId: runId,
+          command: cmd,
+          cwd,
+          code: 1,
+          stdout: "",
+          stderr: trimOutput(error.message || String(error)),
+          durationMs: Date.now() - startedAt,
+          cancelled: false,
+          startedAt: startedAtIso,
+          endedAt: now(),
+        });
+        return;
+      }
+
+      let stdout = "";
+      let stderr = "";
+      let settled = false;
+      let settling = false;
+      let timedOut = false;
+      const requestHandle = createProcessRequestHandle(child, () => {
+        runtime.cancelled = true;
+      });
+      const currentRunEvent = () => upsertCommandRunEvent(
+        liveEventStore,
+        {
           id: runId,
           requestId: runId,
           command: cmd,
@@ -6003,107 +6882,101 @@ ipcMain.handle("workspace:run-command", async (_event, { projectPath, command, r
           durationMs: Date.now() - startedAt,
           cancelled: false,
           startedAt: startedAtIso,
-        }),
-        kind: isGitCommandLine(cmd) ? "git" : "workspace",
-        project,
-      },
-      cancelled ? "cancelled" : "running",
-    );
-    const liveRunEventEmitter = createProcessRunEventEmitter(
-      _event.sender,
-      "workspace:command-stream-event",
-      runId,
-      currentRunEvent,
-    );
-    if (requestId) {
-      activeRequests.set(requestId, {
-        kind: "workspace-command",
-        cancel: () => {
-          cancelled = true;
-          killChildProcess(child);
-          return cancelledSnapshot();
+          kind: isGitCommandLine(cmd) ? "git" : "workspace",
+          project,
+          runtimeOwner: runtimeInstanceId,
         },
-        kill: () => {
-          cancelled = true;
-          killChildProcess(child);
-        },
-      });
-    }
-    const timeout = setTimeout(() => {
-      killChildProcess(child);
-      stderr += "\n命令运行超过 120 秒，已停止。";
-    }, 120000);
+        "running",
+      );
+      const liveRunEventEmitter = createProcessRunEventEmitter(
+        _event.sender,
+        "workspace:command-stream-event",
+        runId,
+        currentRunEvent,
+      );
+      const finish = async ({ code, error = null } = {}) => {
+        if (settled || settling) return;
+        settling = true;
+        if (requestHandle.stopRequested) await requestHandle.waitForTreeStop();
+        settled = true;
+        clearTimeout(timeout);
+        if (activeRequests.get(runId) === requestHandle) activeRequests.delete(runId);
+        liveRunEventEmitter.flush();
+        const cancelled = runtime.cancelled;
+        const finalStderr = cancelled
+          ? `${stderr}\n命令已取消。`
+          : timedOut
+            ? `${stderr}\n命令运行超过 120 秒，已停止。`
+            : error
+              ? `${stderr}\n${error.message || String(error)}`
+              : stderr;
+        resolve({
+          id: runId,
+          requestId: runId,
+          command: cmd,
+          cwd,
+          code: cancelled ? 130 : timedOut ? 124 : typeof code === "number" ? code : 1,
+          stdout,
+          stderr: trimOutput(finalStderr),
+          durationMs: Date.now() - startedAt,
+          cancelled,
+          startedAt: startedAtIso,
+          endedAt: now(),
+        });
+      };
 
-    child.stdout.on("data", (chunk) => {
-      const text = chunk.toString("utf8");
-      stdout = trimOutput(stdout + text);
-      emitProcessChunk(_event.sender, "workspace:command-stream-event", runId, "stdout", text);
-      liveRunEventEmitter.schedule();
-    });
-    child.stderr.on("data", (chunk) => {
-      const text = chunk.toString("utf8");
-      stderr = trimOutput(stderr + text);
-      emitProcessChunk(_event.sender, "workspace:command-stream-event", runId, "stderr", text);
-      liveRunEventEmitter.schedule();
-    });
-    child.on("error", (error) => {
-      clearTimeout(timeout);
-      if (requestId) activeRequests.delete(requestId);
-      liveRunEventEmitter.flush();
-      resolve({
-        id: runId,
-        requestId: runId,
-        command: cmd,
-        cwd,
-        code: cancelled ? 130 : 1,
-        stdout,
-        stderr: trimOutput(cancelled ? `${stderr}\n命令已取消。` : `${stderr}\n${error.message}`),
-        durationMs: Date.now() - startedAt,
-        cancelled,
-        startedAt: startedAtIso,
-        endedAt: now(),
+      activeRequests.set(runId, requestHandle);
+      const timeout = setTimeout(() => {
+        timedOut = true;
+        requestHandle.terminate();
+      }, 120000);
+
+      child.stdout.on("data", (chunk) => {
+        const text = chunk.toString("utf8");
+        stdout = trimOutput(stdout + text);
+        emitProcessChunk(_event.sender, "workspace:command-stream-event", runId, "stdout", text);
+        liveRunEventEmitter.schedule();
+      });
+      child.stderr.on("data", (chunk) => {
+        const text = chunk.toString("utf8");
+        stderr = trimOutput(stderr + text);
+        emitProcessChunk(_event.sender, "workspace:command-stream-event", runId, "stderr", text);
+        liveRunEventEmitter.schedule();
+      });
+      child.on("error", (error) => {
+        requestHandle.markProcessClosed();
+        void finish({ code: 1, error });
+      });
+      child.on("close", (code) => {
+        requestHandle.markProcessClosed();
+        void finish({ code });
       });
     });
-    child.on("close", (code) => {
-      clearTimeout(timeout);
-      if (requestId) activeRequests.delete(requestId);
-      liveRunEventEmitter.flush();
-      resolve({
-        id: runId,
-        requestId: runId,
-        command: cmd,
-        cwd,
-        code: cancelled ? 130 : code,
-        stdout,
-        stderr: trimOutput(cancelled ? `${stderr}\n命令已取消。` : stderr),
-        durationMs: Date.now() - startedAt,
-        cancelled,
-        startedAt: startedAtIso,
-        endedAt: now(),
-      });
+    const store = readStore();
+    const persisted = upsertCommandRun(store, {
+      ...result,
+      id: runId,
+      requestId: runId,
+      kind: isGitCommandLine(cmd) ? "git" : "workspace",
+      project,
     });
-  });
-  const store = readStore();
-  const persisted = upsertCommandRun(store, {
-    ...result,
-    id: runId,
-    requestId: runId,
-    kind: isGitCommandLine(cmd) ? "git" : "workspace",
-    project,
-  });
-  const runEvent = upsertCommandRunEvent(
-    store,
-    persisted,
-    result.cancelled ? "cancelled" : result.code === 0 ? "ok" : "error",
-  );
-  writeStore(store);
-  broadcastStoreUpdate(store);
-  const sanitized = sanitizeStore(store);
-  return {
-    ...result,
-    commandRun: persisted,
-    commandRuns: sanitized.commandRuns,
-    runEvent,
-    runEvents: sanitized.runEvents,
-  };
+    const runEvent = upsertCommandRunEvent(
+      store,
+      persisted,
+      result.cancelled ? "cancelled" : result.code === 0 ? "ok" : "error",
+    );
+    writeStore(store);
+    broadcastStoreUpdate(store);
+    const sanitized = sanitizeStore(store);
+    return {
+      ...result,
+      commandRun: persisted,
+      commandRuns: sanitized.commandRuns,
+      runEvent,
+      runEvents: sanitized.runEvents,
+    };
+  } finally {
+    if (activeWorkspaceCommandRuns.get(runId) === runtime) activeWorkspaceCommandRuns.delete(runId);
+    runtime.resolveDone?.();
+  }
 });

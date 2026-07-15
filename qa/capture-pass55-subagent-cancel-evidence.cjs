@@ -52,6 +52,9 @@ const args = process.argv.slice(2);
 function out(value) { process.stdout.write(typeof value === 'string' ? value + '\\n' : JSON.stringify(value) + '\\n'); }
 if (args[0] === '--version') {
   out('2.9.0 (pass55 fake)');
+} else if (args[0] === '-p' && String(args[1] || '').includes('pass55 cancellable subagent task')) {
+  out('pass55 subagent started');
+  setInterval(() => out('pass55 subagent still running'), 250);
 } else {
   out({ result: 'pass55 generic ok', session_id: 'pass55-claude-session' });
 }
@@ -69,27 +72,6 @@ fs.writeFileSync(path.join(PROJECT_DIR, "package.json"), JSON.stringify({ name: 
 
 const createdAt = "2026-07-05T00:00:00.000Z";
 const pass55Project = { name: "pass55-project", path: PROJECT_DIR };
-const runningRun = {
-  id: "pass55-subagent-run",
-  requestId: "pass55-subagent-request",
-  nickname: "Cancel Subagent",
-  task: "pass55 cancellable subagent task",
-  status: "running",
-  sessionId: "default",
-  project: pass55Project,
-  cwd: PROJECT_DIR,
-  command: FAKE_CLAUDE_COMMAND,
-  args: ["-p", "pass55 cancellable subagent task", "--output-format", "json"],
-  stdout: "",
-  stderr: "pass55 subagent started",
-  summary: "",
-  code: null,
-  durationMs: 0,
-  startedAt: createdAt,
-  endedAt: "",
-  artifacts: [],
-};
-
 writeJson(DATA_FILE, {
   version: 1,
   settings: {
@@ -126,19 +108,8 @@ writeJson(DATA_FILE, {
     },
   ],
   automations: [],
-  subagentRuns: [runningRun],
-  runEvents: [
-    {
-      id: "pass55-subagent-request",
-      type: "subagent",
-      status: "running",
-      title: "子代理：Cancel Subagent",
-      detail: "pass55-project · pass55 cancellable subagent task",
-      project: pass55Project,
-      sessionId: "default",
-      createdAt,
-    },
-  ],
+  subagentRuns: [],
+  runEvents: [],
 });
 
 require(path.join(REPO_DIR, "electron", "main.cjs"));
@@ -190,6 +161,58 @@ app.whenReady().then(async () => {
 
   try {
     assertStep("PASS55_READY", await waitFor(win, "Boolean(document.querySelector('.app-grid') && window.claudexDesktop)", 15000));
+    assertStep("PASS55_START_REAL_SUBAGENT", await win.webContents.executeJavaScript(`
+      (function() {
+        window.__pass55RunPromise = window.claudexDesktop.runSubagent({
+          projectPath: ${JSON.stringify(PROJECT_DIR)},
+          sessionId: 'default',
+          task: 'pass55 cancellable subagent task',
+          nickname: 'Cancel Subagent',
+          requestId: 'pass55-subagent-request',
+        });
+        return true;
+      })();
+    `));
+    assertStep("PASS55_REAL_SUBAGENT_RUNNING", await waitFor(win, `
+      (async function() {
+        const state = await window.claudexDesktop.getState();
+        const run = state.subagentRuns?.find((item) => item.requestId === 'pass55-subagent-request');
+        return run?.status === 'running' && /pass55 subagent started/.test(run.stdout || '');
+      })();
+    `, 10000));
+    assertStep("PASS55_DUPLICATE_REQUEST_REJECTED", await win.webContents.executeJavaScript(`
+      (async function() {
+        try {
+          await window.claudexDesktop.runSubagent({
+            projectPath: ${JSON.stringify(PROJECT_DIR)},
+            sessionId: 'default',
+            task: 'pass55 duplicate request must not start',
+            nickname: 'Duplicate Subagent',
+            requestId: 'pass55-subagent-request',
+          });
+          return false;
+        } catch (error) {
+          return /SUBAGENT_REQUEST_ACTIVE/.test(String(error?.message || error));
+        }
+      })();
+    `));
+    assertStep("PASS55_MISMATCHED_CANCEL_REJECTED", await win.webContents.executeJavaScript(`
+      (async function() {
+        const state = await window.claudexDesktop.getState();
+        const run = state.subagentRuns?.find((item) => item.requestId === 'pass55-subagent-request');
+        try {
+          await window.claudexDesktop.cancelSubagent({
+            runId: run?.id,
+            requestId: 'pass55-wrong-request-id',
+          });
+          return false;
+        } catch (error) {
+          const fresh = await window.claudexDesktop.getState();
+          const current = fresh.subagentRuns?.find((item) => item.id === run?.id);
+          return /SUBAGENT_RUN_MISMATCH/.test(String(error?.message || error)) && current?.status === 'running';
+        }
+      })();
+    `));
     assertStep("PASS55_OPEN_SUBAGENTS", await openSubagents(win));
     assertStep("PASS55_RUNNING_FIXTURE_VISIBLE", await waitFor(win, `
       (async function() {
@@ -207,7 +230,7 @@ app.whenReady().then(async () => {
       })();
     `, 10000));
 
-    assertStep("PASS55_CANCEL_SUBAGENT", await waitFor(win, `
+    const cancelConfirmed = await waitFor(win, `
       (async function() {
         if (!window.__pass55CancelClicked) {
           window.__pass55CancelClicked = true;
@@ -231,7 +254,20 @@ app.whenReady().then(async () => {
           /\\u5df2\\u505c\\u6b62/.test(document.body.textContent || '')
         );
       })();
-    `, 10000));
+    `, 10000);
+    if (!cancelConfirmed) {
+      console.error("PASS55_CANCEL_DEBUG", await win.webContents.executeJavaScript(`
+        (async function() {
+          const state = await window.claudexDesktop.getState();
+          return {
+            runs: state.subagentRuns,
+            events: state.runEvents?.filter((item) => item.type === 'subagent'),
+            body: (document.body.textContent || '').slice(-2000),
+          };
+        })();
+      `));
+    }
+    assertStep("PASS55_CANCEL_SUBAGENT", cancelConfirmed);
 
     assertStep("PASS55_TIMELINE_CANCELLED", await waitFor(win, `
       (async function() {
