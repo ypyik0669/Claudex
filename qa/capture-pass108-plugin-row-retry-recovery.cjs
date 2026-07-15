@@ -158,16 +158,19 @@ async function runTest() {
     })();
   `));
   assertStep("PASS108_PLUGIN_ROW_READY", await waitFor(win, `
-    Boolean(document.querySelector('.plugin-manager-modal') && /qa-retry-plugin@qa-market/.test(document.querySelector('.plugin-manager-list')?.textContent || ''))
+    (function() {
+      const row = document.querySelector('.structured-plugin-row[data-plugin-id="qa-retry-plugin@qa-market"]');
+      const action = row?.querySelector('[data-plugin-action="disable"]');
+      return Boolean(document.querySelector('.plugin-manager-modal') && row && action && !action.disabled);
+    })()
   `, 15000));
 
   const beforeDisable = readCommandLog();
   assertStep("PASS108_CLICK_DISABLE", await win.webContents.executeJavaScript(`
     (function() {
-      const row = [...document.querySelectorAll('.structured-plugin-row')]
-        .find((item) => /qa-retry-plugin@qa-market/.test(item.textContent || ''));
-      const button = row?.querySelector('.structured-row-actions button');
-      if (!button) return false;
+      const row = document.querySelector('.structured-plugin-row[data-plugin-id="qa-retry-plugin@qa-market"]');
+      const button = row?.querySelector('[data-plugin-action="disable"]');
+      if (!button || button.disabled) return false;
       button.click();
       return true;
     })();

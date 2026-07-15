@@ -199,20 +199,23 @@ async function runTest() {
     })();
   `));
   assertStep("PASS164_PLUGIN_ROW_READY", await waitFor(win, `
-    Boolean(
-      document.querySelector('.plugin-manager-modal') &&
-      document.querySelector('.structured-plugin-row[data-plugin-id="pass164-review-plugin@pass164-market"]') &&
-      /pass164-shell-tool/.test(document.querySelector('.plugin-manager-list')?.textContent || '')
-    )
+    (function() {
+      const row = document.querySelector('.structured-plugin-row[data-plugin-id="pass164-review-plugin@pass164-market"]');
+      const action = row?.querySelector('[data-plugin-action="disable"]');
+      return Boolean(
+        document.querySelector('.plugin-manager-modal') &&
+        row && action && !action.disabled &&
+        /pass164-shell-tool/.test(document.querySelector('.plugin-manager-list')?.textContent || '')
+      );
+    })()
   `, 15000));
 
   const beforeDisable = readCommandLog();
   assertStep("PASS164_CLICK_DISABLE", await win.webContents.executeJavaScript(`
     (function() {
       const row = document.querySelector('.structured-plugin-row[data-plugin-id="pass164-review-plugin@pass164-market"]');
-      const button = Array.from(row?.querySelectorAll('.structured-row-actions button') || [])
-        .find((candidate) => /\\u7981\\u7528/.test(candidate.textContent || ''));
-      if (!button) return false;
+      const button = row?.querySelector('[data-plugin-action="disable"]');
+      if (!button || button.disabled) return false;
       button.click();
       return true;
     })();

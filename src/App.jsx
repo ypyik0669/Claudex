@@ -615,6 +615,8 @@ const copy = {
     confirmCliActionWarning: "这会通过 Claude Code CLI 修改本机插件或市场状态：{command}",
     confirmCliActionButton: "确认执行",
     pluginMutationRisk: "会通过 Claude Code CLI 修改本机插件状态，并把执行结果写入本地命令证据。",
+    pluginUninstallRisk: "卸载会从 {scope} 范围移除该插件；默认不传 --keep-data 或 --prune，插件持久化数据可能被删除，依赖不会自动清理。",
+    pluginUninstallScopeRequired: "Claude Code 未返回有效的安装范围，无法安全卸载。",
     dismissAction: "取消",
     installedPlugins: "已安装的插件",
     pluginRefresh: "刷新",
@@ -1172,6 +1174,28 @@ function normalizeClaudeCommandInput(value) {
   return { args: displayArgs, displayArgs };
 }
 
+function normalizePluginScope(value) {
+  const scope = String(value || "").trim().toLowerCase();
+  return ["user", "project", "local"].includes(scope) ? scope : "";
+}
+
+function pluginUninstallCommandArgs(plugin = {}, scopeOverride = "") {
+  const identifier = String(plugin?.id || plugin?.name || "").trim();
+  const scope = normalizePluginScope(scopeOverride || plugin?.scope);
+  return identifier && scope ? ["plugin", "uninstall", "--scope", scope, identifier] : [];
+}
+
+function parsePluginUninstallCommand(value) {
+  const command = String(value || "").trim().replace(/^claude\s+/i, "");
+  const match = command.match(/^plugin\s+(?:uninstall|remove)\s+--scope\s+(user|project|local)\s+([^\s]+)$/i);
+  if (!match) return null;
+  return {
+    action: "uninstall",
+    scope: normalizePluginScope(match[1]),
+    identifier: String(match[2] || "").trim(),
+  };
+}
+
 function normalizeCustomMarketplaceUrl(value) {
   const source = String(value || "").trim();
   if (!source || source.length > 2048 || /[\s\u0000-\u001f\u007f]/.test(source)) return "";
@@ -1239,11 +1263,20 @@ function capabilityRunsNewestFirst(runs = []) {
     .sort((a, b) => commandRunTime(b) - commandRunTime(a));
 }
 
-function pluginActionRegex(identifier, actions = ["install", "update", "disable", "enable"]) {
+function pluginActionRegex(identifier, actions = ["install", "update", "disable", "enable", "uninstall"]) {
   const id = String(identifier || "").trim();
   if (!id) return null;
   const suffix = id.includes("@") ? "" : "(?:@[^\\s]+)?";
-  return new RegExp(`(?:^|\\s)plugin\\s+(?:${actions.join("|")})\\s+${escapeRegExp(id)}${suffix}(?=\\s|$)`, "i");
+  const normalizedActions = [...new Set((actions || []).map((action) => String(action || "").trim().toLowerCase()).filter(Boolean))];
+  const directActions = normalizedActions.filter((action) => !["uninstall", "remove"].includes(action));
+  const patterns = [];
+  if (directActions.length) {
+    patterns.push(`(?:^|\\s)plugin\\s+(?:${directActions.map(escapeRegExp).join("|")})\\s+${escapeRegExp(id)}${suffix}(?=\\s|$)`);
+  }
+  if (normalizedActions.some((action) => ["uninstall", "remove"].includes(action))) {
+    patterns.push(`(?:^|\\s)plugin\\s+(?:uninstall|remove)\\s+--scope\\s+(?:user|project|local)\\s+${escapeRegExp(id)}${suffix}(?=\\s|$)`);
+  }
+  return patterns.length ? new RegExp(patterns.map((pattern) => `(?:${pattern})`).join("|"), "i") : null;
 }
 
 function findRecentPluginActionRun(runs, identifiers, actions) {
@@ -1275,6 +1308,10 @@ function findRecentMcpActionRun(runs) {
 
 function pluginActionArgsFromRun(run, fallbackIdentifier = "") {
   const commandLine = capabilityCommandLine(run);
+  const uninstall = parsePluginUninstallCommand(commandLine);
+  if (uninstall?.identifier && uninstall.scope) {
+    return `plugin uninstall --scope ${uninstall.scope} ${uninstall.identifier}`;
+  }
   const match = commandLine.match(/(?:^|\s)plugin\s+(enable|disable|update|install)\s+([^\s]+)/i);
   const action = String(match?.[1] || "").trim().toLowerCase();
   const identifier = String(match?.[2] || fallbackIdentifier || "").trim();
@@ -1309,6 +1346,7 @@ function mutatingCapabilityRetryArgsFromRun(run) {
   if (!args) return "";
   const mutatingPatterns = [
     /^plugin\s+(?:install|update|enable|disable)\s+\S+/i,
+    /^plugin\s+(?:uninstall|remove)\s+--scope\s+(?:user|project|local)\s+\S+$/i,
     /^plugin\s+marketplace\s+update$/i,
     /^plugin\s+marketplace\s+add\s+\S+$/i,
     /^plugin\s+marketplace\s+remove\s+--scope\s+user\s+\S+$/i,
@@ -1399,6 +1437,17 @@ function capabilityRetryFocusForArgs(args, context = {}) {
 }
 
 function capabilityActionFocusForCommand(args, context = {}) {
+  const uninstall = parsePluginUninstallCommand(args);
+  if (uninstall?.identifier && uninstall.scope) {
+    return {
+      tab: "plugins",
+      kind: "plugin",
+      id: uninstall.identifier,
+      query: panelPluginNameFromId(uninstall.identifier),
+      action: "uninstall",
+      target: uninstall.scope,
+    };
+  }
   const parts = String(args || "").trim().split(/\s+/).filter(Boolean);
   if (parts[0] !== "plugin" || !parts[1]) return null;
   if (parts[1] === "marketplace" && parts[2] === "add") {
@@ -1980,6 +2029,36 @@ function pluginEvidenceText(plugin = {}, t) {
     plugin.error ? [t.mcpError, plugin.error] : null,
   ].filter(Boolean);
   return rows.map(([label, value]) => `${label}: ${value}`).join("\n");
+}
+
+function installedPluginActionReviewRows(plugin = {}, t, activeProject = null, options = {}) {
+  const detailLines = toolDetailLines(plugin, t);
+  const commandInput = normalizeClaudeCommandInput(options.commandArgs || []);
+  return [
+    [t.plugins, plugin.id || plugin.name || options.actionLabel || t.pluginActions],
+    [t.status, pluginStatusDisplay(plugin, t)],
+    plugin.version && plugin.version !== "unknown" ? [t.version, plugin.version] : null,
+    plugin.scope ? [t.scope, plugin.scope] : null,
+    plugin.marketplace ? [t.marketplace, plugin.marketplace] : null,
+    plugin.source ? [t.source, plugin.source] : null,
+    plugin.installPath ? [t.installPath, plugin.installPath] : null,
+    detailLines.length ? [t.toolsList, detailLines.join("\n")] : plugin.tools ? [t.tools, plugin.tools] : null,
+    plugin.permissions ? [t.allowedTools, plugin.permissions] : null,
+    plugin.error ? [t.mcpError, plugin.error] : null,
+    commandInput.displayArgs ? [t.commandLine, `claude ${commandInput.displayArgs}`] : null,
+    [t.commandCwd, activeProject?.path || t.localWorkspace],
+    [t.marketplaceRisk, options.risk || t.pluginMutationRisk],
+  ].filter(Boolean);
+}
+
+function pluginUninstallReviewRows(plugin = {}, t, activeProject = null, scopeOverride = "") {
+  const scope = normalizePluginScope(scopeOverride || plugin.scope);
+  const commandArgs = pluginUninstallCommandArgs(plugin, scope);
+  return installedPluginActionReviewRows(plugin, t, activeProject, {
+    actionLabel: t.uninstallPlugin,
+    commandArgs,
+    risk: t.pluginUninstallRisk.replace("{scope}", scope || "-"),
+  });
 }
 
 function marketplacePluginEvidenceText(plugin = {}, t) {
@@ -12938,21 +13017,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
   }
 
   function pluginActionReviewRows(plugin, actionLabel = t.pluginActions) {
-    const detailLines = toolDetailLines(plugin, t);
-    return [
-      [t.plugins, plugin.id || plugin.name || actionLabel],
-      [t.status, pluginStatusDisplay(plugin, t)],
-      plugin.version && plugin.version !== "unknown" ? [t.version, plugin.version] : null,
-      plugin.scope ? [t.scope, plugin.scope] : null,
-      plugin.marketplace ? [t.marketplace, plugin.marketplace] : null,
-      plugin.source ? [t.source, plugin.source] : null,
-      plugin.installPath ? [t.installPath, plugin.installPath] : null,
-      detailLines.length ? [t.toolsList, detailLines.join("\n")] : plugin.tools ? [t.tools, plugin.tools] : null,
-      plugin.permissions ? [t.allowedTools, plugin.permissions] : null,
-      plugin.error ? [t.mcpError, plugin.error] : null,
-      [t.commandCwd, activeProject?.path || t.localWorkspace],
-      [t.marketplaceRisk, t.pluginMutationRisk],
-    ].filter(Boolean);
+    return installedPluginActionReviewRows(plugin, t, activeProject, { actionLabel });
   }
 
   function requestCapabilityClaude(args, label = "", reviewRows = [], capabilityContext = null) {
@@ -13878,14 +13943,17 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                 </div>
                 {installedPluginRows.length === 0 && <p className="empty-list">{hasStructuredPluginRows ? t.noCapabilities : t.pluginsEmpty}</p>}
                 {installedPluginRows.map((plugin) => {
-                  const recentRun = findRecentPluginActionRun(recentCapabilityRuns, [plugin.id, plugin.name], ["enable", "disable", "update", "install"]);
+                  const recentRun = findRecentPluginActionRun(recentCapabilityRuns, [plugin.id, plugin.name], ["enable", "disable", "update", "install", "uninstall"]);
                   const pluginFocused = capabilityFocusMatches("plugin", plugin.id, plugin.name);
                   const pluginDisableFocused = capabilityActionFocusMatches("plugin", "disable", plugin.id, plugin.name);
                   const pluginEnableFocused = capabilityActionFocusMatches("plugin", "enable", plugin.id, plugin.name);
                   const pluginUpdateFocused = capabilityActionFocusMatches("plugin", "update", plugin.id, plugin.name);
+                  const pluginUninstallFocused = capabilityActionFocusMatches("plugin", "uninstall", plugin.id, plugin.name);
                   const pluginCopyFocused = capabilityActionFocusMatches("plugin", "copy", plugin.id, plugin.name);
                   const pluginRetryFocused = capabilityActionFocusMatches("plugin", "retry", plugin.id, plugin.name);
                   const toolDetails = Array.isArray(plugin.toolDetails) ? plugin.toolDetails : [];
+                  const pluginUninstallScope = normalizePluginScope(plugin.scope);
+                  const pluginUninstallArgs = pluginUninstallCommandArgs(plugin, pluginUninstallScope);
                   const pluginRetryArgs = pluginFocused && recentRun && recentRun.code !== 0
                     ? pluginActionArgsFromRun(recentRun, plugin.id)
                     : "";
@@ -13895,8 +13963,10 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                     id: plugin.id,
                     query: plugin.id,
                     action,
+                    ...(action === "uninstall" && pluginUninstallScope ? { target: pluginUninstallScope } : {}),
                   });
-                  const pluginRetryAction = String(pluginRetryArgs.match(/(?:^|\s)plugin\s+(enable|disable|update|install)\s+/i)?.[1] || "").toLowerCase();
+                  const pluginRetryUninstall = parsePluginUninstallCommand(pluginRetryArgs);
+                  const pluginRetryAction = pluginRetryUninstall?.action || String(pluginRetryArgs.match(/(?:^|\s)plugin\s+(enable|disable|update|install)\s+/i)?.[1] || "").toLowerCase();
                   const pluginRetryBaseContext = capabilityContextFromRun(recentRun);
                   const pluginRetryContext = pluginRetryArgs
                     ? normalizeCapabilityContext({
@@ -13905,10 +13975,14 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                         id: pluginRetryBaseContext?.id || plugin.id,
                         query: pluginRetryBaseContext?.query || plugin.id,
                         action: pluginRetryAction || pluginRetryBaseContext?.action || "retry",
+                        target: pluginRetryUninstall?.scope || pluginRetryBaseContext?.target || "",
                       })
                     : null;
+                  const pluginRetryReviewRows = pluginRetryAction === "uninstall"
+                    ? pluginUninstallReviewRows(plugin, t, activeProject, pluginRetryUninstall?.scope || pluginRetryContext?.target)
+                    : pluginActionReviewRows(plugin);
                   const pluginRetry = pluginRetryArgs
-                    ? () => requestCapabilityClaude(pluginRetryArgs, `${t.pluginActions}: ${plugin.id}`, pluginActionReviewRows(plugin), pluginRetryContext)
+                    ? () => requestCapabilityClaude(pluginRetryArgs, `${t.pluginActions}: ${plugin.id}`, pluginRetryReviewRows, pluginRetryContext)
                     : null;
                   const pluginMeta = [
                     plugin.version && plugin.version !== "unknown" ? [t.version, plugin.version] : null,
@@ -13996,6 +14070,24 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                         title={cliWorking ? t.workingHint : undefined}
                       >
                         {t.updatePlugin}
+                      </button>
+                      <button
+                        type="button"
+                        className="plain-action subtle-action danger-action"
+                        data-plugin-action="uninstall"
+                        {...capabilityActionFocusAttributes(pluginUninstallFocused)}
+                        {...surfaceTraceAttributes("plugin", "uninstall", plugin, { id: plugin.id || plugin.name })}
+                        onClick={() => requestCapabilityClaude(
+                          pluginUninstallArgs,
+                          `${t.uninstallPlugin}: ${plugin.id}`,
+                          pluginUninstallReviewRows(plugin, t, activeProject, pluginUninstallScope),
+                          pluginActionContext("uninstall"),
+                        )}
+                        disabled={cliWorking || !pluginUninstallArgs.length}
+                        title={cliWorking ? t.workingHint : !pluginUninstallArgs.length ? t.pluginUninstallScopeRequired : undefined}
+                      >
+                        <Trash2 size={13} />
+                        {t.uninstallPlugin}
                       </button>
                       <button
                         type="button"
@@ -15894,6 +15986,23 @@ export function App() {
     const nextTab = focus.tab || "plugins";
     const marketplaceSources = Array.isArray(capabilityCommandStatus?.marketplaces) ? capabilityCommandStatus.marketplaces : [];
     const marketplacePlugins = Array.isArray(capabilityCommandStatus?.marketplacePlugins) ? capabilityCommandStatus.marketplacePlugins : [];
+    const installedPlugins = Array.isArray(capabilityCommandStatus?.pluginItems) ? capabilityCommandStatus.pluginItems : [];
+    const uninstallCommand = parsePluginUninstallCommand(nextArgs);
+    const uninstallContext = uninstallCommand?.identifier && uninstallCommand.scope
+      ? normalizeCapabilityContext({
+          ...(retryContext || {}),
+          tab: "plugins",
+          kind: "plugin",
+          id: uninstallCommand.identifier,
+          query: panelPluginNameFromId(uninstallCommand.identifier),
+          action: "uninstall",
+          target: uninstallCommand.scope,
+        })
+      : null;
+    const uninstallPlugin = uninstallCommand?.identifier
+      ? findPluginByIdentifiers(installedPlugins, [uninstallCommand.identifier])
+        || { id: uninstallCommand.identifier, scope: uninstallCommand.scope }
+      : null;
     const marketplaceAddSource = normalizeCustomMarketplaceUrl(
       String(nextArgs.match(/^plugin\s+marketplace\s+add\s+(\S+)$/i)?.[1] || retryContext?.id || "").trim(),
     );
@@ -15918,6 +16027,8 @@ export function App() {
           t,
           activeProject,
         )
+      : uninstallPlugin && uninstallCommand?.scope
+      ? pluginUninstallReviewRows(uninstallPlugin, t, activeProject, uninstallCommand.scope)
       : marketplaceAddSource
       ? customMarketplaceAddReviewRows(marketplaceAddSource, t, activeProject)
       : marketplaceSource
@@ -15930,6 +16041,8 @@ export function App() {
       ];
     const retryLabel = marketplaceRemoveSource && marketplaceRemoveName
       ? t.retry + ": " + t.removeMarketplaceFromCli + " / " + marketplaceRemoveName
+      : uninstallPlugin && uninstallCommand?.scope
+      ? `${t.retry}: ${t.uninstallPlugin} / ${uninstallPlugin.id || uninstallCommand.identifier}`
       : marketplaceAddSource
       ? `${t.retry}: ${t.addMarketplace} / ${compactPath(marketplaceAddSource, 72)}`
       : marketplaceSource
@@ -15940,10 +16053,12 @@ export function App() {
     openCapabilitiesSurface(nextTab, {
       ...focus,
       confirmCommand: {
-        args: nextArgs,
+        args: uninstallPlugin && uninstallCommand?.scope
+          ? pluginUninstallCommandArgs(uninstallPlugin, uninstallCommand.scope)
+          : nextArgs,
         label: retryLabel,
         reviewRows: retryReviewRows,
-        ...(retryContext ? { capabilityContext: retryContext } : {}),
+        ...((uninstallContext || retryContext) ? { capabilityContext: uninstallContext || retryContext } : {}),
       },
     });
   }
@@ -15952,7 +16067,10 @@ export function App() {
     const retryContext = normalizeCapabilityContext(context);
     const focus = capabilityRetrySurfaceFocus(args, retryContext ? { capabilityContext: retryContext } : context);
     if (!focus) return;
-    if (focus.kind === "custom-marketplace" && ["add", "remove"].includes(focus.action)) {
+    if (
+      (focus.kind === "custom-marketplace" && ["add", "remove"].includes(focus.action))
+      || (focus.kind === "plugin" && focus.action === "uninstall")
+    ) {
       openCapabilityRetryConfirmation(args, retryContext ? { capabilityContext: retryContext } : context);
       return;
     }
@@ -18085,13 +18203,15 @@ export function App() {
       .filter((plugin) => plugin?.id || plugin?.name)
       .flatMap((plugin) => {
         const id = plugin.id || plugin.name;
+        const uninstallScope = normalizePluginScope(plugin.scope);
         const specs = [
           plugin.enabled
             ? { action: "disable", label: t.disablePlugin, keywords: "disable plugin installed turn off 禁用 插件" }
             : { action: "enable", label: t.enablePlugin, keywords: "enable plugin installed turn on 启用 插件" },
           { action: "update", label: t.updatePlugin, keywords: "update plugin installed upgrade refresh 更新 插件" },
+          uninstallScope ? { action: "uninstall", label: t.uninstallPlugin, keywords: `uninstall remove plugin installed ${uninstallScope} 卸载 移除 插件` } : null,
           { action: "copy", label: t.copyEvidence, keywords: "copy evidence plugin installed clipboard focus 复制 证据 插件" },
-        ];
+        ].filter(Boolean);
         return specs.map((spec) => ({
           id: `capability-plugin-action:${spec.action}:${commandIdSegment(id)}`,
           title: `${spec.label}: ${id}`,
