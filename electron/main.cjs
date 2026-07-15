@@ -2941,7 +2941,7 @@ function providerResponseError(message, code = "PROVIDER_RESPONSE_ERROR") {
   return error;
 }
 
-async function fetchJsonWithTimeout(url, options, timeoutMs, requestId) {
+async function fetchWithTimeout(url, options, timeoutMs, requestId, consumeResponse) {
   const controller = new AbortController();
   const durationMs = Number(timeoutMs || 600000);
   let timedOut = false;
@@ -2953,26 +2953,209 @@ async function fetchJsonWithTimeout(url, options, timeoutMs, requestId) {
   if (requestId) activeRequests.set(requestId, controller);
   try {
     response = await fetch(url, { ...options, signal: controller.signal });
-    const payload = await response.json().catch((error) => {
-      if (controller.signal.aborted) throw error;
-      return {};
-    });
+    const payload = await consumeResponse(response, controller.signal);
     return { response, payload };
   } catch (error) {
     if (response && !response.ok) {
+      // Once failure headers arrive, preserve the provider error even if stopping interrupts its body.
       throw providerResponseError(`服务商返回 HTTP ${response.status}`, "PROVIDER_HTTP_ERROR");
     }
     if (timedOut) {
       throw providerResponseError(`模型请求超过 ${durationMs} 毫秒，已停止。`, "REQUEST_TIMEOUT");
     }
+    if (isAbortError(error)) throw error;
     if (!isAbortError(error) && error && typeof error === "object") {
       error.preserveOnCancel = true;
     }
     throw error;
   } finally {
     clearTimeout(timeout);
-    if (requestId) activeRequests.delete(requestId);
+    if (requestId && activeRequests.get(requestId) === controller) {
+      activeRequests.delete(requestId);
+    }
   }
+}
+
+function parseJsonText(text) {
+  try {
+    return JSON.parse(String(text || ""));
+  } catch {
+    return null;
+  }
+}
+
+async function readErrorResponse(response) {
+  const text = await response.text();
+  return { text, json: parseJsonText(text) };
+}
+
+async function consumeTextStream(response, consumer, isComplete) {
+  if (!response.body?.getReader) {
+    consumer.push(await response.text());
+    return consumer.finish();
+  }
+  const reader = response.body.getReader();
+  const decoder = new TextDecoder();
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (value?.length) consumer.push(decoder.decode(value, { stream: true }));
+      if (isComplete?.()) {
+        try {
+          await reader.cancel("provider stream complete");
+        } catch (_cancelError) {
+          // The server may close at the same time as its terminal event.
+        }
+        break;
+      }
+    }
+    const tail = decoder.decode();
+    if (tail) consumer.push(tail);
+    return consumer.finish();
+  } catch (error) {
+    try {
+      await reader.cancel(error?.message || "stream failed");
+    } catch (_cancelError) {
+      // The transport may already be closed by abort or timeout.
+    }
+    throw error;
+  } finally {
+    try {
+      reader.releaseLock();
+    } catch (_error) {
+      // Ignore an already released reader.
+    }
+  }
+}
+
+function createSseJsonConsumer(onPayload) {
+  let buffer = "";
+  let rawText = "";
+  let sawDataFrame = false;
+  let sawDone = false;
+  const processBlock = (block) => {
+    const value = String(block || "").trim();
+    if (!value) return;
+    const dataLines = value
+      .split(/\r?\n/)
+      .filter((line) => line.startsWith("data:"))
+      .map((line) => line.slice(5).trimStart());
+    if (dataLines.length) {
+      sawDataFrame = true;
+      const data = dataLines.join("\n").trim();
+      if (!data) return;
+      if (data === "[DONE]") {
+        sawDone = true;
+        return;
+      }
+      if (sawDone) {
+        throw providerResponseError("服务商在流式完成标记后继续返回了数据。");
+      }
+      const payload = parseJsonText(data);
+      if (!payload) throw providerResponseError("服务商返回了无效的流式事件。");
+      onPayload(payload);
+    }
+  };
+  const drain = () => {
+    while (true) {
+      const separator = buffer.match(/\r?\n\r?\n/);
+      if (!separator || separator.index === undefined) return;
+      const block = buffer.slice(0, separator.index);
+      buffer = buffer.slice(separator.index + separator[0].length);
+      processBlock(block);
+    }
+  };
+  return {
+    push(text) {
+      const next = String(text || "");
+      rawText += next;
+      buffer += next;
+      drain();
+    },
+    finish() {
+      drain();
+      processBlock(buffer);
+      buffer = "";
+      if (!sawDataFrame) {
+        const payload = parseJsonText(rawText.trim());
+        if (!payload) throw providerResponseError("服务商返回了无效的 JSON 响应。");
+        onPayload(payload);
+      }
+      return {
+        framing: sawDataFrame ? "sse" : "json",
+        sawDone,
+      };
+    },
+    state() {
+      return {
+        framing: sawDataFrame ? "sse" : "json",
+        sawDone,
+      };
+    },
+  };
+}
+
+function createNdjsonConsumer(onPayload) {
+  let buffer = "";
+  let eventCount = 0;
+  const processLine = (line) => {
+    const value = String(line || "").trim();
+    if (!value) return;
+    const payload = parseJsonText(value);
+    if (!payload) throw providerResponseError("Ollama 返回了无效的流式事件。");
+    eventCount += 1;
+    onPayload(payload);
+  };
+  return {
+    push(text) {
+      buffer += String(text || "");
+      const lines = buffer.split(/\r?\n/);
+      buffer = lines.pop() || "";
+      for (const line of lines) processLine(line);
+    },
+    finish() {
+      processLine(buffer);
+      buffer = "";
+      return { eventCount };
+    },
+  };
+}
+
+function mergeProviderUsage(current, next) {
+  if (!next || typeof next !== "object" || Array.isArray(next)) return current;
+  const values = Object.fromEntries(
+    Object.entries(next).filter(([, value]) => value !== undefined && value !== null),
+  );
+  return Object.keys(values).length ? { ...(current || {}), ...values } : current;
+}
+
+function isJsonContentType(response) {
+  const contentType = String(response?.headers?.get?.("content-type") || "").toLowerCase();
+  return contentType.includes("json") && !contentType.includes("ndjson");
+}
+
+function isOfficialOpenAiBaseUrl(baseUrl) {
+  try {
+    return new URL(String(baseUrl || "")).hostname.toLowerCase() === "api.openai.com";
+  } catch {
+    return false;
+  }
+}
+
+function truncatedProviderStream(provider) {
+  return providerResponseError(
+    `${provider} 流式响应在完成标记前结束。`,
+    "PROVIDER_STREAM_TRUNCATED",
+  );
+}
+
+function textFromOpenAiContent(content) {
+  if (typeof content === "string") return content;
+  if (!Array.isArray(content)) return "";
+  return content
+    .map((part) => typeof part === "string" ? part : part?.text || part?.content || "")
+    .join("");
 }
 
 function joinUrl(baseUrl, suffix) {
@@ -3042,10 +3225,23 @@ function buildSystemPrompt(store, session) {
   return `${systemPrompt}\n\n${claudexContext}`;
 }
 
-async function requestOpenAiCompatible(store, session, apiKey, requestId) {
+function providerErrorFromPayload(result, fallback) {
+  const payload = result?.json;
+  const message = payload?.error?.message
+    || (typeof payload?.error === "string" ? payload.error : "")
+    || payload?.message
+    || String(result?.text || "").trim();
+  return message || fallback;
+}
+
+async function requestOpenAiCompatible(store, session, apiKey, requestId, sender) {
   const { provider, model, baseUrl, temperature } = store.settings;
   requireKeyIfNeeded(provider, baseUrl, apiKey);
-  const { response, payload } = await fetchJsonWithTimeout(joinUrl(baseUrl, "/chat/completions"), {
+  emitDirectApiStatus(sender, requestId, session, `正在连接 ${provider || "API"}`);
+  let content = "";
+  let usage = null;
+  let finishReason = "";
+  const { response, payload } = await fetchWithTimeout(joinUrl(baseUrl, "/chat/completions"), {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -3055,23 +3251,62 @@ async function requestOpenAiCompatible(store, session, apiKey, requestId) {
       model,
       messages: normalizeMessages(store, session),
       temperature: Number(temperature ?? 0.2),
-      stream: false,
+      stream: true,
+      ...(isOfficialOpenAiBaseUrl(baseUrl) ? { stream_options: { include_usage: true } } : {}),
     }),
-  }, store.settings.timeoutMs, requestId);
+  }, store.settings.timeoutMs, requestId, async (nextResponse) => {
+    if (!nextResponse.ok) return { error: await readErrorResponse(nextResponse) };
+    const consumer = createSseJsonConsumer((event) => {
+      if (event?.error) {
+        throw providerResponseError(event.error?.message || String(event.error));
+      }
+      const choice = event?.choices?.[0] || {};
+      usage = mergeProviderUsage(usage, event?.usage);
+      const previousFinishReason = finishReason;
+      finishReason = String(choice?.finish_reason || finishReason || "");
+      const delta = textFromOpenAiContent(choice?.delta?.content);
+      const full = textFromOpenAiContent(choice?.message?.content);
+      const text = delta || (!content ? full : "");
+      if (previousFinishReason && text) {
+        throw providerResponseError("服务商在 finish_reason 后继续返回了助手内容。");
+      }
+      if (!text) return;
+      content += text;
+      emitDirectApiDelta(sender, requestId, session, text);
+    });
+    const stream = await consumeTextStream(
+      nextResponse,
+      consumer,
+      () => consumer.state().sawDone,
+    );
+    if (stream.framing === "sse" && !stream.sawDone && !finishReason) {
+      throw truncatedProviderStream(provider || "OpenAI-compatible API");
+    }
+    return { content, usage, finishReason };
+  });
 
   if (!response.ok) {
-    throw providerResponseError(payload?.error?.message || `服务商返回 HTTP ${response.status}`);
+    throw providerResponseError(providerErrorFromPayload(payload?.error, `服务商返回 HTTP ${response.status}`));
   }
-  const content = payload?.choices?.[0]?.message?.content;
+  content = payload?.content || content;
   if (!content) throw providerResponseError("服务商响应中没有助手内容。");
-  return content;
+  return {
+    text: content,
+    ...(payload?.usage || usage ? { usage: payload?.usage || usage } : {}),
+    ...(payload?.finishReason || finishReason ? { finishReason: payload?.finishReason || finishReason } : {}),
+  };
 }
 
-async function requestAnthropic(store, session, apiKey, requestId) {
+async function requestAnthropic(store, session, apiKey, requestId, sender) {
   const { model, baseUrl, temperature } = store.settings;
   const bearerToken = apiKey ? "" : envValue("ANTHROPIC_AUTH_TOKEN");
   requireKeyIfNeeded("anthropic", baseUrl, apiKey || bearerToken);
-  const { response, payload } = await fetchJsonWithTimeout(joinUrl(baseUrl || "https://api.anthropic.com/v1", "/messages"), {
+  emitDirectApiStatus(sender, requestId, session, "正在连接 Anthropic");
+  let text = "";
+  let usage = null;
+  let finishReason = "";
+  let sawMessageStop = false;
+  const { response, payload } = await fetchWithTimeout(joinUrl(baseUrl || "https://api.anthropic.com/v1", "/messages"), {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -3082,47 +3317,121 @@ async function requestAnthropic(store, session, apiKey, requestId) {
       model,
       max_tokens: 4096,
       temperature: Number(temperature ?? 0.2),
+      stream: true,
       system: buildSystemPrompt(store, session),
       messages: session.messages
         .filter((message) => message.role === "user" || message.role === "assistant")
         .map((message) => ({ role: message.role, content: message.content })),
     }),
-  }, store.settings.timeoutMs, requestId);
+  }, store.settings.timeoutMs, requestId, async (nextResponse) => {
+    if (!nextResponse.ok) return { error: await readErrorResponse(nextResponse) };
+    const consumer = createSseJsonConsumer((event) => {
+      if (sawMessageStop) {
+        throw providerResponseError("Anthropic 在 message_stop 后继续返回了数据。");
+      }
+      if (event?.type === "error" || event?.error) {
+        throw providerResponseError(event?.error?.message || event?.message || "Anthropic 流式请求失败。");
+      }
+      usage = mergeProviderUsage(usage, event?.message?.usage);
+      usage = mergeProviderUsage(usage, event?.usage);
+      finishReason = String(event?.delta?.stop_reason || event?.stop_reason || event?.message?.stop_reason || finishReason || "");
+      if (event?.type === "message_stop") {
+        sawMessageStop = true;
+        return;
+      }
+      let delta = event?.delta?.type === "text_delta" ? event.delta.text || "" : "";
+      if (!delta && !text && Array.isArray(event?.content)) {
+        delta = event.content
+          .filter((part) => part?.type === "text")
+          .map((part) => part.text || "")
+          .join("\n");
+      }
+      if (!delta) return;
+      text += delta;
+      emitDirectApiDelta(sender, requestId, session, delta);
+    });
+    const stream = await consumeTextStream(nextResponse, consumer, () => sawMessageStop);
+    if (stream.framing === "sse" && !sawMessageStop) {
+      throw truncatedProviderStream("Anthropic");
+    }
+    return { text, usage, finishReason };
+  });
 
   if (!response.ok) {
-    throw providerResponseError(payload?.error?.message || `Anthropic 返回 HTTP ${response.status}`);
+    throw providerResponseError(providerErrorFromPayload(payload?.error, `Anthropic 返回 HTTP ${response.status}`));
   }
-  const text = (payload?.content || [])
-    .filter((part) => part.type === "text")
-    .map((part) => part.text)
-    .join("\n")
-    .trim();
-  if (!text) throw providerResponseError("Anthropic 响应中没有文本内容。");
-  return text;
+  text = payload?.text || text;
+  if (!text.trim()) throw providerResponseError("Anthropic 响应中没有文本内容。");
+  return {
+    text,
+    ...(payload?.usage || usage ? { usage: payload?.usage || usage } : {}),
+    ...(payload?.finishReason || finishReason ? { finishReason: payload?.finishReason || finishReason } : {}),
+  };
 }
 
-async function requestOllama(store, session, requestId) {
+async function requestOllama(store, session, requestId, sender) {
   const { model, baseUrl, temperature } = store.settings;
-  const { response, payload } = await fetchJsonWithTimeout(joinUrl(baseUrl || "http://localhost:11434", "/api/chat"), {
+  emitDirectApiStatus(sender, requestId, session, "正在连接 Ollama");
+  let content = "";
+  let usage = null;
+  let finishReason = "";
+  let sawDone = false;
+  const consumeEvent = (event) => {
+    if (sawDone) {
+      throw providerResponseError("Ollama 在 done:true 后继续返回了数据。");
+    }
+    if (event?.error) throw providerResponseError(String(event.error));
+    const delta = String(event?.message?.content || "");
+    if (delta) {
+      content += delta;
+      emitDirectApiDelta(sender, requestId, session, delta);
+    }
+    finishReason = String(event?.done_reason || finishReason || "");
+    usage = mergeProviderUsage(usage, {
+      prompt_eval_count: event?.prompt_eval_count,
+      eval_count: event?.eval_count,
+    });
+    if (event?.done === true) {
+      sawDone = true;
+    }
+  };
+  const { response, payload } = await fetchWithTimeout(joinUrl(baseUrl || "http://localhost:11434", "/api/chat"), {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       model,
-      stream: false,
+      stream: true,
       options: { temperature: Number(temperature ?? 0.2) },
       messages: normalizeMessages(store, session),
     }),
-  }, store.settings.timeoutMs, requestId);
+  }, store.settings.timeoutMs, requestId, async (nextResponse) => {
+    if (!nextResponse.ok) return { error: await readErrorResponse(nextResponse) };
+    if (isJsonContentType(nextResponse)) {
+      const event = parseJsonText(await nextResponse.text());
+      if (!event) throw providerResponseError("Ollama 返回了无效的 JSON 响应。");
+      consumeEvent(event);
+      if (event?.done === false) throw truncatedProviderStream("Ollama");
+      return { content, usage, finishReason };
+    }
+    const consumer = createNdjsonConsumer(consumeEvent);
+    await consumeTextStream(nextResponse, consumer, () => sawDone);
+    if (!sawDone) throw truncatedProviderStream("Ollama");
+    return { content, usage, finishReason };
+  });
 
   if (!response.ok) {
-    throw providerResponseError(payload?.error || `Ollama 返回 HTTP ${response.status}`);
+    throw providerResponseError(providerErrorFromPayload(payload?.error, `Ollama 返回 HTTP ${response.status}`));
   }
-  const content = payload?.message?.content;
+  content = payload?.content || content;
   if (!content) throw providerResponseError("Ollama 响应中没有助手内容。");
-  return content;
+  return {
+    text: content,
+    ...(payload?.usage || usage ? { usage: payload?.usage || usage } : {}),
+    ...(payload?.finishReason || finishReason ? { finishReason: payload?.finishReason || finishReason } : {}),
+  };
 }
 
-async function requestAssistant(store, session, requestId) {
+async function requestAssistant(store, session, requestId, sender) {
   if (store.settings.claudeCode?.executionMode !== "api") {
     return requestClaudeCode(store, session, requestId);
   }
@@ -3130,9 +3439,9 @@ async function requestAssistant(store, session, requestId) {
   const apiKey =
     decryptSecret(store.settings.apiKeys?.[provider]) ||
     providerEnvKey(provider);
-  if (provider === "anthropic") return requestAnthropic(store, session, apiKey, requestId);
-  if (provider === "ollama") return requestOllama(store, session, requestId);
-  return requestOpenAiCompatible(store, session, apiKey, requestId);
+  if (provider === "anthropic") return requestAnthropic(store, session, apiKey, requestId, sender);
+  if (provider === "ollama") return requestOllama(store, session, requestId, sender);
+  return requestOpenAiCompatible(store, session, apiKey, requestId, sender);
 }
 
 function cleanOption(value) {
@@ -3278,6 +3587,43 @@ function activeChatStreamCheckpoint(requestId) {
   };
 }
 
+function sendChatStreamEvent(sender, requestId, event) {
+  if (!sender || sender.isDestroyed()) return;
+  try {
+    sender.send("chat:stream-event", {
+      ...event,
+      ...activeChatStreamCheckpoint(requestId),
+    });
+  } catch (_error) {
+    // The request remains owned by main if its renderer reloads or closes.
+  }
+}
+
+function emitDirectApiStatus(sender, requestId, session, text) {
+  updateActiveChatRequestRuntime(requestId, { streamStatus: String(text || "") });
+  sendChatStreamEvent(sender, requestId, {
+    requestId,
+    sessionId: session.id,
+    type: "status",
+    text: String(text || ""),
+  });
+}
+
+function emitDirectApiDelta(sender, requestId, session, text) {
+  const delta = String(text || "");
+  if (!delta) return;
+  updateActiveChatRequestRuntime(requestId, (current) => ({
+    content: `${current.content || ""}${delta}`,
+    streamStatus: "",
+  }));
+  sendChatStreamEvent(sender, requestId, {
+    requestId,
+    sessionId: session.id,
+    type: "delta",
+    text: delta,
+  });
+}
+
 function appendActiveChatActivity(requestId, text) {
   const value = stripAnsi(String(text || "")).trim();
   if (!value) return;
@@ -3293,17 +3639,7 @@ function emitClaudeStreamLine(sender, requestId, session, line) {
   const payload = parseJsonOutput(line);
   if (!payload) return;
   const base = { requestId, sessionId: session.id };
-  const send = (event) => {
-    if (!sender || sender.isDestroyed()) return;
-    try {
-      sender.send("chat:stream-event", {
-        ...event,
-        ...activeChatStreamCheckpoint(requestId),
-      });
-    } catch (_error) {
-      // The request remains owned by main even if its renderer reloads or closes.
-    }
-  };
+  const send = (event) => sendChatStreamEvent(sender, requestId, event);
   const emitActivity = (text, extra = {}) => {
     if (!text) return;
     appendActiveChatActivity(requestId, text);
@@ -4563,15 +4899,21 @@ ipcMain.handle("chat:send-message", async (_event, { sessionId, content, request
       const assistantResult =
         store.settings.claudeCode?.executionMode !== "api"
           ? await requestClaudeCodeStream(store, session, runId, _event.sender)
-          : await requestAssistant(store, session, runId);
+          : await requestAssistant(store, session, runId, _event.sender);
       if (assistantResult?.cancelled) return finishCancelled();
       const assistantText = typeof assistantResult === "string" ? assistantResult : assistantResult.text;
       const permissionDenials = typeof assistantResult === "object" && Array.isArray(assistantResult.permissionDenials) ? assistantResult.permissionDenials : [];
+      const usage = typeof assistantResult === "object" && assistantResult?.usage && typeof assistantResult.usage === "object"
+        ? assistantResult.usage
+        : null;
+      const finishReason = typeof assistantResult === "object" ? String(assistantResult?.finishReason || "") : "";
       const { latestStore, runEvent } = commitOutcome("ok", "已完成", {
         role: "assistant",
         content: assistantText,
         createdAt: now(),
         ...(permissionDenials.length ? { permissionDenials } : {}),
+        ...(usage ? { usage } : {}),
+        ...(finishReason ? { finishReason } : {}),
       });
       return {
         ...sanitizeStore(latestStore, _event.sender.id),
