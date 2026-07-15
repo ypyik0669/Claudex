@@ -685,12 +685,15 @@ function normalizeCapabilityContext(context = {}) {
   const idValue = String(source.id || "").trim();
   const query = String(source.query || idValue || "").trim();
   const action = String(source.action || "").trim();
+  const target = String(source.target || "").trim();
+  const identityLimit = kind === "custom-marketplace" ? 2048 : 240;
   const normalized = {};
   if (["plugins", "mcp", "skills", "marketplace"].includes(tab)) normalized.tab = tab;
   if (kind) normalized.kind = kind.slice(0, 80);
-  if (idValue) normalized.id = idValue.slice(0, 240);
-  if (query) normalized.query = query.slice(0, 240);
+  if (idValue) normalized.id = idValue.slice(0, identityLimit);
+  if (query) normalized.query = query.slice(0, identityLimit);
   if (action) normalized.action = action.slice(0, 80);
+  if (target) normalized.target = target.slice(0, 240);
   return Object.keys(normalized).length ? normalized : null;
 }
 
@@ -2216,8 +2219,9 @@ function normalizeMarketplaceItems(jsonOutput, rawOutput) {
     const sourceMatch = line.match(/^Source:\s*(.+)$/i);
     if (current && sourceMatch) {
       const source = sourceMatch[1].trim();
-      current.source = source;
-      current.repo = source;
+      const typedSource = source.match(/^([^()]+?)\s*\((.+)\)$/);
+      current.source = typedSource ? typedSource[1].trim() : source;
+      current.repo = typedSource ? typedSource[2].trim() : source;
     }
     const pair = line.match(/^([^:]+):\s*(.+)$/);
     if (!current || !pair) continue;
@@ -2837,10 +2841,16 @@ function normalizeCustomMarketplaceUrl(value) {
     const parsed = new URL(source);
     if (!["http:", "https:"].includes(parsed.protocol)) return "";
     if (!parsed.hostname || parsed.username || parsed.password) return "";
-    return parsed.href;
+    return parsed.href.length <= 2048 ? parsed.href : "";
   } catch (_error) {
     return "";
   }
+}
+
+function normalizeMarketplaceCliName(value) {
+  const name = String(value || "").trim();
+  if (!name || name.length > 240 || name.startsWith("-") || /[\s\u0000-\u001f\u007f]/.test(name)) return "";
+  return name;
 }
 
 function isIgnoredWorkspaceDir(name) {
@@ -6073,11 +6083,16 @@ ipcMain.handle("claude:run", async (_event, { projectPath, args, requestId, sess
   };
   if (!persistCommandRun) return sanitizedResult;
   const store = readStore();
-  if (
-    commandRunKind === "capability"
+  const customMarketplaceAction = commandRunKind === "capability"
     && sanitizedResult.code === 0
     && normalizedCapabilityContext?.kind === "custom-marketplace"
-    && normalizedCapabilityContext?.action === "add"
+    ? normalizedCapabilityContext.action
+    : "";
+  const currentCustomMarketplaceSources = Array.isArray(store.settings?.customMarketplaces)
+    ? store.settings.customMarketplaces.map(String).map((item) => item.trim()).filter(Boolean)
+    : [];
+  if (
+    customMarketplaceAction === "add"
     && argv.length === 4
     && argv[0] === "plugin"
     && argv[1] === "marketplace"
@@ -6085,15 +6100,33 @@ ipcMain.handle("claude:run", async (_event, { projectPath, args, requestId, sess
   ) {
     const source = normalizeCustomMarketplaceUrl(argv[3]);
     if (source) {
-      const currentSources = Array.isArray(store.settings?.customMarketplaces)
-        ? store.settings.customMarketplaces.map(String).map((item) => item.trim()).filter(Boolean)
-        : [];
       store.settings = {
         ...store.settings,
         customMarketplaces: [
           source,
-          ...currentSources.filter((item) => normalizeCustomMarketplaceUrl(item) !== source),
+          ...currentCustomMarketplaceSources.filter((item) => normalizeCustomMarketplaceUrl(item) !== source),
         ].slice(0, 12),
+      };
+    }
+  }
+  if (
+    customMarketplaceAction === "remove"
+    && argv.length === 6
+    && argv[0] === "plugin"
+    && argv[1] === "marketplace"
+    && argv[2] === "remove"
+    && argv[3] === "--scope"
+    && argv[4] === "user"
+  ) {
+    const source = normalizeCustomMarketplaceUrl(normalizedCapabilityContext.id);
+    const target = normalizeMarketplaceCliName(normalizedCapabilityContext.target);
+    const commandTarget = normalizeMarketplaceCliName(argv[5]);
+    if (source && target && commandTarget === target) {
+      store.settings = {
+        ...store.settings,
+        customMarketplaces: currentCustomMarketplaceSources
+          .filter((item) => normalizeCustomMarketplaceUrl(item) !== source)
+          .slice(0, 12),
       };
     }
   }

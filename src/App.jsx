@@ -321,6 +321,9 @@ const copy = {
     customMarketplaceExists: "这个 Marketplace 已在 Claudex 记录中。",
     customMarketplaceScopeUser: "用户级 Claude Code 配置",
     customMarketplaceAddRisk: "这会把远程 Marketplace 注册到 Claude Code 用户级配置；其中的插件在安装后可以在本机运行代码。",
+    customMarketplaceRemoveRisk: "这会从 Claude Code 用户级配置移除 Marketplace；该来源将不再用于发现或更新插件。",
+    marketplaceCliName: "CLI 名称",
+    removeMarketplaceFromCli: "从 Claude CLI 移除",
     removeMarketplaceRecord: "移除记录",
     copyMarketplaceUrl: "复制 URL",
     copiedMarketplaceUrl: "已复制 URL",
@@ -1176,18 +1179,43 @@ function normalizeCustomMarketplaceUrl(value) {
     const parsed = new URL(source);
     if (!["http:", "https:"].includes(parsed.protocol)) return "";
     if (!parsed.hostname || parsed.username || parsed.password) return "";
-    return parsed.href;
+    return parsed.href.length <= 2048 ? parsed.href : "";
   } catch (_error) {
     return "";
   }
 }
 
-function marketplaceMatchesCustomSource(marketplace, source) {
-  const expected = normalizeCustomMarketplaceUrl(source);
-  if (!expected) return false;
-  return [marketplace?.repo, marketplace?.url, marketplace?.source, marketplace?.installLocation]
-    .map(normalizeCustomMarketplaceUrl)
-    .some((candidate) => candidate === expected);
+function marketplaceSourceIdentityKeys(value) {
+  const source = String(value || "").trim();
+  if (!source) return [];
+  const keys = new Set();
+  const normalizedUrl = normalizeCustomMarketplaceUrl(source);
+  if (normalizedUrl) {
+    keys.add("url:" + normalizedUrl);
+    const parsed = new URL(normalizedUrl);
+    if (/^(?:www\.)?github\.com$/i.test(parsed.hostname)) {
+      const parts = parsed.pathname.split("/").filter(Boolean);
+      if (parts.length >= 2) {
+        keys.add("github:" + parts[0].toLowerCase() + "/" + parts[1].replace(/\.git$/i, "").toLowerCase());
+      }
+    }
+  }
+  const githubRepo = source.match(/^([^/\s]+)\/([^/\s]+?)(?:\.git)?$/);
+  if (githubRepo) keys.add("github:" + githubRepo[1].toLowerCase() + "/" + githubRepo[2].toLowerCase());
+  return [...keys];
+}
+
+function marketplaceForCustomSource(marketplaces, source) {
+  const expected = new Set(marketplaceSourceIdentityKeys(source));
+  if (!expected.size) return null;
+  return (marketplaces || []).find((marketplace) => (
+    [
+      marketplace?.repo,
+      marketplace?.url,
+      marketplace?.raw?.repo,
+      marketplace?.raw?.url,
+    ].some((candidate) => marketplaceSourceIdentityKeys(candidate).some((key) => expected.has(key)))
+  )) || null;
 }
 
 function escapeRegExp(value) {
@@ -1227,7 +1255,18 @@ function findRecentPluginActionRun(runs, identifiers, actions) {
 }
 
 function findRecentMarketplaceActionRun(runs) {
-  return runs.find((run) => /(?:^|\s)plugin\s+marketplace\s+(?:list|update|add|--help)(?=\s|$)/i.test(capabilityCommandLine(run))) || null;
+  return runs.find((run) => /(?:^|\s)plugin\s+marketplace\s+(?:list|update|add|remove|--help)(?=\s|$)/i.test(capabilityCommandLine(run))) || null;
+}
+
+function findRecentCustomMarketplaceActionRun(runs, source, actions = ["add", "remove"]) {
+  const expected = normalizeCustomMarketplaceUrl(source);
+  if (!expected) return null;
+  return runs.find((run) => {
+    const context = normalizeCapabilityContext(run?.capabilityContext);
+    return context?.kind === "custom-marketplace"
+      && normalizeCustomMarketplaceUrl(context.id) === expected
+      && actions.includes(context.action);
+  }) || null;
 }
 
 function findRecentMcpActionRun(runs) {
@@ -1272,6 +1311,7 @@ function mutatingCapabilityRetryArgsFromRun(run) {
     /^plugin\s+(?:install|update|enable|disable)\s+\S+/i,
     /^plugin\s+marketplace\s+update$/i,
     /^plugin\s+marketplace\s+add\s+\S+$/i,
+    /^plugin\s+marketplace\s+remove\s+--scope\s+user\s+\S+$/i,
   ];
   return mutatingPatterns.some((pattern) => pattern.test(args)) ? args : "";
 }
@@ -1373,6 +1413,24 @@ function capabilityActionFocusForCommand(args, context = {}) {
       id: source,
       query: source,
       action: explicitContext?.action || "add",
+    };
+  }
+  if (parts[1] === "marketplace" && parts[2] === "remove") {
+    const explicitContext = normalizeCapabilityContext(context.capabilityContext || context);
+    const source = explicitContext?.kind === "custom-marketplace"
+      ? normalizeCustomMarketplaceUrl(explicitContext.id)
+      : "";
+    const target = explicitContext?.target || (
+      parts[3] === "--scope" && parts[4] === "user" ? String(parts[5] || "").trim() : ""
+    );
+    if (!source || !target) return null;
+    return {
+      tab: "marketplace",
+      kind: "custom-marketplace",
+      id: source,
+      query: source,
+      action: "remove",
+      target,
     };
   }
   if (parts[1] === "marketplace" && parts[2] === "update") {
@@ -2003,6 +2061,18 @@ function customMarketplaceAddReviewRows(source, t, activeProject = null) {
     [t.commandLine, `claude plugin marketplace add ${commandArgumentDisplay(source)}`],
     [t.commandCwd, activeProject?.path || t.localWorkspace],
     [t.marketplaceRisk, t.customMarketplaceAddRisk],
+  ];
+}
+
+function customMarketplaceRemoveReviewRows(source, marketplace, t, activeProject = null) {
+  const name = String(marketplace?.name || "").trim();
+  return [
+    [t.source, source],
+    [t.marketplaceCliName, name],
+    [t.scope, t.customMarketplaceScopeUser],
+    [t.commandLine, "claude plugin marketplace remove --scope user " + commandArgumentDisplay(name)],
+    [t.commandCwd, activeProject?.path || t.localWorkspace],
+    [t.marketplaceRisk, t.customMarketplaceRemoveRisk],
   ];
 }
 
@@ -3064,12 +3134,15 @@ function normalizeCapabilityContext(context = {}) {
   const idValue = String(source?.id || "").trim();
   const query = String(source?.query || idValue || "").trim();
   const action = String(source?.action || "").trim();
+  const target = String(source?.target || "").trim();
+  const identityLimit = kind === "custom-marketplace" ? 2048 : 240;
   const normalized = {};
   if (["plugins", "mcp", "skills", "marketplace"].includes(tab)) normalized.tab = tab;
   if (kind) normalized.kind = kind.slice(0, 80);
-  if (idValue) normalized.id = idValue.slice(0, 240);
-  if (query) normalized.query = query.slice(0, 240);
+  if (idValue) normalized.id = idValue.slice(0, identityLimit);
+  if (query) normalized.query = query.slice(0, identityLimit);
   if (action) normalized.action = action.slice(0, 80);
+  if (target) normalized.target = target.slice(0, 240);
   return Object.keys(normalized).length ? normalized : null;
 }
 
@@ -12520,11 +12593,9 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
     })) : []),
   ].filter((item) => item.focusId);
   const customMarketplaceRows = customMarketplaces.filter((item) => structuredQueryMatch({ name: item, repo: item, source: item }, normalizedQuery));
-  const customMarketplaceCliStatus = (source) => (
-    (Array.isArray(cliStatus?.marketplaces) ? cliStatus.marketplaces : [])
-      .some((marketplace) => marketplaceMatchesCustomSource(marketplace, source))
-      ? "confirmed"
-      : "unverified"
+  const customMarketplaceCliMarketplace = (source) => marketplaceForCustomSource(
+    Array.isArray(cliStatus?.marketplaces) ? cliStatus.marketplaces : [],
+    source,
   );
   const marketplaceTabCount = marketplacePluginRows.length + marketplaceRows.length + customMarketplaceRows.length;
   const recentCapabilityRuns = useMemo(() => capabilityRunsNewestFirst(state.commandRuns), [state.commandRuns]);
@@ -12795,7 +12866,16 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
           ));
         }
       }
-      if (nextActionFocus && manualCapabilityTabSwitchRef.current === actionTabSwitchGeneration) {
+      if (
+        nextCapabilityContext?.kind === "custom-marketplace"
+        && nextCapabilityContext.action === "remove"
+        && manualCapabilityTabSwitchRef.current === actionTabSwitchGeneration
+      ) {
+        setActiveTab("marketplace");
+        setFilter("all");
+        setQuery("");
+        setCapabilityActionFocus({ tab: "", kind: "", id: "", query: "", nonce: 0 });
+      } else if (nextActionFocus && manualCapabilityTabSwitchRef.current === actionTabSwitchGeneration) {
         setActiveTab(nextActionFocus.tab);
         setFilter("all");
         setQuery(nextActionFocus.query || nextActionFocus.id || "");
@@ -13062,6 +13142,26 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
       `${t.addMarketplace}: ${compactPath(source, 72)}`,
       customMarketplaceAddReviewRows(source, t, activeProject),
       { tab: "marketplace", kind: "custom-marketplace", id: source, query: source, action: "add" },
+    );
+  }
+
+  function removeCustomMarketplace(source, marketplace) {
+    const normalizedSource = normalizeCustomMarketplaceUrl(source);
+    const name = String(marketplace?.name || "").trim();
+    if (!normalizedSource || !name || cliWorking) return;
+    setCliError("");
+    requestCapabilityClaude(
+      ["plugin", "marketplace", "remove", "--scope", "user", name],
+      t.removeMarketplaceFromCli + ": " + name,
+      customMarketplaceRemoveReviewRows(normalizedSource, marketplace, t, activeProject),
+      {
+        tab: "marketplace",
+        kind: "custom-marketplace",
+        id: normalizedSource,
+        query: normalizedSource,
+        action: "remove",
+        target: name,
+      },
     );
   }
 
@@ -13656,7 +13756,30 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                 {customMarketplaceRows.length === 0 && <p className="empty-list">{t.noCustomMarketplaces}</p>}
                 {customMarketplaceRows.map((item) => {
                   const customFocused = capabilityFocusMatches("custom-marketplace", item);
-                  const cliRegistrationStatus = customMarketplaceCliStatus(item);
+                  const matchedMarketplace = customMarketplaceCliMarketplace(item);
+                  const cliRegistrationStatus = matchedMarketplace ? "confirmed" : "unverified";
+                  const removeFocused = capabilityActionFocusMatches("custom-marketplace", "remove", item);
+                  const retryFocused = capabilityActionFocusMatches("custom-marketplace", "retry", item);
+                  const recentCustomActionRun = findRecentCustomMarketplaceActionRun(recentCapabilityRuns, item);
+                  const recentCustomActionContext = capabilityContextFromRun(recentCustomActionRun);
+                  const removeRetryTarget = recentCustomActionContext?.action === "remove"
+                    ? String(recentCustomActionContext.target || matchedMarketplace?.name || "").trim()
+                    : "";
+                  const removeRetry = customFocused && recentCustomActionRun?.code !== 0 && removeRetryTarget
+                    ? () => requestCapabilityClaude(
+                        ["plugin", "marketplace", "remove", "--scope", "user", removeRetryTarget],
+                        t.retry + ": " + t.removeMarketplaceFromCli + " / " + removeRetryTarget,
+                        customMarketplaceRemoveReviewRows(item, { ...matchedMarketplace, name: removeRetryTarget }, t, activeProject),
+                        {
+                          tab: "marketplace",
+                          kind: "custom-marketplace",
+                          id: item,
+                          query: item,
+                          action: "remove",
+                          target: removeRetryTarget,
+                        },
+                      )
+                    : null;
                   return (
                     <div
                       className={cx("marketplace-source-row", customFocused && "focused-capability-row")}
@@ -13696,15 +13819,39 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                           <PanelRight size={13} />
                           {t.openClaudePanel}
                         </button>
-                        <button
-                          type="button"
-                          className="plain-action subtle-action"
-                          onClick={() => saveCustomMarketplaces(customMarketplaces.filter((source) => source !== item))}
-                        >
-                          <X size={13} />
-                          {t.removeMarketplaceRecord}
-                        </button>
+                        {matchedMarketplace ? (
+                          <button
+                            type="button"
+                            className="plain-action subtle-action"
+                            data-custom-marketplace-action="remove"
+                            {...capabilityActionFocusAttributes(removeFocused)}
+                            onClick={() => removeCustomMarketplace(item, matchedMarketplace)}
+                            disabled={cliWorking}
+                            title={cliWorking ? t.workingHint : t.customMarketplaceRemoveRisk}
+                          >
+                            <X size={13} />
+                            {t.removeMarketplaceFromCli}
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            className="plain-action subtle-action"
+                            data-custom-marketplace-action="remove-record"
+                            onClick={() => saveCustomMarketplaces(customMarketplaces.filter((source) => source !== item))}
+                          >
+                            <X size={13} />
+                            {t.removeMarketplaceRecord}
+                          </button>
+                        )}
                       </div>
+                      <RowCliActionEvidence
+                        run={customFocused ? recentCustomActionRun : null}
+                        t={t}
+                        onOpenOutputs={openCapabilityOutputs}
+                        onRetry={removeRetry}
+                        retryActionAttributes={{ "data-custom-marketplace-action": "retry" }}
+                        retryFocusAttributes={capabilityActionFocusAttributes(retryFocused)}
+                      />
                     </div>
                   );
                 })}
@@ -15750,6 +15897,13 @@ export function App() {
     const marketplaceAddSource = normalizeCustomMarketplaceUrl(
       String(nextArgs.match(/^plugin\s+marketplace\s+add\s+(\S+)$/i)?.[1] || retryContext?.id || "").trim(),
     );
+    const marketplaceRemoveMatch = nextArgs.match(/^plugin\s+marketplace\s+remove\s+--scope\s+user\s+(\S+)$/i);
+    const marketplaceRemoveSource = retryContext?.kind === "custom-marketplace" && retryContext.action === "remove"
+      ? normalizeCustomMarketplaceUrl(retryContext.id)
+      : "";
+    const marketplaceRemoveName = String(
+      marketplaceRemoveMatch?.[1] || retryContext?.target || focus.target || "",
+    ).trim();
     const marketplaceSource = /^plugin\s+marketplace\s+update$/i.test(nextArgs)
       ? marketplaceSources.find((item) => item?.name && item.name === focus.id) || marketplaceSources.find((item) => item?.name) || null
       : null;
@@ -15757,7 +15911,14 @@ export function App() {
     const marketplacePlugin = !marketplaceSource && retryContext?.kind === "marketplace-plugin" && installPluginId
       ? findPluginByIdentifiers(marketplacePlugins, [retryContext.id, focus.id, installPluginId, retryContext.query])
       : null;
-    const retryReviewRows = marketplaceAddSource
+    const retryReviewRows = marketplaceRemoveSource && marketplaceRemoveName
+      ? customMarketplaceRemoveReviewRows(
+          marketplaceRemoveSource,
+          marketplaceSources.find((item) => item?.name === marketplaceRemoveName) || { name: marketplaceRemoveName },
+          t,
+          activeProject,
+        )
+      : marketplaceAddSource
       ? customMarketplaceAddReviewRows(marketplaceAddSource, t, activeProject)
       : marketplaceSource
       ? marketplaceSourceUpdateReviewRows(marketplaceSource, t, activeProject)
@@ -15767,7 +15928,9 @@ export function App() {
         [t.commandLine, `claude ${nextArgs}`],
         [t.commandCwd, activeProject?.path || t.localWorkspace],
       ];
-    const retryLabel = marketplaceAddSource
+    const retryLabel = marketplaceRemoveSource && marketplaceRemoveName
+      ? t.retry + ": " + t.removeMarketplaceFromCli + " / " + marketplaceRemoveName
+      : marketplaceAddSource
       ? `${t.retry}: ${t.addMarketplace} / ${compactPath(marketplaceAddSource, 72)}`
       : marketplaceSource
       ? `${t.retry}: ${t.marketplaceSources} / ${marketplaceSource.name}`
@@ -15789,7 +15952,7 @@ export function App() {
     const retryContext = normalizeCapabilityContext(context);
     const focus = capabilityRetrySurfaceFocus(args, retryContext ? { capabilityContext: retryContext } : context);
     if (!focus) return;
-    if (focus.kind === "custom-marketplace" && focus.action === "add") {
+    if (focus.kind === "custom-marketplace" && ["add", "remove"].includes(focus.action)) {
       openCapabilityRetryConfirmation(args, retryContext ? { capabilityContext: retryContext } : context);
       return;
     }
@@ -18470,7 +18633,9 @@ export function App() {
         title: `${t.customMarketplaces}: ${compactPath(marketplace, 72)}`,
         subtitle: [
           t.customMarketplaceLocalOnly,
-          t.customMarketplaceCliUnverified,
+          marketplaceForCustomSource(capabilityCommandStatus?.marketplaces, marketplace)
+            ? t.customMarketplaceCliConfirmed
+            : t.customMarketplaceCliUnverified,
           t.marketplace,
         ].filter(Boolean).join(" · "),
         group: t.capabilities,

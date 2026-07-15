@@ -10,8 +10,9 @@ const PROJECT_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "claudex-pass330-proje
 const COMMAND_LOG = path.join(USER_DATA_DIR, "claude-command-log.txt");
 const ADDED_SOURCE_FILE = path.join(USER_DATA_DIR, "added-marketplace-source.txt");
 const FAIL_ONCE_FILE = path.join(USER_DATA_DIR, "failed-marketplace-once.txt");
-const VALID_URL = "https://example.invalid/pass330-marketplace.git?ref=v1%2Fstable";
-const FAIL_URL = "https://example.invalid/pass330-failing-marketplace.git";
+const REMOVE_FAIL_ONCE_FILE = path.join(USER_DATA_DIR, "failed-marketplace-remove-once.txt");
+const VALID_URL = "https://github.com/example/pass330-marketplace.git?ref=v1%2Fstable";
+const FAIL_URL = "https://example.invalid/pass330-failing-marketplace-" + "x".repeat(260) + ".git";
 const INVALID_URL = "https://user@example.invalid/pass330-private-marketplace.git";
 
 function cleanup() {
@@ -83,6 +84,8 @@ const args = process.argv.slice(2);
 const commandLog = ${JSON.stringify(COMMAND_LOG)};
 const addedSourceFile = ${JSON.stringify(ADDED_SOURCE_FILE)};
 const failOnceFile = ${JSON.stringify(FAIL_ONCE_FILE)};
+const removeFailOnceFile = ${JSON.stringify(REMOVE_FAIL_ONCE_FILE)};
+const validUrl = ${JSON.stringify(VALID_URL)};
 const failUrl = ${JSON.stringify(FAIL_URL)};
 fs.appendFileSync(commandLog, JSON.stringify(args) + '\\n', 'utf8');
 function out(value) { process.stdout.write(typeof value === 'string' ? value + '\\n' : JSON.stringify(value, null, 2) + '\\n'); }
@@ -90,27 +93,17 @@ function addedSource() {
   try { return fs.readFileSync(addedSourceFile, 'utf8').trim(); }
   catch (_error) { return ''; }
 }
-function marketplaces() {
-  const source = addedSource();
-  return source ? [{
-    name: 'pass330-market',
-    source: 'url',
-    repo: source,
-    version: '2026.7.15-pass330',
-    status: 'ready',
-    permissions: ['Read']
-  }] : [];
-}
 if (args[0] === '--version') out('2.1.210 (Claude Code PASS330)');
 else if (args[0] === 'auth' && args[1] === 'status') out({ loggedIn: true, apiProvider: 'qa-provider', authMethod: 'api_key' });
 else if (args[0] === 'plugin' && args[1] === 'list' && args.includes('--json')) out([]);
 else if (args[0] === 'plugin' && args[1] === 'list') out('Installed plugins: none');
 else if (args[0] === 'mcp' && args[1] === 'list' && args.includes('--json')) out({ servers: [] });
 else if (args[0] === 'mcp' && args[1] === 'list') out('No MCP servers configured');
-else if (args[0] === 'plugin' && args[1] === 'marketplace' && args[2] === 'list' && args.includes('--json')) out(marketplaces());
+else if (args[0] === 'plugin' && args[1] === 'marketplace' && args[2] === 'list' && args.includes('--json')) out([]);
 else if (args[0] === 'plugin' && args[1] === 'marketplace' && args[2] === 'list') {
   const source = addedSource();
-  out(source ? 'Configured marketplaces:\\n\\n  > pass330-market\\n    Source: URL (' + source + ')' : 'Configured marketplaces: none');
+  const displaySource = source === validUrl ? 'GitHub (example/pass330-marketplace)' : 'URL (' + source + ')';
+  out(source ? 'Configured marketplaces:\\n\\n  > pass330-market\\n    Source: ' + displaySource : 'Configured marketplaces: none');
 }
 else if (args[0] === 'plugin' && args[1] === 'marketplace' && args[2] === 'add') {
   const source = args[3] || '';
@@ -124,6 +117,24 @@ else if (args[0] === 'plugin' && args[1] === 'marketplace' && args[2] === 'add')
   } else {
     fs.writeFileSync(addedSourceFile, source, 'utf8');
     out('Added marketplace pass330-market from ' + source);
+  }
+}
+else if (
+  args.length === 6 &&
+  args[0] === 'plugin' &&
+  args[1] === 'marketplace' &&
+  args[2] === 'remove' &&
+  args[3] === '--scope' &&
+  args[4] === 'user' &&
+  args[5] === 'pass330-market'
+) {
+  if (!fs.existsSync(removeFailOnceFile)) {
+    fs.writeFileSync(removeFailOnceFile, '1', 'utf8');
+    process.stderr.write('PASS330 marketplace remove rejected by Claude CLI\\n');
+    process.exitCode = 8;
+  } else {
+    try { fs.unlinkSync(addedSourceFile); } catch (_error) {}
+    out('Removed marketplace pass330-market from user settings');
   }
 }
 else out('pass330 fake claude command: ' + args.join(' '));
@@ -235,6 +246,42 @@ async function clickRecoveryRetryCommand(win) {
       const button = [...document.querySelectorAll('.command-modal .command-list button')]
         .find((candidate) => (candidate.getAttribute('data-command-id') || '').startsWith('capability-recovery:retry:'));
       if (!button) return false;
+      button.click();
+      return true;
+    })();
+  `);
+}
+
+async function clickRemoveRecoveryRetryCommand(win) {
+  return win.webContents.executeJavaScript(`
+    (async function() {
+      window.dispatchEvent(new KeyboardEvent('keydown', { key: 'k', ctrlKey: true, bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 240));
+      const input = document.querySelector('.command-modal .command-search input');
+      if (!input) return false;
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value')?.set;
+      setter?.call(input, 'plugin marketplace remove pass330-market');
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      await new Promise((resolve) => setTimeout(resolve, 360));
+      const button = [...document.querySelectorAll('.command-modal .command-list button')]
+        .find((candidate) =>
+          (candidate.getAttribute('data-command-id') || '').startsWith('capability-recovery:retry:') &&
+          /marketplace remove/i.test(candidate.textContent || '')
+        );
+      if (!button) return false;
+      button.click();
+      return true;
+    })();
+  `);
+}
+
+async function clickCustomMarketplaceAction(win, source, action) {
+  return win.webContents.executeJavaScript(`
+    (function() {
+      const row = [...document.querySelectorAll('[data-custom-marketplace-row]')]
+        .find((item) => item.getAttribute('data-custom-marketplace-id') === ${JSON.stringify(source)});
+      const button = row?.querySelector('[data-custom-marketplace-action="${action}"]');
+      if (!button || button.disabled) return false;
       button.click();
       return true;
     })();
@@ -396,7 +443,102 @@ async function runTest() {
     })();
   `, 15000));
 
-  console.log("PASS330_CUSTOM_MARKETPLACE_ADD_DONE");
+  const removeCommand = JSON.stringify(["plugin", "marketplace", "remove", "--scope", "user", "pass330-market"]);
+  assertStep("PASS330_REMOVE_ACTION_READY", await waitFor(win, `
+    (function() {
+      const row = [...document.querySelectorAll('[data-custom-marketplace-row]')]
+        .find((item) => item.getAttribute('data-custom-marketplace-id') === ${JSON.stringify(FAIL_URL)});
+      const button = row?.querySelector('[data-custom-marketplace-action="remove"]');
+      return Boolean(button && !button.disabled && /Claude CLI/.test(button.textContent || ''));
+    })();
+  `, 10000));
+  assertStep("PASS330_REMOVE_ACTION_CLICKED", await clickCustomMarketplaceAction(win, FAIL_URL, "remove"));
+  assertStep("PASS330_REMOVE_CONFIRM_REVIEW_VISIBLE", await waitFor(win, `
+    (function() {
+      const confirm = document.querySelector('.plugin-cli-confirm');
+      const text = confirm?.textContent || '';
+      return Boolean(
+        confirm &&
+        text.includes(${JSON.stringify(FAIL_URL)}) &&
+        /pass330-market/.test(text) &&
+        /plugin marketplace remove --scope user pass330-market/.test(text) &&
+        /\u7528\u6237\u7ea7/.test(text) &&
+        /\u98ce\u9669/.test(text)
+      );
+    })();
+  `, 5000));
+  assertStep("PASS330_REMOVE_NOT_RUN_BEFORE_CONFIRM", commandLogEntryCount(removeCommand) === 0);
+  assertStep("PASS330_REMOVE_NOT_SAVED_BEFORE_CONFIRM", await win.webContents.executeJavaScript(`
+    (async function() {
+      const state = await window.claudexDesktop.getState();
+      return (state.settings?.customMarketplaces || []).includes(${JSON.stringify(FAIL_URL)});
+    })();
+  `));
+  assertStep("PASS330_REMOVE_CONFIRM_FAILURE", await confirmMarketplace(win));
+  assertStep("PASS330_REMOVE_FAILURE_CLI_EXACT_ARGS", await waitForLogCount(removeCommand, 1, 10000));
+  assertStep("PASS330_REMOVE_FAILURE_RETAINS_SOURCE_AND_EVIDENCE", await waitFor(win, `
+    (async function() {
+      const state = await window.claudexDesktop.getState();
+      const run = (state.commandRuns || []).find((item) =>
+        item.kind === 'capability' &&
+        item.code === 8 &&
+        Array.isArray(item.args) &&
+        JSON.stringify(item.args) === ${JSON.stringify(removeCommand)}
+      );
+      const event = (state.runEvents || []).find((item) => item.id === run?.requestId && item.status === 'error');
+      const notice = (state.notices || []).find((item) =>
+        item.runEventId === run?.requestId &&
+        item.capabilityContext?.kind === 'custom-marketplace' &&
+        item.capabilityContext?.id === ${JSON.stringify(FAIL_URL)} &&
+        item.capabilityContext?.action === 'remove' &&
+        item.capabilityContext?.target === 'pass330-market' &&
+        /^capability-recovery:/.test(item.action || '')
+      );
+      const row = [...document.querySelectorAll('[data-custom-marketplace-row]')]
+        .find((item) => item.getAttribute('data-custom-marketplace-id') === ${JSON.stringify(FAIL_URL)});
+      return Boolean(
+        (state.settings?.customMarketplaces || []).includes(${JSON.stringify(FAIL_URL)}) &&
+        run?.capabilityContext?.target === 'pass330-market' &&
+        event &&
+        notice &&
+        row?.querySelector('[data-custom-marketplace-action="retry"]')
+      );
+    })();
+  `, 12000));
+  assertStep("PASS330_REMOVE_PALETTE_RETRY_CLICKED", await clickRemoveRecoveryRetryCommand(win));
+  assertStep("PASS330_REMOVE_RETRY_CONFIRM_VISIBLE", await waitFor(win, `
+    (function() {
+      const text = document.querySelector('.plugin-cli-confirm')?.textContent || '';
+      return /plugin marketplace remove --scope user pass330-market/.test(text) && text.includes(${JSON.stringify(FAIL_URL)});
+    })();
+  `, 10000));
+  assertStep("PASS330_REMOVE_RETRY_NOT_RUN_BEFORE_CONFIRM", commandLogEntryCount(removeCommand) === 1);
+  assertStep("PASS330_REMOVE_RETRY_CONFIRMED", await confirmMarketplace(win));
+  assertStep("PASS330_REMOVE_RETRY_CLI_RAN", await waitForLogCount(removeCommand, 2, 10000));
+  assertStep("PASS330_REMOVE_RETRY_SUCCEEDED_ATOMICALLY", await waitFor(win, `
+    (async function() {
+      const state = await window.claudexDesktop.getState();
+      const runs = (state.commandRuns || []).filter((item) =>
+        item.kind === 'capability' &&
+        Array.isArray(item.args) &&
+        JSON.stringify(item.args) === ${JSON.stringify(removeCommand)}
+      );
+      const removedRow = [...document.querySelectorAll('[data-custom-marketplace-row]')]
+        .find((item) => item.getAttribute('data-custom-marketplace-id') === ${JSON.stringify(FAIL_URL)});
+      const retainedRow = [...document.querySelectorAll('[data-custom-marketplace-row]')]
+        .find((item) => item.getAttribute('data-custom-marketplace-id') === ${JSON.stringify(VALID_URL)});
+      return Boolean(
+        !(state.settings?.customMarketplaces || []).includes(${JSON.stringify(FAIL_URL)}) &&
+        (state.settings?.customMarketplaces || []).includes(${JSON.stringify(VALID_URL)}) &&
+        runs.some((item) => item.code === 8 && item.capabilityContext?.target === 'pass330-market') &&
+        runs.some((item) => item.code === 0 && item.capabilityContext?.target === 'pass330-market') &&
+        !removedRow &&
+        retainedRow?.querySelector('[data-custom-marketplace-action="remove-record"]')
+      );
+    })();
+  `, 15000));
+
+  console.log("PASS330_CUSTOM_MARKETPLACE_LIFECYCLE_DONE");
   cleanup();
   app.exit(0);
 }
