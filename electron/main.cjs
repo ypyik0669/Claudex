@@ -94,6 +94,7 @@ const automationRunLocks = new Set();
 const cancelledSubagentRuns = new Set();
 const activeChatRequestIds = new Set();
 const cancelledChatRequestIds = new Set();
+const activeChatRequestRuntime = new Map();
 let automationSchedulerTimer = null;
 let automationSchedulerRunning = false;
 
@@ -2832,9 +2833,13 @@ function writeStore(store) {
 }
 
 function broadcastStoreUpdate(store) {
-  const payload = sanitizeStore(store);
   for (const win of BrowserWindow.getAllWindows()) {
-    if (!win.isDestroyed()) win.webContents.send("app:state-updated", payload);
+    if (win.isDestroyed() || win.webContents.isDestroyed()) continue;
+    try {
+      win.webContents.send("app:state-updated", sanitizeStore(store, win.webContents.id));
+    } catch (_error) {
+      // A renderer can disappear between the lifecycle checks and send().
+    }
   }
 }
 
@@ -2863,7 +2868,34 @@ function decryptSecret(secret) {
   return "";
 }
 
-function sanitizeStore(store) {
+function activeChatRequestsForStore(store) {
+  const chatEvents = new Map(
+    (store.runEvents || [])
+      .filter((event) => event?.type === "chat" && event?.id)
+      .map((event) => [event.id, event]),
+  );
+  return Array.from(activeChatRequestIds, (requestId) => {
+    const event = chatEvents.get(requestId);
+    const runtime = activeChatRequestRuntime.get(requestId) || {};
+    return {
+      requestId,
+      ownerWebContentsId: Number(runtime.ownerWebContentsId || 0),
+      sessionId: String(runtime.sessionId || event?.sessionId || ""),
+      status: cancelledChatRequestIds.has(requestId) ? "stopping" : "running",
+      title: String(event?.title || ""),
+      detail: String(event?.detail || ""),
+      content: String(runtime.content || ""),
+      streamStatus: String(runtime.streamStatus || ""),
+      streamRevision: Number(runtime.streamRevision || 0),
+      activities: Array.isArray(runtime.activities)
+        ? runtime.activities.map((item) => ({ ...item })).slice(-8)
+        : [],
+      createdAt: isoOrEmpty(runtime.createdAt || event?.createdAt),
+    };
+  });
+}
+
+function sanitizeStore(store, runtimeRendererId = null) {
   const apiKeyState = Object.fromEntries(
     Object.entries(store.settings.apiKeys || {}).map(([provider, secret]) => [
       provider,
@@ -2873,6 +2905,8 @@ function sanitizeStore(store) {
 
   return {
     ...store,
+    runtimeRendererId: Number(runtimeRendererId || 0),
+    activeChatRequests: activeChatRequestsForStore(store),
     settings: {
       ...store.settings,
       apiKeys: apiKeyState,
@@ -3218,13 +3252,62 @@ async function requestClaudeCode(store, session, requestId) {
   };
 }
 
+function updateActiveChatRequestRuntime(requestId, update) {
+  const current = activeChatRequestRuntime.get(requestId);
+  if (!current) return null;
+  const patch = typeof update === "function" ? update(current) : update;
+  const next = {
+    ...current,
+    ...(patch || {}),
+    streamRevision: Number(current.streamRevision || 0) + 1,
+  };
+  activeChatRequestRuntime.set(requestId, next);
+  return next;
+}
+
+function activeChatStreamCheckpoint(requestId) {
+  const runtime = activeChatRequestRuntime.get(requestId);
+  if (!runtime) return {};
+  return {
+    content: String(runtime.content || ""),
+    streamStatus: String(runtime.streamStatus || ""),
+    streamRevision: Number(runtime.streamRevision || 0),
+    activities: Array.isArray(runtime.activities)
+      ? runtime.activities.map((item) => ({ ...item })).slice(-8)
+      : [],
+  };
+}
+
+function appendActiveChatActivity(requestId, text) {
+  const value = stripAnsi(String(text || "")).trim();
+  if (!value) return;
+  updateActiveChatRequestRuntime(requestId, (current) => ({
+    activities: [
+      ...(current.activities || []),
+      { id: `${requestId}:activity:${Date.now()}:${(current.activities || []).length}`, text: value },
+    ].slice(-8),
+  }));
+}
+
 function emitClaudeStreamLine(sender, requestId, session, line) {
   const payload = parseJsonOutput(line);
   if (!payload) return;
   const base = { requestId, sessionId: session.id };
+  const send = (event) => {
+    if (!sender || sender.isDestroyed()) return;
+    try {
+      sender.send("chat:stream-event", {
+        ...event,
+        ...activeChatStreamCheckpoint(requestId),
+      });
+    } catch (_error) {
+      // The request remains owned by main even if its renderer reloads or closes.
+    }
+  };
   const emitActivity = (text, extra = {}) => {
     if (!text) return;
-    sender.send("chat:stream-event", {
+    appendActiveChatActivity(requestId, text);
+    send({
       ...base,
       type: "activity",
       text: stripAnsi(String(text)),
@@ -3233,7 +3316,10 @@ function emitClaudeStreamLine(sender, requestId, session, line) {
   };
   if (payload.type === "system" && payload.subtype === "init") {
     if (payload.session_id) session.claudeSessionId = payload.session_id;
-    sender.send("chat:stream-event", {
+    updateActiveChatRequestRuntime(requestId, {
+      streamStatus: `Claude Code ${payload.claude_code_version || ""}`.trim(),
+    });
+    send({
       ...base,
       type: "status",
       text: `Claude Code ${payload.claude_code_version || ""}`.trim(),
@@ -3243,7 +3329,10 @@ function emitClaudeStreamLine(sender, requestId, session, line) {
     return;
   }
   if (payload.type === "system" && payload.subtype === "status") {
-    sender.send("chat:stream-event", {
+    updateActiveChatRequestRuntime(requestId, {
+      streamStatus: payload.status || "\u6b63\u5728\u5904\u7406",
+    });
+    send({
       ...base,
       type: "status",
       text: payload.status || "正在处理",
@@ -3264,7 +3353,11 @@ function emitClaudeStreamLine(sender, requestId, session, line) {
   if (payload.type === "stream_event" && payload.event?.type === "content_block_delta") {
     const delta = payload.event.delta;
     if (delta?.type === "text_delta" && delta.text) {
-      sender.send("chat:stream-event", {
+      updateActiveChatRequestRuntime(requestId, (current) => ({
+        content: `${current.content || ""}${delta.text}`,
+        streamStatus: "",
+      }));
+      send({
         ...base,
         type: "delta",
         text: delta.text,
@@ -3286,7 +3379,7 @@ function emitClaudeStreamLine(sender, requestId, session, line) {
     return;
   }
   if (payload.type === "result") {
-    sender.send("chat:stream-event", {
+    send({
       ...base,
       type: payload.is_error ? "error" : "done",
       text: payload.result || "",
@@ -3885,7 +3978,7 @@ app.on("window-all-closed", () => {
   if (process.platform !== "darwin") app.quit();
 });
 
-ipcMain.handle("app:get-state", () => sanitizeStore(readStore()));
+ipcMain.handle("app:get-state", (_event) => sanitizeStore(readStore(), _event.sender.id));
 
 ipcMain.handle("app:save-settings", (_event, nextSettings) => {
   const store = readStore();
@@ -4336,109 +4429,10 @@ ipcMain.handle("chat:fork-session", (_event, sessionId) => {
   };
 });
 
-ipcMain.handle("chat:send-message", async (_event, { sessionId, content, requestId, claudeSessionId }) => {
-  if (!content || !String(content).trim()) throw new Error("消息为空。");
-  const store = readStore();
-  const session = store.sessions.find((item) => item.id === sessionId) || store.sessions[0];
-  if (!session) throw new Error("没有可用的聊天会话。");
-  const runId = requestId || id("request");
-  activeChatRequestIds.add(runId);
-  cancelledChatRequestIds.delete(runId);
-  const resumeId = String(claudeSessionId || "").trim();
-  if (resumeId && !session.claudeSessionId) session.claudeSessionId = resumeId;
-
-  const createdAt = now();
-  const userContent = String(content).trim();
-  session.messages.push({ role: "user", content: userContent, createdAt });
-  if (isGenericSessionTitle(session.title)) {
-    session.title = titleFromUserContent(userContent);
-  }
-  session.updatedAt = createdAt;
-  const project = session.projectPath && fs.existsSync(session.projectPath)
-    ? projectFromPath(session.projectPath)
-    : store.activeProject || localWorkspaceProject();
-  const upsertChatRunEvent = (status, detail) => upsertRunEvent(store, {
-    id: runId,
-    type: "chat",
-    status,
-    title: `聊天: ${sessionDisplayTitleForStore(session)}`,
-    detail,
-    cwd: session.projectPath || project?.path || "",
-    project,
-    sessionId: session.id,
-    createdAt,
-  });
-  upsertChatRunEvent("running", userContent.slice(0, 140));
-  writeStore(store);
-
-  const finishCancelled = () => {
-    session.messages.push({
-      role: "cancelled",
-      content: "已停止本次回复。",
-      requestId: runId,
-      createdAt: now(),
-    });
-    session.updatedAt = now();
-    const runEvent = upsertChatRunEvent("cancelled", "已停止本次回复。");
-    writeStore(store);
-    broadcastStoreUpdate(store);
-    return {
-      ...sanitizeStore(store),
-      requestStatus: "cancelled",
-      cancelledRequestId: runId,
-      runEvent,
-    };
-  };
-
-  try {
-    const assistantResult =
-      store.settings.claudeCode?.executionMode !== "api"
-        ? await requestClaudeCodeStream(store, session, runId, _event.sender)
-        : await requestAssistant(store, session, runId);
-    if (assistantResult?.cancelled) return finishCancelled();
-    const assistantText = typeof assistantResult === "string" ? assistantResult : assistantResult.text;
-    const permissionDenials = typeof assistantResult === "object" && Array.isArray(assistantResult.permissionDenials) ? assistantResult.permissionDenials : [];
-    session.messages.push({
-      role: "assistant",
-      content: assistantText,
-      createdAt: now(),
-      ...(permissionDenials.length ? { permissionDenials } : {}),
-    });
-    session.updatedAt = now();
-    const runEvent = upsertChatRunEvent("ok", "已完成");
-    writeStore(store);
-    broadcastStoreUpdate(store);
-    return {
-      ...sanitizeStore(store),
-      requestStatus: "ok",
-      runEvent,
-    };
-  } catch (error) {
-    if (cancelledChatRequestIds.has(runId) && !error?.preserveOnCancel) return finishCancelled();
-    const message = error.message || "模型请求失败。";
-    session.messages.push({
-      role: "error",
-      content: message,
-      createdAt: now(),
-    });
-    session.updatedAt = now();
-    const runEvent = upsertChatRunEvent("error", message);
-    writeStore(store);
-    broadcastStoreUpdate(store);
-    return {
-      ...sanitizeStore(store),
-      requestStatus: "error",
-      requestError: message,
-      runEvent,
-    };
-  } finally {
-    activeChatRequestIds.delete(runId);
-    cancelledChatRequestIds.delete(runId);
-  }
-});
-
-ipcMain.handle("chat:cancel-request", (_event, requestId) => {
-  if (activeChatRequestIds.has(requestId)) cancelledChatRequestIds.add(requestId);
+function cancelActiveChatRequest(requestId) {
+  if (!activeChatRequestIds.has(requestId)) return false;
+  cancelledChatRequestIds.add(requestId);
+  broadcastStoreUpdate(readStore());
   const request = activeRequests.get(requestId);
   if (request) {
     if (typeof request.abort === "function") request.abort();
@@ -4446,6 +4440,170 @@ ipcMain.handle("chat:cancel-request", (_event, requestId) => {
     activeRequests.delete(requestId);
   }
   return true;
+}
+
+function claimActiveChatRequest({ requestId, ownerWebContents, sessionId, createdAt }) {
+  if (activeChatRequestIds.size > 0) {
+    const error = new Error("已有回复正在运行，请停止后再试。");
+    error.code = "CHAT_REQUEST_ACTIVE";
+    throw error;
+  }
+  activeChatRequestIds.add(requestId);
+  cancelledChatRequestIds.delete(requestId);
+  activeChatRequestRuntime.set(requestId, {
+    ownerWebContentsId: Number(ownerWebContents?.id || 0),
+    sessionId,
+    content: "",
+    streamStatus: "",
+    streamRevision: 0,
+    activities: [],
+    createdAt,
+  });
+  const cancelOnOwnerDestroyed = () => {
+    cancelActiveChatRequest(requestId);
+  };
+  if (ownerWebContents && !ownerWebContents.isDestroyed()) {
+    ownerWebContents.once("destroyed", cancelOnOwnerDestroyed);
+  }
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    if (ownerWebContents && !ownerWebContents.isDestroyed()) {
+      ownerWebContents.removeListener("destroyed", cancelOnOwnerDestroyed);
+    }
+    activeChatRequestIds.delete(requestId);
+    cancelledChatRequestIds.delete(requestId);
+    activeChatRequestRuntime.delete(requestId);
+  };
+}
+
+ipcMain.handle("chat:send-message", async (_event, { sessionId, content, requestId, claudeSessionId }) => {
+  if (!content || !String(content).trim()) throw new Error("消息为空。");
+  const store = readStore();
+  const session = store.sessions.find((item) => item.id === sessionId) || store.sessions[0];
+  if (!session) throw new Error("没有可用的聊天会话。");
+  const runId = requestId || id("request");
+  const createdAt = now();
+  const releaseRequest = claimActiveChatRequest({
+    requestId: runId,
+    ownerWebContents: _event.sender,
+    sessionId: session.id,
+    createdAt,
+  });
+
+  try {
+    const resumeId = String(claudeSessionId || "").trim();
+    if (resumeId && !session.claudeSessionId) session.claudeSessionId = resumeId;
+    const userContent = String(content).trim();
+    session.messages.push({ role: "user", content: userContent, requestId: runId, createdAt });
+    if (isGenericSessionTitle(session.title)) {
+      session.title = titleFromUserContent(userContent);
+    }
+    session.updatedAt = createdAt;
+    const project = session.projectPath && fs.existsSync(session.projectPath)
+      ? projectFromPath(session.projectPath)
+      : store.activeProject || localWorkspaceProject();
+    const chatRunEvent = (targetSession, status, detail) => ({
+      id: runId,
+      type: "chat",
+      status,
+      title: `聊天: ${sessionDisplayTitleForStore(targetSession || session)}`,
+      detail,
+      cwd: session.projectPath || project?.path || "",
+      project,
+      sessionId: session.id,
+      createdAt,
+    });
+    upsertRunEvent(store, chatRunEvent(session, "running", userContent.slice(0, 140)));
+    writeStore(store);
+    broadcastStoreUpdate(store);
+
+    const commitOutcome = (status, detail, terminalMessage) => {
+      const latestStore = readStore();
+      const latestSession = latestStore.sessions.find((item) => item.id === session.id);
+      if (latestSession) {
+        latestSession.messages = sessionMessages(latestSession);
+        if (terminalMessage) {
+          const terminalIndex = latestSession.messages.findIndex((message) => (
+            message?.requestId === runId && ["assistant", "cancelled", "error"].includes(message?.role)
+          ));
+          const nextMessage = { ...terminalMessage, requestId: runId };
+          if (terminalIndex >= 0) latestSession.messages[terminalIndex] = nextMessage;
+          else latestSession.messages.push(nextMessage);
+          latestSession.updatedAt = nextMessage.createdAt || now();
+        }
+        if (session.claudeSessionId) latestSession.claudeSessionId = session.claudeSessionId;
+      }
+      const runEvent = upsertRunEvent(
+        latestStore,
+        chatRunEvent(latestSession || session, status, detail),
+      );
+      writeStore(latestStore);
+      releaseRequest();
+      broadcastStoreUpdate(latestStore);
+      return { latestStore, runEvent };
+    };
+
+    const finishCancelled = () => {
+      const { latestStore, runEvent } = commitOutcome("cancelled", "已停止本次回复。", {
+        role: "cancelled",
+        content: "已停止本次回复。",
+        createdAt: now(),
+      });
+      return {
+        ...sanitizeStore(latestStore, _event.sender.id),
+        requestStatus: "cancelled",
+        cancelledRequestId: runId,
+        runEvent,
+      };
+    };
+
+    try {
+      const assistantResult =
+        store.settings.claudeCode?.executionMode !== "api"
+          ? await requestClaudeCodeStream(store, session, runId, _event.sender)
+          : await requestAssistant(store, session, runId);
+      if (assistantResult?.cancelled) return finishCancelled();
+      const assistantText = typeof assistantResult === "string" ? assistantResult : assistantResult.text;
+      const permissionDenials = typeof assistantResult === "object" && Array.isArray(assistantResult.permissionDenials) ? assistantResult.permissionDenials : [];
+      const { latestStore, runEvent } = commitOutcome("ok", "已完成", {
+        role: "assistant",
+        content: assistantText,
+        createdAt: now(),
+        ...(permissionDenials.length ? { permissionDenials } : {}),
+      });
+      return {
+        ...sanitizeStore(latestStore, _event.sender.id),
+        requestStatus: "ok",
+        runEvent,
+      };
+    } catch (error) {
+      if (cancelledChatRequestIds.has(runId) && !error?.preserveOnCancel) return finishCancelled();
+      const message = error.message || "模型请求失败。";
+      const { latestStore, runEvent } = commitOutcome("error", message, {
+        role: "error",
+        content: message,
+        createdAt: now(),
+      });
+      return {
+        ...sanitizeStore(latestStore, _event.sender.id),
+        requestStatus: "error",
+        requestError: message,
+        runEvent,
+      };
+    }
+  } finally {
+    releaseRequest();
+  }
+});
+
+ipcMain.handle("chat:cancel-request", (_event, requestId) => {
+  const runtime = activeChatRequestRuntime.get(requestId);
+  if (!activeChatRequestIds.has(requestId) || Number(runtime?.ownerWebContentsId || 0) !== _event.sender.id) {
+    return false;
+  }
+  return cancelActiveChatRequest(requestId);
 });
 
 ipcMain.handle("app:open-data-file", async () => {

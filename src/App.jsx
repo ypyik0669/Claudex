@@ -4737,12 +4737,31 @@ function fallbackState() {
     subagentRuns: [],
     commandRuns: [],
     runEvents: [],
+    activeChatRequests: [],
     sourceRefs: [],
     browserVisits: [],
     notices: [],
     capabilityStatus: null,
   };
 }
+
+function activeChatRequestForUi(state, runtimeRendererId) {
+  if (!Array.isArray(state?.activeChatRequests)) return null;
+  const ownerId = Number(runtimeRendererId || 0);
+  if (!ownerId) return null;
+  return state.activeChatRequests.find((item) => (
+    item?.requestId && Number(item.ownerWebContentsId || 0) === ownerId
+  )) || null;
+}
+
+function hasForeignActiveChatRequest(state, runtimeRendererId) {
+  if (!Array.isArray(state?.activeChatRequests)) return false;
+  const ownerId = Number(runtimeRendererId || 0);
+  return state.activeChatRequests.some((item) => (
+    item?.requestId && Number(item.ownerWebContentsId || 0) !== ownerId
+  ));
+}
+
 function Sidebar({
   state,
   activeProject,
@@ -5078,6 +5097,7 @@ function WelcomeComposer({
   onSend,
   onCancel,
   busy,
+  sendBlocked = false,
   stopping = false,
   settings,
   activeProject,
@@ -5098,7 +5118,7 @@ function WelcomeComposer({
   const textareaRef = useRef(null);
   const submit = (event) => {
     event.preventDefault();
-    if (!busy && value.trim()) {
+    if (!busy && !sendBlocked && value.trim()) {
       onSend(value);
       updateValue("");
     }
@@ -5166,9 +5186,9 @@ function WelcomeComposer({
             type={busy ? "button" : "submit"}
             className={cx("send-button", justSent && "send-success")}
             onClick={busy && !stopping ? onCancel : undefined}
-            disabled={stopping || (!busy && !value.trim())}
-            title={busy ? stopping ? t.responseStopping : t.cancel : justSent ? t.messageSent : t.send}
-            aria-label={busy ? stopping ? t.responseStopping : t.cancel : t.send}
+            disabled={stopping || (!busy && (sendBlocked || !value.trim()))}
+            title={busy ? stopping ? t.responseStopping : t.cancel : sendBlocked ? t.workingHint : justSent ? t.messageSent : t.send}
+            aria-label={busy ? stopping ? t.responseStopping : t.cancel : sendBlocked ? t.workingHint : t.send}
           >
             {busy ? stopping ? <RefreshCw size={17} className="spin" /> : <X size={18} /> : justSent ? <Check size={18} /> : <Send size={18} />}
           </button>
@@ -5207,6 +5227,7 @@ function Conversation({
   onOpenTerminal,
   onOpenProject,
   busy,
+  sendBlocked,
   streamingAssistant,
   optimisticUser,
   runEvents,
@@ -6376,6 +6397,7 @@ function Conversation({
               onSend={onSend}
               onCancel={onCancel}
               busy={busy}
+              sendBlocked={sendBlocked}
               stopping={stopping}
               settings={settings}
               activeProject={activeProject}
@@ -6482,6 +6504,7 @@ function Conversation({
                 onSend={onSend}
                 onCancel={onCancel}
                 busy={busy}
+                sendBlocked={sendBlocked}
                 stopping={stopping}
                 settings={settings}
                 activeProject={activeProject}
@@ -14907,6 +14930,7 @@ function ScheduledModal({
 
 export function App() {
   const [state, setState] = useState(fallbackState());
+  const [runtimeRendererId, setRuntimeRendererId] = useState(0);
   const [activeSessionId, setActiveSessionId] = useState("browser-preview");
   const [query, setQuery] = useState("");
   const [busy, setBusy] = useState(false);
@@ -14932,6 +14956,7 @@ export function App() {
   const [threadScopeFocus, setThreadScopeFocus] = useState({ scope: "", nonce: 0 });
   const [threadActionFocus, setThreadActionFocus] = useState({ sessionId: "", action: "", nonce: 0 });
   const [currentRequestId, setCurrentRequestId] = useState("");
+  const locallyStartedChatRequestIdsRef = useRef(new Set());
   const [streamingAssistant, setStreamingAssistant] = useState(null);
   const [optimisticUser, setOptimisticUser] = useState(null);
   const [environment, setEnvironment] = useState(null);
@@ -14965,52 +14990,33 @@ export function App() {
     if (state.capabilityStatus?.refreshedAt) setCapabilityCommandStatus(state.capabilityStatus);
   }, [state.capabilityStatus?.refreshedAt]);
 
-  useEffect(() => {
-    let cancelled = false;
-    async function load() {
-      if (!desktopApi) {
-        if (!cancelled) setStateLoading(false);
-        return;
-      }
-      try {
-        const next = await desktopApi.getState();
-        if (!cancelled) {
-          setState(next);
-          setRunEvents((current) => mergeRunEvents(current, next.runEvents || []));
-          setActiveSessionId(next.sessions[0]?.id || "");
-          setLoadError("");
-        }
-      } catch (error) {
-        if (!cancelled) setLoadError(error.message || "无法加载桌面端状态。");
-      } finally {
-        if (!cancelled) setStateLoading(false);
-      }
-    }
-    load();
-    return () => {
-      cancelled = true;
-    };
-  }, []);
-
-  async function retryLoadDesktopState() {
-    if (!desktopApi) return;
-    setStateLoading(true);
-    setLoadError("");
-    try {
-      const next = await desktopApi.getState();
-      setState(next);
-      setActiveSessionId(next.sessions[0]?.id || "");
-    } catch (error) {
-      setLoadError(error.message || "无法加载桌面端状态。");
-    } finally {
-      setStateLoading(false);
-    }
-  }
-
+  // Subscribe before the initial snapshot so no stream event can fall into the bootstrap gap.
   useEffect(() => {
     if (!desktopApi?.onChatStream) return undefined;
     return desktopApi.onChatStream((event) => {
       setStreamingAssistant((current) => {
+        const streamRevision = Number(event?.streamRevision || 0);
+        if (streamRevision > 0) {
+          if (current && current.requestId !== event.requestId) return current;
+          if (current?.stopping) return current;
+          const currentRevision = Number(current?.streamRevision || 0);
+          if (streamRevision < currentRevision) return current;
+          return {
+            requestId: event.requestId,
+            sessionId: event.sessionId || current?.sessionId || "",
+            content: typeof event.content === "string" ? event.content : current?.content || "",
+            status: typeof event.streamStatus === "string"
+              ? event.streamStatus
+              : event.type === "status"
+                ? event.text || current?.status || ""
+                : current?.status || "",
+            activities: Array.isArray(event.activities)
+              ? event.activities
+              : current?.activities || [],
+            streamRevision,
+            stopping: false,
+          };
+        }
         if (!current || current.requestId !== event.requestId) return current;
         if (current.stopping) return current;
         if (event.type === "delta") {
@@ -15035,10 +15041,57 @@ export function App() {
   }, []);
 
   useEffect(() => {
+    let cancelled = false;
+    async function load() {
+      if (!desktopApi) {
+        if (!cancelled) setStateLoading(false);
+        return;
+      }
+      try {
+        const next = await desktopApi.getState();
+        if (!cancelled) {
+          const nextRuntimeRendererId = Number(next.runtimeRendererId || 0);
+          setState(next);
+          setRuntimeRendererId(nextRuntimeRendererId);
+          setRunEvents((current) => mergeRunEvents(current, next.runEvents || []));
+          setActiveSessionId(activeChatRequestForUi(next, nextRuntimeRendererId)?.sessionId || next.sessions[0]?.id || "");
+          setLoadError("");
+        }
+      } catch (error) {
+        if (!cancelled) setLoadError(error.message || "无法加载桌面端状态。");
+      } finally {
+        if (!cancelled) setStateLoading(false);
+      }
+    }
+    load();
+    return () => {
+      cancelled = true;
+    };
+  }, []);
+
+  async function retryLoadDesktopState() {
+    if (!desktopApi) return;
+    setStateLoading(true);
+    setLoadError("");
+    try {
+      const next = await desktopApi.getState();
+      const nextRuntimeRendererId = Number(next.runtimeRendererId || 0);
+      setState(next);
+      setRuntimeRendererId(nextRuntimeRendererId);
+      setActiveSessionId(activeChatRequestForUi(next, nextRuntimeRendererId)?.sessionId || next.sessions[0]?.id || "");
+    } catch (error) {
+      setLoadError(error.message || "无法加载桌面端状态。");
+    } finally {
+      setStateLoading(false);
+    }
+  }
+
+  useEffect(() => {
     if (!desktopApi?.onStateUpdate) return undefined;
     return desktopApi.onStateUpdate((next) => {
       if (!next?.settings) return;
       setState(next);
+      if (Number(next.runtimeRendererId || 0)) setRuntimeRendererId(Number(next.runtimeRendererId));
       setRunEvents((current) => mergeRunEvents(current, next.runEvents || []));
       setActiveSessionId((current) => (
         next.sessions?.some((session) => session.id === current) ? current : next.sessions?.[0]?.id || ""
@@ -15087,6 +15140,58 @@ export function App() {
   const t = copy.zh;
   const activeProject = state.activeProject || { name: t.localWorkspace, path: "" };
   useEffect(() => {
+    if (!Array.isArray(state.activeChatRequests)) return;
+    const activeRequest = activeChatRequestForUi(state, runtimeRendererId);
+    if (!activeRequest) {
+      if (locallyStartedChatRequestIdsRef.current.size > 0) return;
+      setBusy(false);
+      setCurrentRequestId("");
+      setStreamingAssistant(null);
+      setOptimisticUser(null);
+      return;
+    }
+    const stopping = activeRequest.status === "stopping";
+    const runtimeRevision = Number(activeRequest.streamRevision || 0);
+    setBusy(true);
+    setCurrentRequestId(activeRequest.requestId);
+    setStreamingAssistant((current) => {
+      if (current?.requestId === activeRequest.requestId) {
+        const keepStopping = Boolean(current.stopping) || stopping;
+        const currentRevision = Number(current.streamRevision || 0);
+        if (currentRevision > runtimeRevision) {
+          return {
+            ...current,
+            sessionId: activeRequest.sessionId || current.sessionId || "",
+            status: keepStopping ? t.responseStopping : current.status,
+            stopping: keepStopping,
+          };
+        }
+        const runtimeContent = String(activeRequest.content || "");
+        const runtimeActivities = Array.isArray(activeRequest.activities) ? activeRequest.activities : [];
+        return {
+          ...current,
+          sessionId: activeRequest.sessionId || current.sessionId || "",
+          content: runtimeContent,
+          status: keepStopping ? t.responseStopping : activeRequest.streamStatus || current.status || t.waiting,
+          activities: runtimeActivities,
+          streamRevision: runtimeRevision,
+          stopping: keepStopping,
+        };
+      }
+      return {
+        requestId: activeRequest.requestId,
+        sessionId: activeRequest.sessionId || "",
+        content: activeRequest.content || "",
+        status: stopping ? t.responseStopping : activeRequest.streamStatus || t.waiting,
+        activities: Array.isArray(activeRequest.activities) ? activeRequest.activities : [],
+        streamRevision: runtimeRevision,
+        stopping,
+      };
+    });
+    setOptimisticUser(null);
+  }, [runtimeRendererId, state.activeChatRequests, t.responseStopping, t.waiting]);
+
+  useEffect(() => {
     let cancelled = false;
     async function loadCapabilityCommandStatus() {
       if (stateLoading || !desktopApi?.getClaudeStatus) {
@@ -15117,7 +15222,11 @@ export function App() {
     || visibleThreadItems[0]?.session
     || null;
   const hasKey = Boolean(state.settings.apiKeys?.[state.settings.provider]);
-  const streamingSessionId = busy ? optimisticUser?.sessionId : null;
+  const streamingSessionId = busy ? streamingAssistant?.sessionId || optimisticUser?.sessionId : null;
+  const activeSessionBusy = Boolean(busy && streamingSessionId && streamingSessionId === activeSession?.id);
+  const chatSendBlocked = Boolean(
+    (busy && !activeSessionBusy) || hasForeignActiveChatRequest(state, runtimeRendererId),
+  );
 
   useEffect(() => {
     const nextSessionId = selectSessionIdForProject(state, t, activeProject, activeSessionId, projectScope);
@@ -15179,7 +15288,7 @@ export function App() {
     if (Array.isArray(next?.notices)) setState((current) => ({ ...current, notices: next.notices }));
   }
 
-  function recordRunEvent(entry) {
+  function recordRunEvent(entry, { persist = true } = {}) {
     const optimisticEvent = {
       id: entry?.id || `run_event_${Date.now()}_${Math.random().toString(16).slice(2)}`,
       createdAt: new Date().toISOString(),
@@ -15187,7 +15296,7 @@ export function App() {
     };
     setRunEvents((current) => prependRunEvent(current, optimisticEvent));
     let persistedRunEvent = Promise.resolve(null);
-    if (desktopApi?.recordRunEvent) {
+    if (persist && desktopApi?.recordRunEvent) {
       persistedRunEvent = desktopApi.recordRunEvent({
         projectPath: activeProject?.path || "",
         sessionId: activeSession?.id || "",
@@ -18611,7 +18720,7 @@ export function App() {
   }
 
   async function sendMessage(content) {
-    if (!desktopApi) return;
+    if (!desktopApi || busy || hasForeignActiveChatRequest(state, runtimeRendererId)) return;
     const sessionForSend = activeSession || await createSessionForSend();
     if (!sessionForSend) return;
     const requestId = `request_${Date.now()}_${Math.random().toString(16).slice(2)}`;
@@ -18624,9 +18733,10 @@ export function App() {
         resumeClaudeSessionId = "";
       }
     }
+    locallyStartedChatRequestIdsRef.current.add(requestId);
     setCurrentRequestId(requestId);
     setOptimisticUser({ sessionId: sessionForSend.id, content: content.trim(), createdAt: new Date().toISOString() });
-    setStreamingAssistant({ requestId, content: "", status: t.waiting, activities: [] });
+    setStreamingAssistant({ requestId, sessionId: sessionForSend.id, content: "", status: t.waiting, activities: [], streamRevision: 0 });
     setBusy(true);
     recordRunEvent({
       id: requestId,
@@ -18635,7 +18745,7 @@ export function App() {
       status: "running",
       title: `${t.activeThread}: ${sessionForSend.title || "Claudex"}`,
       detail: content.trim().slice(0, 140),
-    });
+    }, { persist: false });
     try {
       const next = await desktopApi.sendMessage({
         sessionId: sessionForSend.id,
@@ -18656,16 +18766,22 @@ export function App() {
         detail: requestStatus === "cancelled" ? t.responseStopped : requestStatus === "error" ? next?.requestError || t.requestError : t.commandSucceeded,
       });
     } catch (error) {
+      const message = error.message || String(error);
+      if (/CHAT_REQUEST_ACTIVE|已有回复正在运行/.test(message)) {
+        showToast(t.workingHint);
+        return;
+      }
       recordRunEvent({
         id: requestId,
         sessionId: sessionForSend.id,
         type: "chat",
         status: "error",
         title: `${t.activeThread}: ${sessionForSend.title || "Claudex"}`,
-        detail: error.message || String(error),
+        detail: message,
       });
-      throw error;
+      showToast(message);
     } finally {
+      locallyStartedChatRequestIdsRef.current.delete(requestId);
       setBusy(false);
       setCurrentRequestId("");
       setStreamingAssistant(null);
@@ -18676,15 +18792,17 @@ export function App() {
   async function cancelMessage() {
     if (!desktopApi || !currentRequestId) return;
     const requestId = currentRequestId;
+    const requestSessionId = streamingAssistant?.sessionId || activeSession?.id || "";
+    const requestSession = state.sessions.find((session) => session.id === requestSessionId) || activeSession;
     setStreamingAssistant((current) => current ? { ...current, status: t.responseStopping, stopping: true } : current);
     recordRunEvent({
       id: requestId,
-      sessionId: activeSession?.id || "",
+      sessionId: requestSessionId,
       type: "chat",
       status: "cancelled",
-      title: `${t.activeThread}: ${activeSession?.title || "Claudex"}`,
+      title: `${t.activeThread}: ${requestSession?.title || "Claudex"}`,
       detail: t.responseStopped,
-    });
+    }, { persist: false });
     await desktopApi.cancelRequest(requestId);
   }
 
@@ -19708,8 +19826,9 @@ export function App() {
           onOpenTaskCenterFocus={openTaskCenterFocus}
           onOpenTerminal={openTerminal}
           onOpenProject={openProject}
-          busy={busy}
-          streamingAssistant={streamingAssistant}
+          busy={activeSessionBusy}
+          sendBlocked={chatSendBlocked}
+          streamingAssistant={activeSessionBusy ? streamingAssistant : null}
           optimisticUser={optimisticUser?.sessionId === activeSession?.id ? optimisticUser : null}
           runEvents={runEvents}
           automations={state.automations}
