@@ -1217,6 +1217,15 @@ function normalizePluginScope(value) {
   return ["user", "project", "local"].includes(scope) ? scope : "";
 }
 
+function pluginInstanceKey(plugin = {}) {
+  return [
+    plugin.id || plugin.name || "plugin",
+    normalizePluginScope(plugin.scope) || String(plugin.scope || "unknown").trim().toLowerCase(),
+    plugin.marketplace || "",
+    plugin.installPath || "",
+  ].map((value) => String(value || "").trim().toLowerCase()).join("::");
+}
+
 function validPluginIdentifier(value) {
   const identifier = String(value || "").trim();
   return Boolean(
@@ -13259,7 +13268,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
     + (hasRegisteredSkills ? rawSkillRows.length : skillRegistryKnown ? capabilityRows.filter((item) => item.type === "skill").length : 0);
   const installedCapabilityRows = [
     ...allInstalledPluginRows.map((plugin) => ({
-      key: `plugin:${plugin.id || plugin.name}`,
+      key: `plugin:${pluginInstanceKey(plugin)}`,
       kind: "plugin",
       icon: "plugin",
       label: plugin.name || plugin.id || t.plugins,
@@ -14824,8 +14833,9 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                   return (
                     <article
                       className={cx("structured-plugin-row", pluginFocused && "focused-capability-row")}
-                      key={plugin.id}
+                      key={pluginInstanceKey(plugin)}
                       data-plugin-id={plugin.id}
+                      data-plugin-scope={normalizePluginScope(plugin.scope)}
                       {...capabilityFocusAttributes(pluginFocused)}
                       {...surfaceTraceAttributes("plugin", "open", plugin, { id: plugin.id || plugin.name })}
                     >

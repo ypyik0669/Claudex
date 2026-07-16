@@ -2279,15 +2279,10 @@ function marketplacePluginSource(plugin) {
   return plugin?.source || plugin?.repository || plugin?.repo || plugin?.url || plugin?.homepage || "";
 }
 
-function marketplacePluginCatalogItem(plugin, manifest, marketplace, root, installedState) {
+function marketplacePluginCatalogItem(plugin, manifest, marketplace, root) {
   const name = marketplacePluginName(plugin);
   if (!name) return null;
   const idText = `${name}@${marketplace.name}`;
-  const identityKeys = [idText, name].map((value) => value.toLowerCase());
-  const installed = identityKeys.some((key) => installedState.ids.has(key));
-  const installedScopes = [...new Set(identityKeys.flatMap((key) => (
-    [...(installedState.scopesById.get(key) || [])]
-  )))].sort((left, right) => ["user", "project", "local"].indexOf(left) - ["user", "project", "local"].indexOf(right));
   const toolSource = plugin.tools || plugin.toolNames || plugin.commands || plugin.slashCommands || plugin.mcpTools || plugin.capabilities;
   return {
     id: idText,
@@ -2304,8 +2299,8 @@ function marketplacePluginCatalogItem(plugin, manifest, marketplace, root, insta
     permissions: marketplacePluginPermissionsSummary(plugin),
     risk: marketplacePluginRiskSummary(plugin),
     installLocation: root,
-    installed,
-    installedScopes,
+    installed: false,
+    installedScopes: [],
   };
 }
 
@@ -2379,29 +2374,67 @@ function readMarketplacePluginManifests(root) {
   return manifests;
 }
 
-function loadMarketplacePluginCatalog(marketplaces, installedPlugins) {
-  const installedIds = new Set();
-  const installedScopesById = new Map();
+function addInstalledPluginIdentity(state, value, scope, qualified) {
+  const key = String(value || "").trim().toLowerCase();
+  if (!key) return;
+  (qualified ? state.qualifiedIds : state.unqualifiedIds).add(key);
+  if (!["user", "project", "local"].includes(scope)) return;
+  const scopes = state.scopesById.get(key) || new Set();
+  scopes.add(scope);
+  state.scopesById.set(key, scopes);
+}
+
+function marketplaceInstalledPluginState(installedPlugins) {
+  const state = {
+    qualifiedIds: new Set(),
+    unqualifiedIds: new Set(),
+    scopesById: new Map(),
+  };
   for (const plugin of installedPlugins || []) {
-    const identityKeys = [
-      plugin.id,
-      plugin.name,
-      plugin.name && plugin.marketplace ? `${plugin.name}@${plugin.marketplace}` : "",
-    ].map((value) => String(value || "").trim().toLowerCase()).filter(Boolean);
+    const rawId = String(plugin.id || "").trim();
+    const name = String(plugin.name || pluginNameFromId(rawId)).trim();
+    const idMarketplace = pluginMarketplaceFromId(rawId);
+    const marketplace = String(plugin.marketplace || idMarketplace).trim();
     const scope = String(plugin.scope || "").trim().toLowerCase();
-    for (const key of identityKeys) {
-      installedIds.add(key);
-      if (!["user", "project", "local"].includes(scope)) continue;
-      const scopes = installedScopesById.get(key) || new Set();
-      scopes.add(scope);
-      installedScopesById.set(key, scopes);
+    if (idMarketplace) addInstalledPluginIdentity(state, rawId, scope, true);
+    if (name && marketplace) addInstalledPluginIdentity(state, `${name}@${marketplace}`, scope, true);
+    if (!idMarketplace && !marketplace) {
+      addInstalledPluginIdentity(state, rawId, scope, false);
+      addInstalledPluginIdentity(state, name, scope, false);
     }
   }
-  const installedState = { ids: installedIds, scopesById: installedScopesById };
+  return state;
+}
+
+function hydrateMarketplacePluginInstalledState(catalog, installedState) {
+  const catalogNameCounts = new Map();
+  for (const item of catalog) {
+    const nameKey = String(item.name || "").trim().toLowerCase();
+    if (nameKey) catalogNameCounts.set(nameKey, (catalogNameCounts.get(nameKey) || 0) + 1);
+  }
+  for (const item of catalog) {
+    const qualifiedKey = String(item.id || "").trim().toLowerCase();
+    const nameKey = String(item.name || "").trim().toLowerCase();
+    const identityKeys = qualifiedKey ? [qualifiedKey] : [];
+    if (nameKey && catalogNameCounts.get(nameKey) === 1 && installedState.unqualifiedIds.has(nameKey)) {
+      identityKeys.push(nameKey);
+    }
+    item.installed = identityKeys.some((key) => (
+      installedState.qualifiedIds.has(key) || installedState.unqualifiedIds.has(key)
+    ));
+    item.installedScopes = [...new Set(identityKeys.flatMap((key) => (
+      [...(installedState.scopesById.get(key) || [])]
+    )))].sort((left, right) => ["user", "project", "local"].indexOf(left) - ["user", "project", "local"].indexOf(right));
+  }
+  return catalog;
+}
+
+function loadMarketplacePluginCatalog(marketplaces, installedPlugins) {
+  const installedState = marketplaceInstalledPluginState(installedPlugins);
   const catalog = [];
   const seenCatalogIds = new Set();
   function addCatalogItem(plugin, manifest, marketplace, root) {
-    const item = marketplacePluginCatalogItem(plugin, manifest, marketplace, root, installedState);
+    const item = marketplacePluginCatalogItem(plugin, manifest, marketplace, root);
     if (!item?.id || seenCatalogIds.has(item.id.toLowerCase())) return false;
     seenCatalogIds.add(item.id.toLowerCase());
     catalog.push(item);
@@ -2412,15 +2445,17 @@ function loadMarketplacePluginCatalog(marketplaces, installedPlugins) {
     const { manifest, root } = readMarketplaceManifest(marketplace);
     const plugins = Array.isArray(manifest?.plugins) ? manifest.plugins : [];
     for (const plugin of plugins) {
-      if (addCatalogItem(plugin, manifest, marketplace, root)) return catalog;
+      if (addCatalogItem(plugin, manifest, marketplace, root)) return hydrateMarketplacePluginInstalledState(catalog, installedState);
     }
     for (const candidateRoot of roots) {
       for (const pluginManifest of readMarketplacePluginManifests(candidateRoot)) {
-        if (addCatalogItem(pluginManifest.plugin, pluginManifest.plugin, marketplace, pluginManifest.root)) return catalog;
+        if (addCatalogItem(pluginManifest.plugin, pluginManifest.plugin, marketplace, pluginManifest.root)) {
+          return hydrateMarketplacePluginInstalledState(catalog, installedState);
+        }
       }
     }
   }
-  return catalog;
+  return hydrateMarketplacePluginInstalledState(catalog, installedState);
 }
 
 function normalizeSkillId(value, fallback) {

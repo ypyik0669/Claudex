@@ -33,11 +33,13 @@ const FAKE_BIN_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "claudex-pass336-bin-
 const PROJECT_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "claudex-pass336-project-"));
 const RETRY_PROJECT_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "claudex-pass336-retry-project-"));
 const MARKETPLACE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "claudex-pass336-market-"));
+const OTHER_MARKETPLACE_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "claudex-pass336-other-market-"));
 const COMMAND_LOG = path.join(USER_DATA_DIR, "claude-command-log.txt");
 const INVOCATION_LOG = path.join(USER_DATA_DIR, "claude-invocation-log.txt");
 const ATTEMPT_FILE = path.join(USER_DATA_DIR, "plugin-install-attempt.txt");
 const DATA_FILE = path.join(USER_DATA_DIR, "desktop-data.json");
 const PLUGIN_ID = "pass336-install-plugin@pass336-market";
+const OTHER_PLUGIN_ID = "pass336-install-plugin@pass336-other-market";
 const PANEL_PLUGIN_ID = "pass336-panel-plugin@pass336-market";
 const PALETTE_PLUGIN_ID = "pass336-palette-plugin@pass336-market";
 const PLUGIN_SCOPE = "project";
@@ -45,7 +47,7 @@ const INSTALL_ARGS = ["plugin", "install", "--scope", PLUGIN_SCOPE, PLUGIN_ID];
 const INSTALL_COMMAND = JSON.stringify(INSTALL_ARGS);
 
 function cleanup() {
-  for (const dir of [USER_DATA_DIR, FAKE_BIN_DIR, PROJECT_DIR, RETRY_PROJECT_DIR, MARKETPLACE_DIR]) {
+  for (const dir of [USER_DATA_DIR, FAKE_BIN_DIR, PROJECT_DIR, RETRY_PROJECT_DIR, MARKETPLACE_DIR, OTHER_MARKETPLACE_DIR]) {
     try {
       fs.rmSync(dir, { recursive: true, force: true });
     } catch (_error) {
@@ -144,12 +146,17 @@ const commandLog = ${JSON.stringify(COMMAND_LOG)};
 const invocationLog = ${JSON.stringify(INVOCATION_LOG)};
 const attemptFile = ${JSON.stringify(ATTEMPT_FILE)};
 const marketplaceDir = ${JSON.stringify(MARKETPLACE_DIR)};
+const otherMarketplaceDir = ${JSON.stringify(OTHER_MARKETPLACE_DIR)};
+const projectDir = ${JSON.stringify(PROJECT_DIR)};
 const pluginId = ${JSON.stringify(PLUGIN_ID)};
 function attempts() {
   try { return Number(fs.readFileSync(attemptFile, 'utf8')) || 0; }
   catch (_error) { return 0; }
 }
 function installed() { return attempts() >= 2; }
+function installedInProject() {
+  return installed() && process.cwd().toLowerCase() === projectDir.toLowerCase();
+}
 function out(value) { process.stdout.write(typeof value === 'string' ? value + '\\n' : JSON.stringify(value, null, 2) + '\\n'); }
 fs.appendFileSync(commandLog, JSON.stringify(args) + '\\n', 'utf8');
 fs.appendFileSync(invocationLog, JSON.stringify({ args, cwd: process.cwd() }) + '\\n', 'utf8');
@@ -167,7 +174,7 @@ else if (args[0] === 'plugin' && args[1] === 'list' && args.includes('--json')) 
       installPath: 'C:/pass336/plugins/install-user',
       tools: ['pass336-read-tool'],
       permissions: { filesystem: 'read' }
-    }, ...(installed() ? [{
+    }, ...(installedInProject() ? [{
       id: pluginId,
       name: 'pass336-install-plugin',
       marketplace: 'pass336-market',
@@ -182,12 +189,18 @@ else if (args[0] === 'plugin' && args[1] === 'list' && args.includes('--json')) 
     }] : [])] });
 else if (args[0] === 'plugin' && args[1] === 'list') out(
   'Installed plugins:\\n\\n  > ' + pluginId + '\\n    Version: 33.6.0\\n    Scope: user\\n    Status: enabled' +
-  (installed() ? '\\n\\n  > ' + pluginId + '\\n    Version: 33.6.0\\n    Scope: project\\n    Status: enabled' : '')
+  (installedInProject() ? '\\n\\n  > ' + pluginId + '\\n    Version: 33.6.0\\n    Scope: project\\n    Status: enabled' : '')
 );
 else if (args[0] === 'mcp' && args[1] === 'list' && args.includes('--json')) out({ servers: [] });
 else if (args[0] === 'mcp' && args[1] === 'list') out('No MCP servers configured');
-else if (args[0] === 'plugin' && args[1] === 'marketplace' && args[2] === 'list' && args.includes('--json')) out([{ name: 'pass336-market', source: 'path', repo: marketplaceDir, installLocation: marketplaceDir, version: '2026.7.16', status: 'ready', permissions: ['Read', 'Bash'] }]);
-else if (args[0] === 'plugin' && args[1] === 'marketplace' && args[2] === 'list') out('Configured marketplaces:\\n\\n  > pass336-market\\n    Source: Path (' + marketplaceDir + ')');
+else if (args[0] === 'plugin' && args[1] === 'marketplace' && args[2] === 'list' && args.includes('--json')) out([
+  { name: 'pass336-market', source: 'path', repo: marketplaceDir, installLocation: marketplaceDir, version: '2026.7.16', status: 'ready', permissions: ['Read', 'Bash'] },
+  { name: 'pass336-other-market', source: 'path', repo: otherMarketplaceDir, installLocation: otherMarketplaceDir, version: '2026.7.16', status: 'ready', permissions: ['Read'] }
+]);
+else if (args[0] === 'plugin' && args[1] === 'marketplace' && args[2] === 'list') out(
+  'Configured marketplaces:\\n\\n  > pass336-market\\n    Source: Path (' + marketplaceDir + ')' +
+  '\\n\\n  > pass336-other-market\\n    Source: Path (' + otherMarketplaceDir + ')'
+);
 else if (JSON.stringify(args) === ${JSON.stringify(INSTALL_COMMAND)}) {
   const nextAttempt = attempts() + 1;
   fs.writeFileSync(attemptFile, String(nextAttempt), 'utf8');
@@ -243,6 +256,20 @@ writeJson(path.join(MARKETPLACE_DIR, ".claude-plugin", "marketplace.json"), {
       permissions: ["Read"],
     },
   ],
+});
+fs.mkdirSync(path.join(OTHER_MARKETPLACE_DIR, ".claude-plugin"), { recursive: true });
+writeJson(path.join(OTHER_MARKETPLACE_DIR, ".claude-plugin", "marketplace.json"), {
+  name: "pass336-other-market",
+  description: "PASS336 marketplace identity isolation fixture",
+  owner: { name: "PASS336 Other QA" },
+  plugins: [{
+    name: "pass336-install-plugin",
+    version: "33.6.1",
+    description: "Same plugin name from another marketplace.",
+    category: "agent-tools",
+    author: { name: "PASS336 Other QA" },
+    permissions: ["Read"],
+  }],
 });
 writeJson(DATA_FILE, {
   version: 1,
@@ -383,10 +410,39 @@ async function clickRecoveryRetryCommand(win) {
   `);
 }
 
+async function switchProjectFromUi(win, projectPath, marker) {
+  return waitFor(win, `
+    (async function() {
+      const marker = ${JSON.stringify(marker)};
+      if (!window[marker]) {
+        const button = Array.from(document.querySelectorAll('.project-list button[data-project-path]'))
+          .find((candidate) => candidate.dataset.projectPath === ${JSON.stringify(projectPath)});
+        if (!button) return false;
+        window[marker] = true;
+        button.click();
+      }
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      const state = await window.claudexDesktop.getState();
+      const activeButton = document.querySelector('.project-list button.active[data-project-path]');
+      return state.activeProject?.path === ${JSON.stringify(projectPath)} &&
+        activeButton?.dataset.projectPath === ${JSON.stringify(projectPath)};
+    })()
+  `, 10000);
+}
+
 async function runTest() {
   await wait(1700);
   const win = BrowserWindow.getAllWindows()[0];
   if (!win) throw new Error("PASS336_FAILED_NO_WINDOW");
+  const rendererKeyWarnings = [];
+  win.webContents.on("console-message", (_event, detailsOrLevel, legacyMessage) => {
+    const message = typeof detailsOrLevel === "object" && detailsOrLevel
+      ? detailsOrLevel.message
+      : legacyMessage;
+    if (/same key|unique ["']key["'] prop/i.test(String(message || ""))) {
+      rendererKeyWarnings.push(String(message));
+    }
+  });
   win.setBounds({ x: 0, y: 0, width: 1500, height: 980 });
   await wait(700);
 
@@ -420,6 +476,18 @@ async function runTest() {
       return Boolean(
         card && install?.disabled && userScope?.classList.contains('active') && !scopeFieldset?.disabled &&
         plugin?.installed && plugin?.installedScopes?.includes('user') && !plugin?.installedScopes?.includes('project')
+      );
+    })()
+  `, 15000));
+  assertStep("PASS336_MARKETPLACE_IDENTITY_ISOLATED", await waitFor(win, `
+    (async function() {
+      const state = await window.claudexDesktop.getState();
+      const plugin = (state.capabilityStatus?.marketplacePlugins || []).find((item) => item.id === ${JSON.stringify(OTHER_PLUGIN_ID)});
+      const card = document.querySelector('.marketplace-plugin-card[data-marketplace-plugin-id="${OTHER_PLUGIN_ID}"]');
+      const install = card?.querySelector('[data-marketplace-plugin-action="install"]');
+      return Boolean(
+        plugin && !plugin.installed && !(plugin.installedScopes || []).length &&
+        card && install && !install.disabled
       );
     })()
   `, 15000));
@@ -500,12 +568,7 @@ async function runTest() {
 
   assertStep("PASS336_LEAVE_CAPABILITY_SURFACE", await leaveSurface(win));
   assertStep("PASS336_CAPABILITY_SURFACE_CLOSED", await waitFor(win, "Boolean(!document.querySelector('.plugin-manager-modal'))", 5000));
-  assertStep("PASS336_SWITCH_PROJECT_BEFORE_RETRY", await win.webContents.executeJavaScript(`
-    (async function() {
-      const next = await window.claudexDesktop.setActiveProject(${JSON.stringify({ name: "pass336-retry-project", path: RETRY_PROJECT_DIR })});
-      return next?.activeProject?.path === ${JSON.stringify(RETRY_PROJECT_DIR)};
-    })()
-  `));
+  assertStep("PASS336_SWITCH_PROJECT_BEFORE_RETRY", await switchProjectFromUi(win, RETRY_PROJECT_DIR, "__pass336SwitchToRetryProject"));
   assertStep("PASS336_RETRY_PROJECT_ACTIVE", await waitFor(win, `
     (async function() {
       const state = await window.claudexDesktop.getState();
@@ -534,12 +597,27 @@ async function runTest() {
   assertStep("PASS336_RETRY_PRESERVES_ORIGINAL_CWD", installInvocations.length === 2 && installInvocations.every((invocation) => (
     path.resolve(invocation.cwd).toLowerCase() === path.resolve(PROJECT_DIR).toLowerCase()
   )));
-  assertStep("PASS336_RETURN_TO_ORIGINAL_PROJECT", await win.webContents.executeJavaScript(`
+  assertStep("PASS336_RETRY_RESTORES_ACTIVE_PROJECT_STATUS", await waitFor(win, `
     (async function() {
-      const next = await window.claudexDesktop.setActiveProject(${JSON.stringify({ name: "pass336-project", path: PROJECT_DIR })});
-      return next?.activeProject?.path === ${JSON.stringify(PROJECT_DIR)};
+      const state = await window.claudexDesktop.getState();
+      const catalog = (state.capabilityStatus?.marketplacePlugins || []).find((item) => item.id === ${JSON.stringify(PLUGIN_ID)});
+      const projectPlugin = (state.capabilityStatus?.pluginItems || []).find((item) => (
+        item.id === ${JSON.stringify(PLUGIN_ID)} && item.scope === ${JSON.stringify(PLUGIN_SCOPE)}
+      ));
+      const card = document.querySelector('.marketplace-plugin-card[data-marketplace-plugin-id="${PLUGIN_ID}"]');
+      const install = card?.querySelector('[data-marketplace-plugin-action="install"]');
+      const projectScope = document.querySelector('.plugin-manager-modal [data-plugin-install-surface="marketplace"] [data-plugin-install-scope="project"]');
+      return Boolean(
+        state.activeProject?.path === ${JSON.stringify(RETRY_PROJECT_DIR)} &&
+        !projectPlugin &&
+        catalog?.installedScopes?.includes('user') &&
+        !catalog?.installedScopes?.includes(${JSON.stringify(PLUGIN_SCOPE)}) &&
+        projectScope?.classList.contains('active') &&
+        card && install && !install.disabled
+      );
     })()
-  `));
+  `, 15000));
+  assertStep("PASS336_RETURN_TO_ORIGINAL_PROJECT", await switchProjectFromUi(win, PROJECT_DIR, "__pass336ReturnToOriginalProject"));
   assertStep("PASS336_SUCCESS_REFRESHES_INSTALLED_STATE_AND_PRESERVES_HISTORY", await waitFor(win, `
     (async function() {
       const state = await window.claudexDesktop.getState();
@@ -567,6 +645,7 @@ async function runTest() {
     })();
   `, 15000));
   assertStep("PASS336_VALID_PROJECT_CWD", installInvocations.length === 2);
+  assertStep("PASS336_MULTI_SCOPE_PLUGIN_KEYS_UNIQUE", rendererKeyWarnings.length === 0);
 
   assertStep("PASS336_LEAVE_FOR_CLAUDE_PANEL", await leaveSurface(win));
   assertStep("PASS336_OPEN_CLAUDE_TOOL", await runPaletteCommand(win, "tool-claude"));
@@ -684,8 +763,8 @@ async function runTest() {
     }
   }));
 
-  console.log("PASS336_PLUGIN_INSTALL_LIFECYCLE_DONE");
   assertStep("PASS336_CLI_INVOCATIONS_IDLE_BEFORE_EXIT", await waitForInvocationIdle());
+  console.log("PASS336_PLUGIN_INSTALL_LIFECYCLE_DONE");
   cleanup();
   app.exit(0);
 }
