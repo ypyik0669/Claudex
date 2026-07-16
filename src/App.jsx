@@ -3434,7 +3434,12 @@ function browserVisitMetadataRows(visit = {}, t) {
     [t.scheduleStatus, browserStatusLabel(visit.status, t)],
     [t.browserCapturedAt, browserVisitCapturedAt(visit)],
     [t.browserPageTitle, visit.title],
-    [t.browserHttpStatus, Number.isFinite(Number(visit.httpStatus)) ? String(Number(visit.httpStatus)) : ""],
+    [
+      t.browserHttpStatus,
+      Number.isFinite(Number(visit.httpStatus))
+        ? [String(Number(visit.httpStatus)), String(visit.httpStatusText || "").trim()].filter(Boolean).join(" ")
+        : "",
+    ],
     [t.browserErrorCode, Number.isFinite(Number(visit.errorCode)) ? String(Number(visit.errorCode)) : ""],
     [t.browserValidatedUrl, visit.validatedUrl],
     [t.activeProject, visit.project?.path || visit.project?.name || ""],
@@ -10624,10 +10629,18 @@ function ToolsPanel({
         sessionId: activeSessionId,
       });
     };
-    const handleNavigate = (event) => {
-      if (event?.url && /^https?:\/\//i.test(event.url)) {
-        setUrl(event.url);
-        recordBrowserVisit({ url: event.url, finalUrl: event.url, status: browserStatus === "error" ? "error" : "ready" });
+    const handleNavigate = (event, navigatedUrl, httpResponseCode, httpStatusText) => {
+      const url = navigatedUrl || event?.url || "";
+      if (url && /^https?:\/\//i.test(url)) {
+        const httpStatus = Number(httpResponseCode || event?.httpResponseCode || 0) || null;
+        setUrl(url);
+        recordBrowserVisit({
+          url,
+          finalUrl: url,
+          status: browserStatus === "error" ? "error" : "ready",
+          httpStatus,
+          httpStatusText: String(httpStatusText || event?.httpStatusText || ""),
+        });
       }
     };
     webview.addEventListener("did-start-loading", handleStart);

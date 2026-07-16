@@ -1150,6 +1150,7 @@ function normalizeBrowserVisit(item, store) {
     status,
     error: String(item?.error || ""),
     httpStatus: item?.httpStatus ? Number(item.httpStatus) : null,
+    httpStatusText: trimOutput(String(item?.httpStatusText || ""), 240),
     errorCode: Number.isFinite(Number(item?.errorCode)) ? Number(item.errorCode) : null,
     validatedUrl: normalizeUrlForStore(item?.validatedUrl || item?.validatedURL || item?.validatedURLString),
     isMainFrame: Boolean(item?.isMainFrame),

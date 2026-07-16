@@ -143,6 +143,7 @@ function writeInitialStore() {
         excerpt: "pass101 structured browser excerpt from stored webview snapshot",
         status: "ready",
         httpStatus: 200,
+        httpStatusText: "OK",
         sessionId: "pass101-session",
         project,
         startedAt: "2026-07-06T01:02:00.000Z",
@@ -225,7 +226,7 @@ async function runTest() {
         /标题/.test(readyText) &&
         /捕获时间/.test(readyText) &&
         /HTTP/.test(readyText) &&
-        /200/.test(readyText) &&
+        /200 OK/.test(readyText) &&
         /错误码/.test(errorText) &&
         /-312/.test(errorText) &&
         /验证 URL/.test(errorText) &&
