@@ -3,6 +3,8 @@ import {
   AlertTriangle,
   ArrowLeft,
   ArrowRight,
+  ArrowDown,
+  ArrowUp,
   Archive,
   Bot,
   Blocks,
@@ -311,6 +313,8 @@ const copy = {
     marketplaceUrl: "市场来源 URL",
     addMarketplace: "添加到 Claude CLI",
     remove: "移除",
+    moveProjectUp: "上移项目",
+    moveProjectDown: "下移项目",
     noCustomMarketplaces: "还没有通过 Claudex 添加自定义市场。",
     customMarketplaceLocalOnly: "Claudex 记录",
     customMarketplaceCliConfirmed: "CLI 已确认",
@@ -500,6 +504,8 @@ const copy = {
     taskCenterFailureSummaryTitle: "需要恢复",
     taskCenterFailureSummary: "{total} 个失败任务 · 自动化 {automations} · 子代理 {subagents}",
     taskCenterFailureSummaryHint: "来自真实 automation history 与 subagent run 状态；点击只切到失败过滤并聚焦第一条。",
+    runtimeStopUnconfirmed: "旧本地进程停止尚未确认",
+    retryRuntimeStop: "重试停止确认",
     taskCenterFailureBadge: "失败可恢复 {count}",
     taskCenterFailureBadgeDetail: "失败可恢复 {total} · 自动化 {automations} · 子代理 {subagents}",
     taskCenterReviewFailures: "查看失败 / 恢复",
@@ -1174,6 +1180,16 @@ function messageExcerpt(value, max = 78) {
   const text = String(value || "").replace(/\s+/g, " ").trim();
   if (!text) return "";
   return text.length > max ? `${text.slice(0, Math.max(0, max - 3))}...` : text;
+}
+
+// Command output is deliberately preserved in the local evidence timeline, but
+// the global palette must not turn credentials accidentally printed by a CLI
+// into searchable text (or copy them through its evidence shortcut).
+function redactPaletteSensitiveText(value) {
+  return String(value || "")
+    .replace(/(\b(?:api[_-]?key|access[_-]?token|auth(?:orization)?|password|secret|token)\s*[:=]\s*["']?)([^\s"',;}\]]+)/gi, "$1[REDACTED]")
+    .replace(/(\bBearer\s+)([A-Za-z0-9._~+/=-]{8,})/gi, "$1[REDACTED]")
+    .replace(/(https?:\/\/)([^\s/@:]+):([^\s/@]+)@/gi, "$1[REDACTED]@");
 }
 
 function cliActionEvidenceFromResult(args, result, fallback = {}) {
@@ -2886,7 +2902,12 @@ function visibleProjectsForUi(state, t) {
   const activeProject = state.activeProject || { name: t.localWorkspace, path: "" };
   const rawProjects = Array.isArray(state.projects) && state.projects.length ? state.projects : [activeProject];
   const hasRealProject = Boolean(activeProject?.path) || rawProjects.some((project) => project?.path);
-  const projects = [activeProject, ...rawProjects].filter((project) => !(hasRealProject && isPlaceholderProject(project, t)));
+  // The persisted list is deliberately ordered by the user.  Only inject the
+  // active project when an older store does not contain it yet.
+  const projects = (rawProjects.some((project) => projectKey(project) === projectKey(activeProject))
+    ? rawProjects
+    : [activeProject, ...rawProjects])
+    .filter((project) => !(hasRealProject && isPlaceholderProject(project, t)));
   const seen = new Set();
   const unique = [];
   for (const project of projects) {
@@ -3899,6 +3920,11 @@ function automationRunNeedsRecovery(entry = {}) {
     || (typeof entry?.code === "number" && entry.code !== 0);
 }
 
+function runtimeStopNeedsConfirmation(item = {}) {
+  return Boolean(item?.runtimeRecoveryPending)
+    && ["stop-unconfirmed", "inspection-unavailable"].includes(String(item?.runtimeStopStatus || ""));
+}
+
 function automationNeedsRecovery(automation = {}) {
   if (!automation?.id) return false;
   const latestRun = automation.lastRun || automationRunEntries(automation)[0];
@@ -3911,6 +3937,7 @@ function automationRecoveryFocusAction(automation = {}) {
 
 function automationRunTimelineFocusAction(automation = {}, entry = {}) {
   if (automation?.status === "running") return "";
+  if (runtimeStopNeedsConfirmation(entry)) return "retry-runtime-recovery";
   return automationRunNeedsRecovery(entry) || automationNeedsRecovery(automation) ? "run-automation" : "";
 }
 
@@ -4310,7 +4337,7 @@ function commandRunTimelineEvent(run = {}, t) {
     detail: run.cancelled ? t.commandCancelled : `${t.commandExit}: ${typeof run.code === "number" ? run.code : "-"}`,
     createdAt: run.endedAt || run.startedAt || new Date().toISOString(),
     project: run.project,
-    sessionId: run.sessionId || run.threadId || run.requestId || run.id || "",
+    sessionId: run.sessionId || run.threadId || "",
     commandLine,
     cwd: run.cwd || run.project?.path || "",
     code: typeof run.code === "number" ? run.code : null,
@@ -4386,7 +4413,7 @@ function browserVisitRunEvent(visit = {}, t) {
     detail: visit.error || visit.excerpt || browserStatusLabel(visit.status, t),
     createdAt: browserVisitCapturedAt(visit) || new Date().toISOString(),
     project: visit.project,
-    sessionId: "",
+    sessionId: visit.sessionId || visit.threadId || "",
     commandLine: "",
     cwd: visit.project?.path || "",
     code: null,
@@ -4399,6 +4426,7 @@ function browserVisitRecoveryFocusAction(visit = {}) {
 }
 
 function subagentRunTimelineFocusAction(run = {}) {
+  if (runtimeStopNeedsConfirmation(run)) return "retry-runtime-recovery";
   if (!subagentNeedsRecovery(run)) return "";
   if (run?.task) return "retry-subagent";
   return run?.continuedAt ? "" : "continue-subagent";
@@ -4475,9 +4503,15 @@ function localEvidenceRunEvents({ commandRuns = [], automations = [], subagentRu
   return events;
 }
 
-function timelineEventsForUi(runEvents = [], { commandRuns = [], automations = [], subagentRuns = [], browserVisits = [], t } = {}) {
+function timelineEventsForUi(runEvents = [], { commandRuns = [], automations = [], subagentRuns = [], browserVisits = [], sessionId = "", t } = {}) {
   const byId = new Map();
+  const targetSessionId = String(sessionId || "").trim();
+  const belongsToThread = (event = {}) => {
+    const eventSessionId = String(event?.sessionId || event?.threadId || "").trim();
+    return !targetSessionId || !eventSessionId || eventSessionId === targetSessionId;
+  };
   const add = (event) => {
+    if (!belongsToThread(event)) return;
     const id = String(event?.id || "").trim();
     if (!id || byId.has(id)) return;
     byId.set(id, event);
@@ -4643,6 +4677,8 @@ function runTimelineEvidenceForEvent(event, { commandRuns = [], automations = []
       stdout: commandRun.stdout || "",
       stderr: commandRun.stderr || "",
       summary: "",
+      runtimeRecoveryPending: Boolean(commandRun.runtimeRecoveryPending || event?.runtimeRecoveryPending),
+      runtimeStopStatus: commandRun.runtimeStopStatus || event?.runtimeStopStatus || "",
       ...(capabilityContext ? { capabilityContext } : {}),
     };
   }
@@ -4673,6 +4709,8 @@ function runTimelineEvidenceForEvent(event, { commandRuns = [], automations = []
       stderr: entry.stderr || "",
       summary: entry.error || entry.detail || entry.summary || "",
       artifacts: Array.isArray(entry.artifacts) ? entry.artifacts : [],
+      runtimeRecoveryPending: Boolean(entry.runtimeRecoveryPending || event?.runtimeRecoveryPending),
+      runtimeStopStatus: entry.runtimeStopStatus || event?.runtimeStopStatus || "",
     };
   }
 
@@ -4699,6 +4737,8 @@ function runTimelineEvidenceForEvent(event, { commandRuns = [], automations = []
       stderr: subagentRun.stderr || "",
       summary: subagentRun.summary || "",
       artifacts: Array.isArray(subagentRun.artifacts) ? subagentRun.artifacts : [],
+      runtimeRecoveryPending: Boolean(subagentRun.runtimeRecoveryPending || event?.runtimeRecoveryPending),
+      runtimeStopStatus: subagentRun.runtimeStopStatus || event?.runtimeStopStatus || "",
     };
   }
 
@@ -4746,6 +4786,8 @@ function runTimelineEvidenceForEvent(event, { commandRuns = [], automations = []
     stderr: event?.stderr || "",
     summary: event?.detail || "",
     steps: Array.isArray(event?.steps) ? event.steps : [],
+    runtimeRecoveryPending: Boolean(event?.runtimeRecoveryPending),
+    runtimeStopStatus: event?.runtimeStopStatus || "",
     ...(capabilityContext ? { capabilityContext } : {}),
   };
 }
@@ -6049,11 +6091,26 @@ function Conversation({
     git,
     t,
   }), [git, t]);
+  const currentThreadSourceRefs = useMemo(() => {
+    const eventIds = new Set((runEvents || [])
+      .filter((event) => event?.type === "chat" && event?.sessionId === session?.id && event?.id)
+      .map((event) => event.id));
+    return (sourceRefs || []).filter((source) => eventIds.has(source?.eventId));
+  }, [runEvents, session?.id, sourceRefs]);
+  const sourceRefsForCurrentContext = currentThreadSourceRefs.length
+    ? currentThreadSourceRefs
+    : sourceRefs;
+  const currentThreadBrowserVisits = useMemo(() => (
+    (browserVisits || []).filter((visit) => visit?.sessionId && visit.sessionId === session?.id)
+  ), [browserVisits, session?.id]);
+  const browserVisitsForCurrentContext = currentThreadBrowserVisits.length
+    ? currentThreadBrowserVisits
+    : browserVisits;
   const sourcesContext = useMemo(() => sourceRefsContextSummary({
-    sourceRefs,
+    sourceRefs: sourceRefsForCurrentContext,
     activeProject,
     t,
-  }), [sourceRefs, activeProject, t]);
+  }), [sourceRefsForCurrentContext, activeProject, t]);
   const gitRootPath = String(git?.root || "").trim();
   const gitRelativePath = String(git?.relativePath || "").trim();
   const gitRootLabel = gitRootPath ? compactPath(gitRootPath, 78) : t.gitUnavailable;
@@ -6256,7 +6313,7 @@ function Conversation({
       cwd: commandProjectPath,
     });
     try {
-      const result = await desktopApi.runWorkspaceCommand({ projectPath: commandProjectPath, command, requestId });
+      const result = await desktopApi.runWorkspaceCommand({ projectPath: commandProjectPath, command, requestId, sessionId: session?.id || "" });
       if (Array.isArray(result?.commandRuns)) onCommandRuns?.(result.commandRuns);
       const code = typeof result?.code === "number" ? result.code : null;
       onRunEvent?.({
@@ -6313,7 +6370,7 @@ function Conversation({
       cwd: commandProjectPath,
     });
     try {
-      const result = await desktopApi.runWorkspaceCommand({ projectPath: commandProjectPath, command, requestId });
+      const result = await desktopApi.runWorkspaceCommand({ projectPath: commandProjectPath, command, requestId, sessionId: session?.id || "" });
       if (Array.isArray(result?.commandRuns)) onCommandRuns?.(result.commandRuns);
       const code = typeof result?.code === "number" ? result.code : null;
       if (isCommit && code === 0) setGitCommitMessage("");
@@ -6381,16 +6438,23 @@ function Conversation({
   const capabilityCommandRuns = useMemo(() => commandRunsToHistory(commandRuns, "capability"), [commandRuns]);
   const focusedSourceKey = String(sourcePanelFocus?.id || sourcePanelFocus?.path || "").trim();
   const focusedBrowserVisitKey = String(browserPanelFocus?.id || browserPanelFocus?.url || "").trim();
+  const sourceRefsForSession = currentThreadSourceRefs;
   const sourceRefsForView = useMemo(() => {
-    const refs = Array.isArray(sourceRefs) ? sourceRefs : [];
+    // The rail promises sources for the current thread. Older workspace-only
+    // evidence has no event id, so retain it as a useful fallback until this
+    // thread has observed a real agent file reference.
+    const refs = sourceRefsForSession.length
+      ? sourceRefsForSession
+      : Array.isArray(sourceRefs) ? sourceRefs : [];
     const topRefs = refs.slice(0, 12);
     if (!focusedSourceKey) return topRefs;
     const focused = refs.find((source) => [sourceRefKey(source), source?.id, source?.path].filter(Boolean).includes(focusedSourceKey));
     return focused && !topRefs.some((source) => sourceRefKey(source) === sourceRefKey(focused))
       ? [...topRefs, focused]
       : topRefs;
-  }, [sourceRefs, focusedSourceKey]);
+  }, [sourceRefs, sourceRefsForSession, focusedSourceKey]);
   const [bottomWorkspaceRetryingId, setBottomWorkspaceRetryingId] = useState("");
+  const [runtimeRecoveryRetrying, setRuntimeRecoveryRetrying] = useState(false);
   const [bottomClaudeRetryingId, setBottomClaudeRetryingId] = useState("");
   const [bottomCapabilityRetryingId, setBottomCapabilityRetryingId] = useState("");
   const [selectedRunEventId, setSelectedRunEventId] = useState("");
@@ -6406,8 +6470,9 @@ function Conversation({
     automations: automationItemsForUi,
     subagentRuns,
     browserVisits,
+    sessionId: session?.id || "",
     t,
-  }), [runEvents, commandRuns, automationItemsForUi, subagentRuns, browserVisits, t]);
+  }), [runEvents, commandRuns, automationItemsForUi, subagentRuns, browserVisits, session?.id, t]);
   const selectedStoredRunEvent = useMemo(() => {
     const selectedId = String(selectedRunEventId || "").trim();
     if (!selectedId) return null;
@@ -6540,6 +6605,23 @@ function Conversation({
   const selectedRunCapabilityContext = runTimelineCapabilityContext(selectedRunEvent, selectedRunEvidence);
   const selectedRunCapabilityFocus = capabilityFocusFromContext(selectedRunCapabilityContext);
   const selectedRunRecoveryActions = [];
+  const selectedRunRuntimeNeedsRetry = runtimeStopNeedsConfirmation(selectedRunEvidence);
+  if (selectedRunRuntimeNeedsRetry && desktopApi?.retryRuntimeRecovery) {
+    selectedRunRecoveryActions.push({
+      key: "retry-runtime-recovery",
+      label: runtimeRecoveryRetrying ? t.commandRunning : t.retryRuntimeStop,
+      icon: RefreshCw,
+      disabled: runtimeRecoveryRetrying,
+      onClick: async () => {
+        setRuntimeRecoveryRetrying(true);
+        try {
+          await desktopApi.retryRuntimeRecovery();
+        } finally {
+          setRuntimeRecoveryRetrying(false);
+        }
+      },
+    });
+  }
   if (selectedRunAutomation) {
     selectedRunRecoveryActions.push({
       key: "task-center",
@@ -6719,9 +6801,9 @@ function Conversation({
   const activeTaskCount = automationItemsForUi.filter((item) => ["running", "scheduled"].includes(item.status)).length
     + (subagentRuns || []).filter((run) => run.status === "running").length;
   const browserContext = useMemo(() => browserVisitsContextSummary({
-    browserVisits,
+    browserVisits: browserVisitsForCurrentContext,
     t,
-  }), [browserVisits, t]);
+  }), [browserVisitsForCurrentContext, t]);
   const contextTabs = [
     {
       id: "environment",
@@ -7794,9 +7876,9 @@ function Conversation({
                 <div className="bottom-panel-grid">
                   <div>
                     <span>{t.sources}</span>
-                    <strong>{sourceRefs?.length ? t.sourceCount.replace("{count}", sourceRefs.length) : t.noSourcesYet}</strong>
+                    <strong>{sourceRefsForView.length ? t.sourceCount.replace("{count}", sourceRefsForView.length) : t.noSourcesYet}</strong>
                     <p title={activeProject?.path || t.noProjectPath}>
-                      {sourceRefs?.length ? t.sourceBackedByWorkspace : activeProject?.path ? compactPath(activeProject.path, 78) : t.noProjectPath}
+                      {sourceRefsForView.length ? t.sourceBackedByWorkspace : activeProject?.path ? compactPath(activeProject.path, 78) : t.noProjectPath}
                     </p>
                   </div>
                   <div className="bottom-panel-actions">
@@ -7810,7 +7892,7 @@ function Conversation({
                     </button>
                   </div>
                 </div>
-                {sourceRefs?.length ? (
+                {sourceRefsForView.length ? (
                   <div className="source-ref-list">
                     {sourceRefsForView.map((source) => {
                       const sourceKey = sourceRefKey(source);
@@ -7910,10 +7992,10 @@ function Conversation({
                 <div className="bottom-panel-grid">
                   <div>
                     <span>{t.browser}</span>
-                    <strong>{browserVisits?.length ? t.browserVisitCount.replace("{count}", browserVisits.length) : t.browserNoHistory}</strong>
-                    <p>{browserVisits?.length ? t.browserBackedByWebview : t.browserPanelHint}</p>
+                    <strong>{browserVisitsForCurrentContext?.length ? t.browserVisitCount.replace("{count}", browserVisitsForCurrentContext.length) : t.browserNoHistory}</strong>
+                    <p>{browserVisitsForCurrentContext?.length ? t.browserBackedByWebview : t.browserPanelHint}</p>
                     <BrowserEvidenceSummary
-                      browserVisits={browserVisits}
+                      browserVisits={browserVisitsForCurrentContext}
                       onOpenVisit={onOpenBrowserVisit}
                       onOpenExternalVisit={onOpenExternalBrowserVisit}
                       onOpenTimeline={onOpenRunTimeline}
@@ -7929,7 +8011,7 @@ function Conversation({
                   </div>
                 </div>
                 <BrowserEvidenceList
-                  visits={browserVisits}
+                  visits={browserVisitsForCurrentContext}
                   focusedVisitKey={focusedBrowserVisitKey}
                   onOpenVisit={onOpenBrowserVisit}
                   onOpenExternalVisit={onOpenExternalBrowserVisit}
@@ -8104,7 +8186,10 @@ function AutomationRecoveryStrip({
 }) {
   const recoveryEntry = entry || automationRecoveryEntry(item);
   if (!item?.id || !recoveryEntry || !automationNeedsRecovery(item)) return null;
-  const detail = recoveryEntry.error || recoveryEntry.detail || recoveryEntry.summary || t.automationFailed;
+  const detail = [
+    recoveryEntry.error || recoveryEntry.detail || recoveryEntry.summary || t.automationFailed,
+    runtimeStopNeedsConfirmation(recoveryEntry) ? t.runtimeStopUnconfirmed : "",
+  ].filter(Boolean).join(" · ");
   const runId = recoveryEntry.id || item.lastRun?.id || "";
   const recoveryTrace = (action) => taskSurfaceTraceAttributes({
     kind: "automation",
@@ -8191,7 +8276,10 @@ function SubagentRecoveryStrip({
   const runId = run.id || run.requestId || "";
   const timelineId = run.requestId || run.id || "";
   const projectPath = run.project?.path || run.cwd || "";
-  const detail = run.summary || run.stderr || messageExcerpt(run.task, 150) || t.subagentFailed;
+  const detail = [
+    run.summary || run.stderr || messageExcerpt(run.task, 150) || t.subagentFailed,
+    runtimeStopNeedsConfirmation(run) ? t.runtimeStopUnconfirmed : "",
+  ].filter(Boolean).join(" · ");
   const recoveryTrace = (action) => taskSurfaceTraceAttributes({
     kind: "subagent",
     action,
@@ -10445,6 +10533,7 @@ function ToolsPanel({
       const next = await desktopApi.recordBrowserVisit({
         id: browserVisitIdRef.current || payload.id,
         projectPath: activeProject?.path || "",
+        sessionId: activeSessionId,
         ...payload,
       });
       if (Array.isArray(next.browserVisits)) onBrowserVisits?.(next.browserVisits);
@@ -10505,6 +10594,7 @@ function ToolsPanel({
         title: `${t.browser}: ${finalUrl}`,
         detail: t.browserReady,
         cwd: activeProject?.path || "",
+        sessionId: activeSessionId,
       });
     };
     const handleFail = (event) => {
@@ -10531,6 +10621,7 @@ function ToolsPanel({
         title: `${t.browser}: ${event?.validatedURL || browserPreviewUrl}`,
         detail: error,
         cwd: activeProject?.path || "",
+        sessionId: activeSessionId,
       });
     };
     const handleNavigate = (event) => {
@@ -10551,7 +10642,7 @@ function ToolsPanel({
       webview.removeEventListener("did-navigate", handleNavigate);
       webview.removeEventListener("did-navigate-in-page", handleNavigate);
     };
-  }, [activeProject?.path, browserPreviewUrl, selectedTool, t.browserFailed]);
+  }, [activeProject?.path, activeSessionId, browserPreviewUrl, selectedTool, t.browserFailed]);
 
   useEffect(() => {
     if (!browserOpenRequest?.url) return;
@@ -10999,7 +11090,7 @@ function ToolsPanel({
       cwd: activeProject.path,
     });
     try {
-      const result = await desktopApi.runWorkspaceCommand({ projectPath: activeProject.path, command: nextCommand, requestId });
+      const result = await desktopApi.runWorkspaceCommand({ projectPath: activeProject.path, command: nextCommand, requestId, sessionId: activeSessionId });
       setCommandResult(result);
       if (Array.isArray(result.commandRuns)) {
         onCommandRuns?.(result.commandRuns);
@@ -11164,7 +11255,7 @@ function ToolsPanel({
       code: 130,
     });
     try {
-      await desktopApi?.cancelRequest?.(requestId);
+      await desktopApi?.cancelClaudeCommand?.({ requestId });
     } catch (error) {
       setStatusError(error.message || String(error));
     }
@@ -15559,7 +15650,7 @@ function PluginManagerRow({ icon, title, subtitle, enabled, onToggle, actionLabe
   );
 }
 
-function ProjectModal({ state, t, onClose, onSelectProject, onSetProject, onOpenProject, onOpenTerminal }) {
+function ProjectModal({ state, t, onClose, onSelectProject, onSetProject, onRemoveProject, onReorderProject, onOpenProject, onOpenTerminal }) {
   const activeProject = state.activeProject || { name: t.localWorkspace, path: "" };
   const projects = visibleProjectsForUi(state, t);
   const hasProjectPath = Boolean(activeProject?.path);
@@ -15576,14 +15667,52 @@ function ProjectModal({ state, t, onClose, onSelectProject, onSetProject, onOpen
         <button type="button" className="plain-action" onClick={onOpenProject} disabled={!hasProjectPath} title={hasProjectPath ? t.openProject : t.noProjectPath}><ExternalLink size={16} />{t.openProject}</button>
       </div>
       <div className="project-list-large">
-        {projects.map((project) => (
-          <button type="button" key={project.path || project.name} className={cx((state.activeProject?.path || state.activeProject?.name) === (project.path || project.name) && "active")} onClick={() => onSetProject(project)}>
-            <Folder size={16} />
-            <div>
-              <strong>{projectLabel(project, t)}</strong>
-              <span>{project.path || t.noProjectPath}</span>
+        {projects.map((project, index) => (
+          <article className="project-recent-row" key={project.path || project.name}>
+            <button type="button" className={cx((state.activeProject?.path || state.activeProject?.name) === (project.path || project.name) && "active")} onClick={() => onSetProject(project)}>
+              <Folder size={16} />
+              <div>
+                <strong>{projectLabel(project, t)}</strong>
+                <span>{project.path || t.noProjectPath}</span>
+              </div>
+            </button>
+            <div className="project-reorder-actions" aria-label={`${projectLabel(project, t)} ${t.projects}`}>
+              <button
+                type="button"
+                className="icon-only"
+                data-project-reorder="up"
+                data-project-reorder-key={project.path || project.name}
+                title={t.moveProjectUp}
+                aria-label={`${t.moveProjectUp}: ${projectLabel(project, t)}`}
+                onClick={() => onReorderProject?.(project, "up")}
+                disabled={index === 0}
+              >
+                <ArrowUp size={14} />
+              </button>
+              <button
+                type="button"
+                className="icon-only"
+                data-project-reorder="down"
+                data-project-reorder-key={project.path || project.name}
+                title={t.moveProjectDown}
+                aria-label={`${t.moveProjectDown}: ${projectLabel(project, t)}`}
+                onClick={() => onReorderProject?.(project, "down")}
+                disabled={index === projects.length - 1}
+              >
+                <ArrowDown size={14} />
+              </button>
             </div>
-          </button>
+            <button
+              type="button"
+              className="icon-only project-remove-action"
+              data-project-remove={project.path || project.name}
+              title={t.remove}
+              aria-label={`${t.remove}: ${projectLabel(project, t)}`}
+              onClick={() => onRemoveProject?.(project)}
+            >
+              <X size={15} />
+            </button>
+          </article>
         ))}
       </div>
     </ShellModal>
@@ -15964,9 +16093,9 @@ function SettingsBackedStatus({
 }
 
 function commandSearchText(command) {
-  return [command.id, command.title, command.subtitle, command.group, command.kbd, command.keywords]
+  return redactPaletteSensitiveText([command.id, command.title, command.subtitle, command.group, command.kbd, command.keywords]
     .filter(Boolean)
-    .join(" ")
+    .join(" "))
     .toLowerCase();
 }
 
@@ -16101,8 +16230,8 @@ function CommandPalette({ commands, t, onClose }) {
               onClick={() => runCommand(command)}
             >
               <div className="command-copy">
-                <strong>{command.title}</strong>
-                <small>{command.subtitle}</small>
+                <strong>{redactPaletteSensitiveText(command.title)}</strong>
+                <small>{redactPaletteSensitiveText(command.subtitle)}</small>
               </div>
               <div className="command-meta">
                 {command.group && <em>{command.group}</em>}
@@ -16959,6 +17088,7 @@ export function App() {
         projectPath: targetProjectPath,
         command: nextCommand,
         requestId,
+        sessionId: activeSession?.id || "",
       });
       if (Array.isArray(result.commandRuns)) {
         setState((current) => ({ ...current, commandRuns: result.commandRuns }));
@@ -17710,17 +17840,18 @@ export function App() {
             subagentArtifactLabel(artifact, index, t),
             artifact?.path,
             artifact?.type,
-            subagentArtifactContent(artifact),
+            redactPaletteSensitiveText(subagentArtifactContent(artifact)),
           ].filter(Boolean).join(" "))
           : [];
         const recoveryRun = findCommandRunForEvent(event, state.commandRuns);
+        const paletteCommandLine = redactPaletteSensitiveText(evidence?.commandLine || event.commandLine);
         return {
           id: `run:${commandIdSegment(event.id)}`,
           title: `${t.openRunTimeline}: ${event.title || t.outputs}`,
           subtitle: [
-            event.detail || evidence?.summary,
+            redactPaletteSensitiveText(event.detail || evidence?.summary),
             runTimelineStatusLabel(event.status, t),
-            evidence?.commandLine || event.commandLine,
+            paletteCommandLine,
           ].filter(Boolean).join(" · "),
           group: t.bottomPanel,
           keywords: [
@@ -17731,18 +17862,18 @@ export function App() {
             event.id,
             event.type,
             event.title,
-            event.detail,
-            event.stdout,
-            event.stderr,
-            event.commandLine,
+            redactPaletteSensitiveText(event.detail),
+            redactPaletteSensitiveText(event.stdout),
+            redactPaletteSensitiveText(event.stderr),
+            redactPaletteSensitiveText(event.commandLine),
             event.cwd,
             event.project?.name,
             event.project?.path,
             event.sessionId,
-            evidence?.summary,
-            evidence?.stdout,
-            evidence?.stderr,
-            evidence?.commandLine,
+            redactPaletteSensitiveText(evidence?.summary),
+            redactPaletteSensitiveText(evidence?.stdout),
+            redactPaletteSensitiveText(evidence?.stderr),
+            paletteCommandLine,
             evidence?.cwd,
             evidence?.sessionId,
             ...artifactSearchParts,
@@ -17765,9 +17896,10 @@ export function App() {
       .map((run) => {
         const event = commandRunTimelineEvent(run, t);
         const commandLine = event.commandLine || run.command || run.commandLine || "";
+        const paletteCommandLine = redactPaletteSensitiveText(commandLine);
         return {
           id: `command-run:${commandIdSegment(event.id)}`,
-          title: `${t.openRunTimeline}: ${messageExcerpt(commandLine, 72)}`,
+          title: `${t.openRunTimeline}: ${messageExcerpt(paletteCommandLine, 72)}`,
           subtitle: [
             runTimelineStatusLabel(event.status, t),
             run.kind || "workspace",
@@ -17781,9 +17913,9 @@ export function App() {
             run.id,
             run.requestId,
             run.kind,
-            commandLine,
-            run.stdout,
-            run.stderr,
+            paletteCommandLine,
+            redactPaletteSensitiveText(run.stdout),
+            redactPaletteSensitiveText(run.stderr),
             run.cwd,
             run.project?.name,
             run.project?.path,
@@ -17809,13 +17941,14 @@ export function App() {
           sessions: state.sessions,
           t,
         });
-        const evidenceText = runTimelineEvidenceText(event, evidence, t);
+        const evidenceText = redactPaletteSensitiveText(runTimelineEvidenceText(event, evidence, t));
         const commandLine = event.commandLine || run.command || run.commandLine || "";
+        const paletteCommandLine = redactPaletteSensitiveText(commandLine);
         const subtitle = [
           runTimelineStatusLabel(event.status, t),
-          commandLine,
+          paletteCommandLine,
           typeof event.code === "number" ? `${t.commandExit}: ${event.code}` : "",
-          event.stderr || run.stderr || event.detail,
+          redactPaletteSensitiveText(event.stderr || run.stderr || event.detail),
         ].filter(Boolean).join(" · ");
         const keywords = [
           "capability recovery retry failed failure plugin mcp marketplace cli command palette evidence timeline",
@@ -17827,10 +17960,10 @@ export function App() {
           run.id,
           run.requestId,
           run.kind,
-          commandLine,
+          paletteCommandLine,
           retryDisplayArgs,
-          run.stdout,
-          run.stderr,
+          redactPaletteSensitiveText(run.stdout),
+          redactPaletteSensitiveText(run.stderr),
           run.cwd,
           run.project?.name,
           run.project?.path,
@@ -17893,7 +18026,7 @@ export function App() {
             },
             priority: 68,
             keywords,
-            action: () => copyMessage(evidenceText),
+            action: () => copyPaletteEvidence(evidenceText),
           },
           {
             id: `capability-recovery:timeline:${commandIdSegment(event.id)}`,
@@ -18896,7 +19029,7 @@ export function App() {
             entry.stderr,
             entry.sessionId,
           ].filter(Boolean).join(" "),
-          action: () => copyMessage(automationEvidenceText(automation, entry, t, state.sessions)),
+          action: () => copyPaletteEvidence(automationEvidenceText(automation, entry, t, state.sessions)),
         }));
       });
 
@@ -18958,7 +19091,7 @@ export function App() {
             dataAttributes: taskTraceAttributes({ kind: "automation", action: "copy", item: automation, entry: failedEntry, filter: "failed" }),
             priority: 16,
             keywords: recoveryKeywords,
-            action: () => copyMessage(automationEvidenceText(automation, failedEntry, t, state.sessions)),
+            action: () => copyPaletteEvidence(automationEvidenceText(automation, failedEntry, t, state.sessions)),
           },
           failedEntry.id && {
             id: `automation-recovery:timeline:${entryId}`,
@@ -19220,7 +19353,7 @@ export function App() {
               label,
             }),
             keywords: searchable,
-            action: () => copyMessage(subagentArtifactEvidenceText(artifact, index, t)),
+            action: () => copyPaletteEvidence(subagentArtifactEvidenceText(artifact, index, t)),
           }];
           if (isOpenableSubagentArtifact(artifact)) {
             commands.unshift({
@@ -19326,7 +19459,7 @@ export function App() {
             dataAttributes: taskTraceAttributes({ kind: "subagent", action: "copy", item: run, id: runKey, runId, filter: "failed" }),
             priority: 16,
             keywords: recoveryKeywords,
-            action: () => copyMessage(subagentRunEvidenceText(run, t)),
+            action: () => copyPaletteEvidence(subagentRunEvidenceText(run, t)),
           },
           runId && {
             id: `subagent-recovery:timeline:${commandIdSegment(runId)}`,
@@ -19534,7 +19667,7 @@ export function App() {
             plugin.error,
             evidence,
           ].filter(Boolean).join(" "),
-          action: () => copyMessage(evidence),
+          action: () => copyPaletteEvidence(evidence),
         };
       });
 
@@ -19646,7 +19779,7 @@ export function App() {
             skill.status,
             evidence,
           ].filter(Boolean).join(" "),
-          action: () => copyMessage(evidence),
+          action: () => copyPaletteEvidence(evidence),
         };
       })
       .filter(Boolean);
@@ -19887,7 +20020,7 @@ export function App() {
             server.error,
             evidence,
           ].filter(Boolean).join(" "),
-          action: () => copyMessage(evidence),
+          action: () => copyPaletteEvidence(evidence),
         };
       });
 
@@ -19953,7 +20086,7 @@ export function App() {
             marketplace.error,
             evidence,
           ].filter(Boolean).join(" "),
-          action: () => copyMessage(evidence),
+          action: () => copyPaletteEvidence(evidence),
         };
       });
 
@@ -20139,7 +20272,7 @@ export function App() {
             plugin.risk,
             evidence,
           ].filter(Boolean).join(" "),
-          action: () => copyMessage(evidence),
+          action: () => copyPaletteEvidence(evidence),
         };
       });
 
@@ -20419,7 +20552,9 @@ export function App() {
     const requestId = `subagent_${Date.now()}_${Math.random().toString(16).slice(2)}`;
     const projectPath = context?.projectPath || activeProject?.path || "";
     const sessionId = context?.sessionId || activeSession?.id || "";
-    setTaskCenterFocus(taskCenterFocusState("subagent", requestId, { filter: "active" }));
+    // Keep the launched run visible once it settles, so its result can be reviewed
+    // immediately instead of disappearing with the transient active-only filter.
+    setTaskCenterFocus(taskCenterFocusState("subagent", requestId, { filter: "all" }));
     setBottomPanel("subagents");
     recordRunEvent({
       id: requestId,
@@ -20630,6 +20765,30 @@ export function App() {
     showToast(t.projectSelected);
   }
 
+  async function removeProject(project) {
+    if (!desktopApi?.removeProject || !project) return;
+    const label = projectLabel(project, t);
+    if (!window.confirm(`${t.remove}: ${label}?`)) return;
+    try {
+      const next = await desktopApi.removeProject(project);
+      setProjectScope("current");
+      applySessionState(next, "", "current");
+      showToast(`${t.remove}: ${label}`);
+    } catch (removeError) {
+      showToast(removeError.message || String(removeError));
+    }
+  }
+
+  async function reorderProject(project, direction) {
+    if (!desktopApi?.reorderProject || !project) return;
+    try {
+      const next = await desktopApi.reorderProject({ project, direction });
+      applySessionState(next, activeSession?.id || "", projectScope);
+    } catch (reorderError) {
+      showToast(reorderError.message || String(reorderError));
+    }
+  }
+
   async function openProject() {
     await desktopApi?.openProject(activeProject?.path);
   }
@@ -20663,7 +20822,11 @@ export function App() {
   }
 
   async function openBrowserUrl(url) {
-    const next = await desktopApi?.openBrowserUrl({ url, projectPath: activeProject?.path || "" });
+    const next = await desktopApi?.openBrowserUrl({
+      url,
+      projectPath: activeProject?.path || "",
+      sessionId: activeSession?.id || "",
+    });
     if (next?.browserVisits) setState(next);
     showToast(t.browserOpened);
   }
@@ -20708,6 +20871,10 @@ export function App() {
       }
     }
     showToast(t.copied);
+  }
+
+  function copyPaletteEvidence(content) {
+    return copyMessage(redactPaletteSensitiveText(content));
   }
 
   const [shortcutsOpen, setShortcutsOpen] = useState(false);
@@ -21752,6 +21919,8 @@ export function App() {
           onClose={() => setProjectsOpen(false)}
           onSelectProject={selectProject}
           onSetProject={setActiveProject}
+          onRemoveProject={removeProject}
+          onReorderProject={reorderProject}
           onOpenProject={openProject}
           onOpenTerminal={openTerminal}
         />

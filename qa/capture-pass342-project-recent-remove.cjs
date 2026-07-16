@@ -1,0 +1,21 @@
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const { app, BrowserWindow } = require('electron');
+const REPO_DIR = path.resolve(__dirname, '..');
+const USER_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), 'claudex-pass342-project-remove-'));
+const DATA_FILE = path.join(USER_DATA_DIR, 'desktop-data.json');
+const PROJECT_A = fs.mkdtempSync(path.join(os.tmpdir(), 'claudex-pass342-project-a-'));
+const PROJECT_B = fs.mkdtempSync(path.join(os.tmpdir(), 'claudex-pass342-project-b-'));
+function wait(ms) { return new Promise((resolve) => setTimeout(resolve, ms)); }
+function cleanup() { for (const dir of [USER_DATA_DIR, PROJECT_A, PROJECT_B]) { try { fs.rmSync(dir, { recursive: true, force: true }); } catch (_) {} } }
+function assertStep(name, ok) { console.log(name, ok); if (!ok) throw new Error(`${name} failed`); }
+async function waitFor(win, script, timeoutMs = 10000) { const started = Date.now(); while (Date.now() - started < timeoutMs) { if (await win.webContents.executeJavaScript(script)) return true; await wait(120); } return false; }
+fs.mkdirSync(USER_DATA_DIR, { recursive: true });
+const projectA = { name: 'pass342 A', path: PROJECT_A };
+const projectB = { name: 'pass342 B', path: PROJECT_B };
+fs.writeFileSync(DATA_FILE, JSON.stringify({ version: 1, settings: { language: 'zh', appearance: { fontSize: 'compact', density: 'compact' }, claudeCode: { executionMode: 'claude-code', claudeCommand: 'claude', permissionMode: 'default' }, capabilities: {}, customMarketplaces: [], apiKeys: {} }, activeProject: projectA, projects: [projectA, projectB], sessions: [{ id: 'pass342-a', title: 'A', project: projectA.name, projectPath: PROJECT_A, messages: [], createdAt: '2026-07-17T00:00:00.000Z', updatedAt: '2026-07-17T00:00:00.000Z' }], automations: [], subagentRuns: [], commandRuns: [], runEvents: [], sourceRefs: [], browserVisits: [], notices: [] }, null, 2));
+app.setPath('userData', USER_DATA_DIR);
+require(path.join(REPO_DIR, 'electron', 'main.cjs'));
+app.whenReady().then(async () => { try { await wait(1500); const win = BrowserWindow.getAllWindows()[0]; assertStep('PASS342_READY', await waitFor(win, "Boolean(document.querySelector('.app-grid') && window.claudexDesktop?.removeProject)")); assertStep('PASS342_OPEN_PROJECTS', await win.webContents.executeJavaScript("window.dispatchEvent(new KeyboardEvent('keydown', { key: 'p', ctrlKey: true, bubbles: true })); true")); assertStep('PASS342_MODAL', await waitFor(win, "Boolean(document.querySelector('.project-modal'))")); assertStep('PASS342_REORDER_ACTION', await win.webContents.executeJavaScript(`(async function(){ const button = Array.from(document.querySelectorAll('[data-project-reorder]')).find((item) => item.dataset.projectReorder === 'down' && item.dataset.projectReorderKey === ${JSON.stringify(PROJECT_A)}); if (!button || button.disabled) return false; button.click(); await new Promise(resolve => setTimeout(resolve, 250)); const state = await window.claudexDesktop.getState(); return state.projects?.[0]?.path === ${JSON.stringify(PROJECT_B)} && state.projects?.[1]?.path === ${JSON.stringify(PROJECT_A)}; })()`)); assertStep('PASS342_REMOVE_ACTION', await win.webContents.executeJavaScript(`(async function(){ window.confirm = () => true; const button = Array.from(document.querySelectorAll('[data-project-remove]')).find((item) => item.dataset.projectRemove === ${JSON.stringify(PROJECT_A)}); if (!button) return false; button.click(); await new Promise(resolve => setTimeout(resolve, 350)); const state = await window.claudexDesktop.getState(); return state.activeProject?.path === ${JSON.stringify(PROJECT_B)} && !state.projects.some(project => project.path === ${JSON.stringify(PROJECT_A)}) && Array.from(document.querySelectorAll('[data-project-remove]')).some((item) => item.dataset.projectRemove === ${JSON.stringify(PROJECT_B)}); })()`)); const saved = JSON.parse(fs.readFileSync(DATA_FILE, 'utf8')); assertStep('PASS342_PERSISTED', saved.activeProject?.path === PROJECT_B && saved.projects?.length === 1); console.log('PASS342_PROJECT_REMOVE_DONE'); cleanup(); app.exit(0); } catch (error) { console.error(error); cleanup(); app.exit(1); } });
+setTimeout(() => { console.error('PASS342_TIMEOUT'); cleanup(); app.exit(1); }, 60000);

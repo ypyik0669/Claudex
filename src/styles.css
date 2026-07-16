@@ -6164,6 +6164,40 @@ button.runtime-health-row {
   align-items: start;
 }
 
+.project-recent-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  gap: 6px;
+  align-items: center;
+}
+
+.project-recent-row > button:first-child {
+  width: 100%;
+}
+
+.project-recent-row .project-remove-action {
+  width: 30px;
+  height: 30px;
+  color: var(--muted);
+}
+
+.project-reorder-actions {
+  display: grid;
+  grid-template-columns: repeat(2, 26px);
+  gap: 2px;
+}
+
+.project-reorder-actions .icon-only {
+  width: 26px;
+  height: 30px;
+  color: var(--muted);
+}
+
+.project-recent-row .project-remove-action:hover {
+  color: var(--danger, #ef8c8c);
+  border-color: rgba(239, 140, 140, 0.4);
+}
+
 .project-list-large button.active {
   border-color: rgba(209, 131, 87, 0.36);
   background: rgba(209, 131, 87, 0.08);

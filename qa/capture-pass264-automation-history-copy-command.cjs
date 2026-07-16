@@ -211,8 +211,10 @@ function writeInitialStore() {
       {
         id: AUTOMATION_ID,
         prompt: PROMPT,
-        schedule: { type: "once", runAt: "2026-07-08T04:04:00.000Z" },
-        nextRun: "2026-07-08T04:04:00.000Z",
+        // This is history evidence, not a due scheduler fixture.  A past runAt
+        // would race the main-process scheduler and mutate the trace under test.
+        schedule: { type: "once", runAt: "" },
+        nextRun: "",
         project,
         threadId: SESSION_ID,
         enabled: true,

@@ -202,6 +202,8 @@ app.whenReady().then(async () => {
           /pass79-live-stdout-1/.test(run.stdout || '') &&
           /pass79-live-stderr-1/.test(run.stderr || '') &&
           event?.status === 'running' &&
+          run.runtimeRecoveryPending === true && !run.runtimeOwner && !run.runtimePid && !run.runtimeCommand && !run.runtimeExecutable && !run.runtimeStartedAt &&
+          event.runtimeRecoveryPending === true && !event.runtimeOwner && !event.runtimePid && !event.runtimeCommand && !event.runtimeExecutable && !event.runtimeStartedAt &&
           /pass79-live-stdout-1/.test(event.stdout || '') &&
           /pass79-live-stderr-1/.test(event.stderr || '') &&
           document.querySelector('.subagent-run-card.running') &&
@@ -251,7 +253,9 @@ app.whenReady().then(async () => {
           /pass79-live-stdout-1/.test(run.stdout || '') &&
           /pass79-live-stderr-1/.test(run.stderr || '') &&
           run.artifacts?.length >= 3 &&
+          !run.runtimeOwner && !run.runtimePid && !run.runtimeCommand && !run.runtimeStartedAt &&
           event?.status === 'ok' &&
+          !event.runtimeOwner && !event.runtimePid && !event.runtimeCommand && !event.runtimeStartedAt &&
           /pass79-live-final summary/.test(event.detail || '') &&
           /pass79-live-final summary/.test(body)
         );
@@ -268,7 +272,9 @@ app.whenReady().then(async () => {
         /pass79-live-stdout-1/.test(run.stdout || "") &&
         /pass79-live-stderr-1/.test(run.stderr || "") &&
         run.artifacts?.length >= 3 &&
+        !run.runtimeOwner && !run.runtimePid && !run.runtimeCommand && !run.runtimeStartedAt &&
         event?.status === "ok" &&
+        !event.runtimeOwner && !event.runtimePid && !event.runtimeCommand && !event.runtimeStartedAt &&
         /pass79-live-final summary/.test(event.detail || "") &&
         /pass79-live-stdout-1/.test(event.stdout || "") &&
         /pass79-live-stderr-1/.test(event.stderr || "");

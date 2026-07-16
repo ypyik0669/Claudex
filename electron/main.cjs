@@ -102,6 +102,10 @@ const MAX_SKILL_FILE_BYTES = 64 * 1024;
 const AUTOMATION_INTERRUPTED_MESSAGE = "Claudex 上次退出时，自动化运行已中断。";
 const SUBAGENT_INTERRUPTED_MESSAGE = "Claudex 上次退出时，子代理运行已中断。";
 const WORKSPACE_COMMAND_INTERRUPTED_MESSAGE = "Claudex 上次退出时，Workspace 命令已中断。";
+const CHAT_INTERRUPTED_MESSAGE = "Claudex 上次退出时，聊天回复已中断。";
+const CHAT_PROCESS_STOP_UNCONFIRMED_MESSAGE = "Claudex 未能确认旧 Claude 进程已停止。";
+const LOCAL_PROCESS_STOP_UNCONFIRMED_MESSAGE = "Claudex 未能确认旧本地进程已停止。";
+const PROCESS_IDENTITY_START_TOLERANCE_MS = 5000;
 const RUN_STOP_WAIT_MS = 9000;
 const QUIT_DRAIN_WAIT_MS = 8000;
 const WINDOWS_TASKKILL_TIMEOUT_MS = 2000;
@@ -117,6 +121,7 @@ const cancelledChatRequestIds = new Set();
 const activeChatRequestRuntime = new Map();
 let automationSchedulerTimer = null;
 let automationSchedulerRunning = false;
+let runtimeRecoveryRetryPromise = null;
 
 const CLAUDE_CODE_SETTINGS = {
   executionMode: "claude-code",
@@ -352,6 +357,12 @@ function normalizeAutomationHistoryEntry(entry, item, createdAt) {
     stderr: trimOutput(entry?.stderr || "", MAX_COMMAND_OUTPUT_CHARS),
     code: typeof entry?.code === "number" ? entry.code : null,
     artifacts: Array.isArray(entry?.artifacts) ? entry.artifacts.slice(0, 12) : [],
+    runtimeOwner: String(entry?.runtimeOwner || ""),
+    runtimePid: Number.isInteger(Number(entry?.runtimePid)) && Number(entry.runtimePid) > 0 ? Number(entry.runtimePid) : 0,
+    runtimeCommand: String(entry?.runtimeCommand || ""),
+    runtimeExecutable: String(entry?.runtimeExecutable || ""),
+    runtimeStartedAt: isoOrEmpty(entry?.runtimeStartedAt),
+    runtimeStopStatus: String(entry?.runtimeStopStatus || ""),
   };
 }
 
@@ -441,8 +452,38 @@ function upsertAutomationRunEvent(store, automation, entry, status) {
     sessionId: entry.sessionId || automation.threadId || "",
     code: typeof entry.code === "number" ? entry.code : null,
     durationMs: typeof entry.durationMs === "number" ? entry.durationMs : null,
+    runtimeOwner: entry.runtimeOwner || "",
+    runtimePid: entry.runtimePid || 0,
+    runtimeCommand: entry.runtimeCommand || "",
+    runtimeExecutable: entry.runtimeExecutable || "",
+    runtimeStartedAt: entry.runtimeStartedAt || "",
+    runtimeStopStatus: entry.runtimeStopStatus || "",
     createdAt: entry.startedAt || now(),
   });
+}
+
+function persistAutomationRuntimeProcess({ automationId, runId, runtime = {} }) {
+  if (!automationId || !runId || !Number(runtime.pid || 0)) return null;
+  const store = readStore();
+  const automation = (store.automations || []).find((item) => item?.id === automationId);
+  const existing = (automation?.history || []).find((entry) => entry?.id === runId)
+    || (automation?.lastRun?.id === runId ? automation.lastRun : null);
+  if (!automation || !existing || existing.status !== "running") return null;
+  const nextEntry = {
+    ...existing,
+    runtimeOwner: runtimeInstanceId,
+    runtimePid: Number(runtime.pid),
+    runtimeCommand: String(runtime.command || ""),
+    runtimeExecutable: String(runtime.executable || ""),
+    runtimeStartedAt: runtime.startedAt || now(),
+    runtimeStopStatus: "running",
+  };
+  prependAutomationHistory(automation, nextEntry);
+  if (automation.lastRun?.id === runId) automation.lastRun = nextEntry;
+  upsertAutomationRunEvent(store, automation, nextEntry, "running");
+  writeStore(store);
+  broadcastStoreUpdate(store);
+  return nextEntry;
 }
 
 function upsertAutomationActionRunEvent(store, automation, action, detail = "") {
@@ -563,6 +604,11 @@ function normalizeSubagentRun(item, store) {
     continuedAt: isoOrEmpty(item?.continuedAt),
     continuedSessionId: String(item?.continuedSessionId || ""),
     runtimeOwner: String(item?.runtimeOwner || ""),
+    runtimePid: Number.isInteger(Number(item?.runtimePid)) && Number(item.runtimePid) > 0 ? Number(item.runtimePid) : 0,
+    runtimeCommand: String(item?.runtimeCommand || ""),
+    runtimeExecutable: String(item?.runtimeExecutable || ""),
+    runtimeStartedAt: isoOrEmpty(item?.runtimeStartedAt),
+    runtimeStopStatus: String(item?.runtimeStopStatus || ""),
   };
 }
 
@@ -600,6 +646,11 @@ function upsertSubagentRunEvent(store, run, status) {
     project: run.project,
     sessionId: run.sessionId || "",
     runtimeOwner: run.runtimeOwner || "",
+    runtimePid: run.runtimePid || 0,
+    runtimeCommand: run.runtimeCommand || "",
+    runtimeExecutable: run.runtimeExecutable || "",
+    runtimeStartedAt: run.runtimeStartedAt || "",
+    runtimeStopStatus: run.runtimeStopStatus || "",
     createdAt: run.startedAt || now(),
   });
 }
@@ -701,6 +752,45 @@ function normalizeCapabilityContext(context = {}) {
   return Object.keys(normalized).length ? normalized : null;
 }
 
+function persistSubagentRuntimeProcess({ runId, requestId, runtime = {} }) {
+  if (!Number(runtime.pid || 0)) return null;
+  const store = readStore();
+  const existing = findSubagentRun(store, { runId, requestId });
+  if (!existing || existing.status !== "running") return null;
+  const nextRun = normalizeSubagentRun({
+    ...existing,
+    runtimeOwner: runtimeInstanceId,
+    runtimePid: Number(runtime.pid),
+    runtimeCommand: String(runtime.command || ""),
+    runtimeExecutable: String(runtime.executable || ""),
+    runtimeStartedAt: runtime.startedAt || now(),
+    runtimeStopStatus: "running",
+  }, store);
+  upsertSubagentRun(store, nextRun);
+  upsertSubagentRunEvent(store, nextRun, "running");
+  writeStore(store);
+  broadcastStoreUpdate(store);
+  return nextRun;
+}
+
+function persistWorkspaceRuntimeProcess({ runId, runtime = {} }) {
+  if (!runId || !Number(runtime.pid || 0)) return null;
+  const store = readStore();
+  const event = (store.runEvents || []).find((item) => item?.id === runId);
+  if (!event || event.status !== "running") return null;
+  const nextEvent = upsertRunEvent(store, {
+    ...event,
+    runtimeOwner: runtimeInstanceId,
+    runtimePid: Number(runtime.pid),
+    runtimeCommand: String(runtime.command || ""),
+    runtimeExecutable: String(runtime.executable || ""),
+    runtimeStartedAt: runtime.startedAt || now(),
+    runtimeStopStatus: "running",
+  });
+  writeStore(store);
+  return nextEvent;
+}
+
 function normalizeCommandRun(item, store) {
   const project = normalizeAutomationProject(item?.project, store);
   const startedAt = isoOrEmpty(item?.startedAt) || now();
@@ -717,6 +807,11 @@ function normalizeCommandRun(item, store) {
     requestId: item?.requestId || "",
     sessionId: String(item?.sessionId || item?.threadId || ""),
     runtimeOwner: String(item?.runtimeOwner || ""),
+    runtimePid: Number.isInteger(Number(item?.runtimePid)) && Number(item.runtimePid) > 0 ? Number(item.runtimePid) : 0,
+    runtimeCommand: String(item?.runtimeCommand || ""),
+    runtimeExecutable: String(item?.runtimeExecutable || ""),
+    runtimeStartedAt: isoOrEmpty(item?.runtimeStartedAt),
+    runtimeStopStatus: String(item?.runtimeStopStatus || ""),
     kind,
     command,
     commandLine: command,
@@ -782,6 +877,11 @@ function upsertCommandRunEvent(store, run, status, fallbackType = "workspace-com
     project: normalized.project,
     sessionId: String(run?.sessionId || normalized.requestId || normalized.id || ""),
     runtimeOwner: normalized.runtimeOwner || "",
+    runtimePid: normalized.runtimePid || 0,
+    runtimeCommand: normalized.runtimeCommand || "",
+    runtimeExecutable: normalized.runtimeExecutable || "",
+    runtimeStartedAt: normalized.runtimeStartedAt || "",
+    runtimeStopStatus: normalized.runtimeStopStatus || "",
     createdAt: normalized.startedAt || now(),
   });
 }
@@ -921,6 +1021,11 @@ function normalizeRunEvent(item, store) {
     project,
     sessionId: String(item?.sessionId || ""),
     runtimeOwner: String(item?.runtimeOwner || ""),
+    runtimePid: Number.isInteger(Number(item?.runtimePid)) && Number(item.runtimePid) > 0 ? Number(item.runtimePid) : 0,
+    runtimeCommand: String(item?.runtimeCommand || ""),
+    runtimeExecutable: String(item?.runtimeExecutable || ""),
+    runtimeStartedAt: isoOrEmpty(item?.runtimeStartedAt),
+    runtimeStopStatus: String(item?.runtimeStopStatus || ""),
     createdAt: isoOrEmpty(item?.createdAt) || now(),
     steps: settleRunEventSteps(item?.steps, status, item?.endedAt || now()),
     ...(capabilityContext ? { capabilityContext } : {}),
@@ -992,6 +1097,37 @@ function upsertSourceRef(store, source) {
   return normalized;
 }
 
+// A successful save is evidence too: files created without first being opened
+// must appear in the Sources panel just like files read by the workspace.
+function recordWorkspaceSourceSnapshot(projectPath, snapshot = {}) {
+  try {
+    const store = readStore();
+    const project = projectFromPath(projectPath);
+    const sourceRef = upsertSourceRef(store, {
+      type: "file",
+      path: snapshot.path,
+      title: path.basename(snapshot.path || ""),
+      project,
+      size: snapshot.size,
+      sha256: snapshot.sha256,
+      updatedAt: snapshot.updatedAt,
+      lastOpenedAt: now(),
+    });
+    writeStore(store);
+    broadcastStoreUpdate(store);
+    return { sourceRef, sourceRefs: sanitizeStore(store).sourceRefs, warning: null };
+  } catch (error) {
+    return {
+      sourceRef: null,
+      sourceRefs: null,
+      warning: {
+        code: "WORKSPACE_SAVE_METADATA_FAILED",
+        message: `文件已保存，但来源记录更新失败：${error?.message || String(error)}`,
+      },
+    };
+  }
+}
+
 function normalizeUrlForStore(value) {
   const raw = String(value || "").trim();
   if (!raw) return "";
@@ -1018,6 +1154,7 @@ function normalizeBrowserVisit(item, store) {
     validatedUrl: normalizeUrlForStore(item?.validatedUrl || item?.validatedURL || item?.validatedURLString),
     isMainFrame: Boolean(item?.isMainFrame),
     project,
+    sessionId: String(item?.sessionId || item?.threadId || "").trim(),
     startedAt,
     endedAt,
     lastEventAt: isoOrEmpty(item?.lastEventAt) || now(),
@@ -1670,6 +1807,64 @@ async function listWindowsProcesses() {
   );
 }
 
+function parseWindowsProcessIdentity(output) {
+  const text = String(output || "").trim();
+  if (!text) return { found: false };
+  const item = JSON.parse(text);
+  return {
+    found: true,
+    pid: Number(item?.ProcessId || 0),
+    startedAt: isoOrEmpty(item?.CreationDate),
+    executable: String(item?.ExecutablePath || ""),
+    commandLine: String(item?.CommandLine || ""),
+  };
+}
+
+async function inspectWindowsProcessIdentity(pid) {
+  const targetPid = Number(pid || 0);
+  if (!targetPid) return { found: false };
+  const systemRoot = process.env.SystemRoot || "C:\\Windows";
+  const powershell = path.join(systemRoot, "System32", "WindowsPowerShell", "v1.0", "powershell.exe");
+  return captureWindowsProcessSnapshot(
+    fs.existsSync(powershell) ? powershell : "powershell.exe",
+    [
+      "-NoLogo",
+      "-NoProfile",
+      "-NonInteractive",
+      "-Command",
+      `$p = Get-CimInstance Win32_Process -Filter \"ProcessId = ${targetPid}\" -ErrorAction SilentlyContinue; if ($p) { [pscustomobject]@{ ProcessId = [int]$p.ProcessId; CreationDate = $(if ($p.CreationDate) { $p.CreationDate.ToUniversalTime().ToString('o') } else { '' }); ExecutablePath = [string]$p.ExecutablePath; CommandLine = [string]$p.CommandLine } | ConvertTo-Json -Compress }`,
+    ],
+    parseWindowsProcessIdentity,
+    WINDOWS_CIM_SNAPSHOT_TIMEOUT_MS,
+  );
+}
+
+function parsePosixProcessIdentity(output) {
+  const text = String(output || "").trim();
+  if (!text) return { found: false };
+  const match = text.match(/^(.{24})\s+([\s\S]+)$/);
+  if (!match) return null;
+  const startedAt = new Date(match[1]);
+  return {
+    found: true,
+    pid: 0,
+    startedAt: Number.isNaN(startedAt.getTime()) ? "" : startedAt.toISOString(),
+    executable: "",
+    commandLine: match[2].trim(),
+  };
+}
+
+async function inspectPosixProcessIdentity(pid) {
+  const targetPid = Number(pid || 0);
+  if (!targetPid) return { found: false };
+  return captureWindowsProcessSnapshot(
+    "ps",
+    ["-p", String(targetPid), "-o", "lstart=", "-o", "command="],
+    parsePosixProcessIdentity,
+    2500,
+  );
+}
+
 function windowsProcessTreeIds(processes, rootPid) {
   const children = new Map();
   for (const item of processes || []) {
@@ -1758,6 +1953,37 @@ function terminateChildProcessTree(child) {
   return process.platform === "win32"
     ? terminateWindowsProcessTree(child)
     : terminatePosixProcessTree(child);
+}
+
+function runtimeProcessIdentityMatches(event, identity) {
+  if (!identity?.found || Number(identity.pid || event.runtimePid || 0) !== Number(event.runtimePid || 0)) return false;
+  const expectedStartedAt = new Date(event.runtimeStartedAt || "").getTime();
+  const actualStartedAt = new Date(identity.startedAt || "").getTime();
+  if (!Number.isFinite(expectedStartedAt) || !Number.isFinite(actualStartedAt)) return false;
+  if (Math.abs(actualStartedAt - expectedStartedAt) > PROCESS_IDENTITY_START_TOLERANCE_MS) return false;
+  const expectedCommand = String(event.runtimeCommand || "").trim().toLowerCase();
+  if (!expectedCommand) return false;
+  const commandBase = expectedCommand.split(/[\\/]/).filter(Boolean).pop() || "";
+  const haystack = `${identity.executable || ""}\n${identity.commandLine || ""}`.toLowerCase();
+  return haystack.includes(expectedCommand) || (commandBase.length >= 4 && haystack.includes(commandBase));
+}
+
+async function reapInterruptedRuntimeProcess(event) {
+  const pid = Number(event?.runtimePid || 0);
+  if (!pid || !event?.runtimeOwner || event.runtimeOwner === runtimeInstanceId) {
+    return { status: "not-recorded", resolved: true };
+  }
+  const inspect = process.platform === "win32" ? inspectWindowsProcessIdentity : inspectPosixProcessIdentity;
+  const identity = await inspect(pid);
+  if (identity === null) return { status: "inspection-unavailable", resolved: false };
+  if (!identity?.found) return { status: "not-found", resolved: true };
+  if (!runtimeProcessIdentityMatches(event, identity)) return { status: "identity-mismatch", resolved: true };
+  const confirmation = await inspect(pid);
+  if (confirmation === null) return { status: "inspection-unavailable", resolved: false };
+  if (!confirmation?.found) return { status: "not-found", resolved: true };
+  if (!runtimeProcessIdentityMatches(event, confirmation)) return { status: "identity-mismatch", resolved: true };
+  const stopped = await terminateChildProcessTree({ pid });
+  return { status: stopped ? "stopped" : "stop-unconfirmed", resolved: Boolean(stopped) };
 }
 
 function killChildProcess(child) {
@@ -1944,6 +2170,21 @@ function spawnDescriptor(command, args = []) {
   return { command, args };
 }
 
+function runtimeProcessCommandIdentity(command, spawnTarget = {}) {
+  const args = Array.isArray(spawnTarget.args) ? spawnTarget.args : [];
+  const scriptPath = args.find((item, index) => (
+    index < 3 && /\.(?:cjs|mjs|js|cmd|bat)$/i.test(String(item || ""))
+  ));
+  return String(scriptPath || command || spawnTarget.command || "").trim().slice(0, 1200);
+}
+
+function workspaceShellRuntimeIdentity() {
+  const executable = process.platform === "win32"
+    ? String(process.env.ComSpec || "cmd.exe")
+    : "/bin/sh";
+  return { command: executable, executable };
+}
+
 function runProcess(command, args = [], options = {}) {
   const timeoutMs = Number(options.timeoutMs || CLAUDE_TIMEOUT_MS);
   const maxOutputChars = Number(options.maxOutputChars || MAX_COMMAND_OUTPUT_CHARS);
@@ -1976,6 +2217,16 @@ function runProcess(command, args = [], options = {}) {
         env: childEnv,
         detached: process.platform !== "win32",
       });
+      try {
+        options.onStart?.({
+          pid: Number(child.pid || 0),
+          command: runtimeProcessCommandIdentity(command, spawnTarget),
+          executable: String(spawnTarget.command || ""),
+          startedAt: now(),
+        });
+      } catch (_error) {
+        // Runtime metadata is recovery evidence; a persistence failure must not orphan the active request path.
+      }
     } catch (error) {
       resolve({
         command,
@@ -2071,6 +2322,16 @@ function runStreamingProcess(command, args = [], options = {}) {
         env: childEnv,
         detached: process.platform !== "win32",
       });
+      try {
+        options.onStart?.({
+          pid: Number(child.pid || 0),
+          command: runtimeProcessCommandIdentity(command, spawnTarget),
+          executable: String(spawnTarget.command || ""),
+          startedAt: now(),
+        });
+      } catch (_error) {
+        // Runtime metadata is recovery evidence; a persistence failure must not orphan the active request path.
+      }
     } catch (error) {
       resolve({
         command,
@@ -3631,6 +3892,24 @@ function activeChatRequestsForStore(store) {
   });
 }
 
+function sanitizeRuntimeRecoveryMetadata(item = {}) {
+  const {
+    runtimeOwner,
+    runtimePid,
+    runtimeCommand,
+    runtimeExecutable,
+    runtimeStartedAt,
+    ...safeItem
+  } = item || {};
+  const stopStatus = String(item?.runtimeStopStatus || "");
+  return {
+    ...safeItem,
+    runtimeStopStatus: stopStatus,
+    runtimeRecoveryPending: Boolean(runtimeOwner && Number(runtimePid || 0) > 0
+      && ["running", "stop-unconfirmed", "inspection-unavailable"].includes(stopStatus)),
+  };
+}
+
 function sanitizeStore(store, runtimeRendererId = null) {
   const apiKeyState = Object.fromEntries(
     Object.entries(store.settings.apiKeys || {}).map(([provider, secret]) => [
@@ -3641,6 +3920,16 @@ function sanitizeStore(store, runtimeRendererId = null) {
 
   return {
     ...store,
+    automations: (store.automations || []).map((automation) => ({
+      ...automation,
+      lastRun: automation?.lastRun ? sanitizeRuntimeRecoveryMetadata(automation.lastRun) : automation?.lastRun || null,
+      history: Array.isArray(automation?.history)
+        ? automation.history.map(sanitizeRuntimeRecoveryMetadata)
+        : [],
+    })),
+    subagentRuns: (store.subagentRuns || []).map(sanitizeRuntimeRecoveryMetadata),
+    commandRuns: (store.commandRuns || []).map(sanitizeRuntimeRecoveryMetadata),
+    runEvents: (store.runEvents || []).map(sanitizeRuntimeRecoveryMetadata),
     runtimeRendererId: Number(runtimeRendererId || 0),
     activeChatRequests: activeChatRequestsForStore(store),
     settings: {
@@ -4168,9 +4457,9 @@ async function requestOllama(store, session, requestId, sender) {
   };
 }
 
-async function requestAssistant(store, session, requestId, sender) {
+async function requestAssistant(store, session, requestId, sender, options = {}) {
   if (store.settings.claudeCode?.executionMode !== "api") {
-    return requestClaudeCode(store, session, requestId);
+    return requestClaudeCode(store, session, requestId, options);
   }
   const provider = store.settings.provider;
   const apiKey =
@@ -4259,7 +4548,7 @@ function buildClaudeChatArgs(store, session, { stream = false } = {}) {
   return args;
 }
 
-async function requestClaudeCode(store, session, requestId) {
+async function requestClaudeCode(store, session, requestId, options = {}) {
   const project = store.activeProject || { path: session.projectPath || "" };
   const cwd = project.path && fs.existsSync(project.path) ? project.path : app.getPath("home");
   const claudeCode = { ...CLAUDE_CODE_SETTINGS, ...(store.settings.claudeCode || {}) };
@@ -4269,6 +4558,7 @@ async function requestClaudeCode(store, session, requestId) {
     requestId,
     timeoutMs: Number(store.settings.timeoutMs || CLAUDE_TIMEOUT_MS),
     env: { CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1" },
+    onStart: options.onStart,
   });
   const payload = parseJsonOutput(result.stdout);
   if (result.code !== 0 || payload?.is_error) {
@@ -4407,6 +4697,25 @@ function activeChatToolStep(requestId, toolUseId) {
   )) || null;
 }
 
+function persistChatRuntimeProcess(requestId, runtime = {}) {
+  if (!requestId || !Number(runtime.pid || 0)) return false;
+  const store = readStore();
+  const existing = (store.runEvents || []).find((event) => event?.id === requestId && event?.type === "chat");
+  if (!existing || existing.status !== "running") return false;
+  upsertRunEvent(store, {
+    id: requestId,
+    runtimeOwner: runtimeInstanceId,
+    runtimePid: Number(runtime.pid),
+    runtimeCommand: String(runtime.command || ""),
+    runtimeExecutable: String(runtime.executable || ""),
+    runtimeStartedAt: runtime.startedAt || now(),
+    runtimeStopStatus: "running",
+  });
+  writeStore(store);
+  broadcastStoreUpdate(store);
+  return true;
+}
+
 function persistChatToolStep(requestId, step) {
   if (!requestId || !step?.id) return null;
   let runtimeStep = step;
@@ -4425,6 +4734,46 @@ function persistChatToolStep(requestId, step) {
     broadcastStoreUpdate(store);
   }
   return runtimeStep;
+}
+
+function recordChatToolFileSource(session, requestId, block = {}) {
+  const toolName = String(block?.name || block?.tool_name || "").trim().toLowerCase();
+  if (!/^(?:read|edit|write|notebookedit)$/.test(toolName)) return null;
+  const candidate = String(block?.input?.file_path || block?.input?.filePath || block?.input?.path || "").trim();
+  const projectPath = String(session?.projectPath || "").trim();
+  if (!candidate || !projectPath || !fs.existsSync(projectPath)) return null;
+  const root = path.resolve(projectPath);
+  const target = path.resolve(root, candidate);
+  const relative = path.relative(root, target);
+  if (!relative || relative === ".." || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) return null;
+  let stat = null;
+  try {
+    stat = fs.statSync(target);
+    if (!stat.isFile()) return null;
+  } catch (_error) {
+    // Write/Edit can mention a file that is not on disk yet; it is not a
+    // verifiable source until the workspace or agent actually creates it.
+    return null;
+  }
+  const store = readStore();
+  const sourceRef = upsertSourceRef(store, {
+    // A file can be read by several threads. Keep one durable evidence row per
+    // chat run instead of letting the generic project/path source id overwrite
+    // the older thread's reference.
+    id: `chat-file:${requestId}:${slashPath(relative)}`,
+    type: "file",
+    path: slashPath(relative),
+    title: path.basename(relative),
+    reason: `Claude Code ${block.name || "tool"}`,
+    eventId: requestId,
+    project: projectFromPath(root),
+    size: stat.size,
+    updatedAt: stat.mtime.toISOString(),
+    lastOpenedAt: now(),
+  });
+  writeStore(store);
+  broadcastStoreUpdate(store);
+  return sourceRef;
 }
 
 function settleActiveChatToolSteps(requestId, status) {
@@ -4496,6 +4845,7 @@ function emitClaudeStreamLine(sender, requestId, session, line) {
       const candidate = chatToolUseStep(requestId, block, index);
       const existing = activeChatToolStep(requestId, candidate.toolUseId);
       const step = persistChatToolStep(requestId, candidate);
+      recordChatToolFileSource(session, requestId, block);
       if (!existing) emitActivity(`正在使用 ${block.name || "工具"}`, { toolUseId: step?.toolUseId || "" });
     }
     return;
@@ -4579,6 +4929,7 @@ async function requestClaudeCodeStream(store, session, requestId, sender) {
     timeoutMs: Number(store.settings.timeoutMs || CLAUDE_TIMEOUT_MS),
     cancelAsCode130: true,
     env: claudeProcessEnv({ CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1" }),
+    onStart: (runtime) => persistChatRuntimeProcess(requestId, runtime),
     onLine: (line) => {
       const payload = parseJsonOutput(line);
       if (payload?.type === "result") finalPayload = payload;
@@ -4672,7 +5023,88 @@ function findAutomationRunEntry(store, runId) {
   return null;
 }
 
-function interruptedAutomationEntry(entry, endedAt) {
+async function recoverInterruptedChatRuns() {
+  const store = readStore();
+  const endedAt = now();
+  let changed = false;
+
+  for (const event of [...(store.runEvents || [])]) {
+    if (event?.type !== "chat" || !event.id) continue;
+    const staleRuntime = Number(event.runtimePid || 0) > 0
+      && Boolean(event.runtimeOwner)
+      && event.runtimeOwner !== runtimeInstanceId;
+    if (event.status !== "running" && !staleRuntime) continue;
+    let processRecovery = { status: "not-recorded", resolved: true };
+    if (staleRuntime) {
+      try {
+        processRecovery = await reapInterruptedRuntimeProcess(event);
+      } catch (_error) {
+        processRecovery = { status: "inspection-unavailable", resolved: false };
+      }
+    }
+    const processWarning = processRecovery.resolved ? "" : CHAT_PROCESS_STOP_UNCONFIRMED_MESSAGE;
+    const runtimePatch = {
+      runtimeOwner: processRecovery.resolved ? "" : event.runtimeOwner,
+      runtimePid: processRecovery.resolved ? 0 : event.runtimePid,
+      runtimeCommand: processRecovery.resolved ? "" : event.runtimeCommand,
+      runtimeExecutable: processRecovery.resolved ? "" : event.runtimeExecutable,
+      runtimeStartedAt: processRecovery.resolved ? "" : event.runtimeStartedAt,
+      runtimeStopStatus: processRecovery.status,
+    };
+    if (event.status !== "running") {
+      upsertRunEvent(store, {
+        ...event,
+        ...runtimePatch,
+        stderr: appendRecoveryNotice(event.stderr, processWarning),
+      });
+      changed = true;
+      continue;
+    }
+    const session = (store.sessions || []).find((item) => item.id === event.sessionId)
+      || (store.sessions || []).find((item) => sessionMessages(item).some((message) => message?.requestId === event.id));
+    const terminalMessage = [...sessionMessages(session)].reverse().find((message) => (
+      message?.requestId === event.id && ["assistant", "cancelled", "error"].includes(message?.role)
+    ));
+    const status = terminalMessage?.role === "assistant"
+      ? "ok"
+      : terminalMessage?.role === "cancelled"
+        ? "cancelled"
+        : "error";
+    const interrupted = !terminalMessage;
+
+    if (interrupted && session) {
+      session.messages = sessionMessages(session);
+      session.messages.push({
+        role: "error",
+        content: CHAT_INTERRUPTED_MESSAGE,
+        requestId: event.id,
+        createdAt: endedAt,
+      });
+      session.updatedAt = endedAt;
+    }
+
+    upsertRunEvent(store, {
+      ...event,
+      status,
+      detail: interrupted
+        ? [event.detail || "", CHAT_INTERRUPTED_MESSAGE].filter(Boolean).join(" · ")
+        : event.detail,
+      code: null,
+      durationMs: interruptedDurationMs(event.createdAt, endedAt, event.durationMs),
+      stderr: appendRecoveryNotice(
+        appendRecoveryNotice(event.stderr, interrupted ? CHAT_INTERRUPTED_MESSAGE : ""),
+        processWarning,
+      ),
+      ...runtimePatch,
+    });
+    changed = true;
+  }
+
+  if (changed) writeStore(store);
+  return store;
+}
+
+function interruptedAutomationEntry(entry, endedAt, processRecovery = { status: "not-recorded", resolved: true }) {
   const startedAt = isoOrEmpty(entry?.startedAt) || endedAt;
   const startedMs = new Date(startedAt).getTime();
   const endedMs = new Date(endedAt).getTime();
@@ -4687,12 +5119,16 @@ function interruptedAutomationEntry(entry, endedAt) {
     detail: AUTOMATION_INTERRUPTED_MESSAGE,
     error: AUTOMATION_INTERRUPTED_MESSAGE,
     summary: AUTOMATION_INTERRUPTED_MESSAGE,
-    stderr: trimOutput([entry?.stderr || "", AUTOMATION_INTERRUPTED_MESSAGE].filter(Boolean).join("\n")),
+    stderr: appendRecoveryNotice(
+      appendRecoveryNotice(entry?.stderr, AUTOMATION_INTERRUPTED_MESSAGE),
+      processRecovery.resolved ? "" : LOCAL_PROCESS_STOP_UNCONFIRMED_MESSAGE,
+    ),
     code: null,
+    ...recoveredRuntimePatch(entry, processRecovery),
   };
 }
 
-function recoverInterruptedAutomationRuns() {
+async function recoverInterruptedAutomationRuns() {
   const store = readStore();
   const endedAt = now();
   const recoveredRunIds = new Set();
@@ -4701,6 +5137,17 @@ function recoverInterruptedAutomationRuns() {
   for (const automation of store.automations || []) {
     const history = Array.isArray(automation.history) ? automation.history : [];
     const runningEntries = history.filter((entry) => entry?.status === "running");
+    const staleRuntimeEntries = history.filter((entry) => (
+      Number(entry?.runtimePid || 0) > 0 &&
+      Boolean(entry?.runtimeOwner) &&
+      entry.runtimeOwner !== runtimeInstanceId
+    ));
+    if (
+      Number(automation.lastRun?.runtimePid || 0) > 0 &&
+      automation.lastRun?.runtimeOwner &&
+      automation.lastRun.runtimeOwner !== runtimeInstanceId &&
+      !staleRuntimeEntries.some((entry) => entry.id === automation.lastRun.id)
+    ) staleRuntimeEntries.push(automation.lastRun);
     let currentRunningEntry = automation.lastRun?.status === "running"
       ? automation.lastRun
       : history[0]?.status === "running"
@@ -4735,11 +5182,35 @@ function recoverInterruptedAutomationRuns() {
       };
       runningEntries.push(currentRunningEntry);
     }
-    if (!runningEntries.length) continue;
+    const entriesToRecover = [
+      ...runningEntries,
+      ...staleRuntimeEntries.filter((entry) => !runningEntries.some((running) => running.id === entry.id)),
+    ];
+    if (!entriesToRecover.length) continue;
 
-    const recoveredById = new Map(
-      runningEntries.map((entry) => [entry.id, interruptedAutomationEntry(entry, endedAt)]),
-    );
+    const recoveredById = new Map();
+    for (const entry of entriesToRecover) {
+      const staleRuntime = Number(entry?.runtimePid || 0) > 0
+        && Boolean(entry?.runtimeOwner)
+        && entry.runtimeOwner !== runtimeInstanceId;
+      let processRecovery = { status: "not-recorded", resolved: true };
+      if (staleRuntime) {
+        try {
+          processRecovery = await reapInterruptedRuntimeProcess(entry);
+        } catch (_error) {
+          processRecovery = { status: "inspection-unavailable", resolved: false };
+        }
+      }
+      if (entry.status === "running") {
+        recoveredById.set(entry.id, interruptedAutomationEntry(entry, endedAt, processRecovery));
+      } else {
+        recoveredById.set(entry.id, {
+          ...entry,
+          stderr: appendRecoveryNotice(entry.stderr, processRecovery.resolved ? "" : LOCAL_PROCESS_STOP_UNCONFIRMED_MESSAGE),
+          ...recoveredRuntimePatch(entry, processRecovery),
+        });
+      }
+    }
     const syntheticEntries = runningEntries.filter(
       (entry) => !history.some((historyEntry) => historyEntry.id === entry.id),
     );
@@ -4758,12 +5229,13 @@ function recoverInterruptedAutomationRuns() {
 
     for (const recoveredEntry of recoveredById.values()) {
       recoveredRunIds.add(recoveredEntry.id);
-      upsertAutomationRunEvent(store, automation, recoveredEntry, "error");
-      if (recoveredEntry.trigger === "scheduled" && automation.schedule?.type === "once") {
+      const recoveredWasRunning = recoveredEntry.status === "failed" && recoveredEntry.error === AUTOMATION_INTERRUPTED_MESSAGE;
+      upsertAutomationRunEvent(store, automation, recoveredEntry, recoveredWasRunning ? "error" : recoveredEntry.status === "succeeded" ? "ok" : recoveredEntry.status);
+      if (recoveredWasRunning && recoveredEntry.trigger === "scheduled" && automation.schedule?.type === "once") {
         automation.enabled = false;
       }
       const session = (store.sessions || []).find((item) => item.id === recoveredEntry.sessionId);
-      if (session) {
+      if (session && recoveredWasRunning) {
         session.messages = Array.isArray(session.messages) ? session.messages : [];
         const hasTerminalMessage = session.messages.some((message) => (
           message?.automationRunId === recoveredEntry.id &&
@@ -4782,7 +5254,7 @@ function recoverInterruptedAutomationRuns() {
       }
     }
 
-    if (automation.status === "running" || recoveredLastRun) {
+    if (automation.status === "running" || currentRunningEntry) {
       automation.status = "failed";
       updateAutomationAfterMutation(automation);
     } else {
@@ -4792,15 +5264,35 @@ function recoverInterruptedAutomationRuns() {
   }
 
   for (const event of [...(store.runEvents || [])]) {
-    if (event?.type !== "automation" || event.status !== "running" || recoveredRunIds.has(event.id)) continue;
+    if (event?.type !== "automation" || recoveredRunIds.has(event.id)) continue;
+    const staleRuntime = Number(event.runtimePid || 0) > 0
+      && Boolean(event.runtimeOwner)
+      && event.runtimeOwner !== runtimeInstanceId;
+    if (event.status !== "running" && !staleRuntime) continue;
+    let processRecovery = { status: "not-recorded", resolved: true };
+    if (staleRuntime) {
+      try {
+        processRecovery = await reapInterruptedRuntimeProcess(event);
+      } catch (_error) {
+        processRecovery = { status: "inspection-unavailable", resolved: false };
+      }
+    }
     const startedMs = new Date(event.createdAt || endedAt).getTime();
     upsertRunEvent(store, {
       ...event,
-      status: "error",
-      detail: [event.detail || "", AUTOMATION_INTERRUPTED_MESSAGE].filter(Boolean).join(" · "),
-      code: null,
-      durationMs: Number.isFinite(startedMs) ? Math.max(0, Date.now() - startedMs) : event.durationMs,
-      stderr: trimOutput([event.stderr || "", AUTOMATION_INTERRUPTED_MESSAGE].filter(Boolean).join("\n")),
+      ...(event.status === "running" ? {
+        status: "error",
+        detail: [event.detail || "", AUTOMATION_INTERRUPTED_MESSAGE].filter(Boolean).join(" · "),
+        code: null,
+        durationMs: Number.isFinite(startedMs) ? Math.max(0, Date.now() - startedMs) : event.durationMs,
+        stderr: appendRecoveryNotice(
+          appendRecoveryNotice(event.stderr, AUTOMATION_INTERRUPTED_MESSAGE),
+          processRecovery.resolved ? "" : LOCAL_PROCESS_STOP_UNCONFIRMED_MESSAGE,
+        ),
+      } : {
+        stderr: appendRecoveryNotice(event.stderr, processRecovery.resolved ? "" : LOCAL_PROCESS_STOP_UNCONFIRMED_MESSAGE),
+      }),
+      ...recoveredRuntimePatch(event, processRecovery),
     });
     changed = true;
   }
@@ -4817,52 +5309,134 @@ function interruptedDurationMs(startedAt, endedAt, fallback = 0) {
     : Number(fallback || 0);
 }
 
-function recoverInterruptedLocalRuns() {
+function appendRecoveryNotice(output, notice) {
+  const current = String(output || "");
+  if (!notice || current.includes(notice)) return current;
+  return trimOutput([current, notice].filter(Boolean).join("\n"));
+}
+
+function recoveredRuntimePatch(item, processRecovery) {
+  const resolved = Boolean(processRecovery?.resolved);
+  return {
+    runtimeOwner: resolved ? "" : String(item?.runtimeOwner || ""),
+    runtimePid: resolved ? 0 : Number(item?.runtimePid || 0),
+    runtimeCommand: resolved ? "" : String(item?.runtimeCommand || ""),
+    runtimeExecutable: resolved ? "" : String(item?.runtimeExecutable || ""),
+    runtimeStartedAt: resolved ? "" : String(item?.runtimeStartedAt || ""),
+    runtimeStopStatus: String(processRecovery?.status || "not-recorded"),
+  };
+}
+
+async function recoverInterruptedLocalRuns() {
   const store = readStore();
   const endedAt = now();
   const recoveredSubagentEventIds = new Set();
+  const recoveredCommandEventIds = new Set();
   let changed = false;
 
   for (const item of [...(store.subagentRuns || [])]) {
     const run = normalizeSubagentRun(item, store);
-    if (run.status !== "running" || !run.runtimeOwner || run.runtimeOwner === runtimeInstanceId) continue;
+    const staleRuntime = Number(run.runtimePid || 0) > 0
+      && Boolean(run.runtimeOwner)
+      && run.runtimeOwner !== runtimeInstanceId;
+    if (run.status !== "running" && !staleRuntime) continue;
+    let processRecovery = { status: "not-recorded", resolved: true };
+    if (staleRuntime) {
+      try {
+        processRecovery = await reapInterruptedRuntimeProcess(run);
+      } catch (_error) {
+        processRecovery = { status: "inspection-unavailable", resolved: false };
+      }
+    }
+    const processWarning = processRecovery.resolved ? "" : LOCAL_PROCESS_STOP_UNCONFIRMED_MESSAGE;
+    const runtimePatch = recoveredRuntimePatch(run, processRecovery);
     const recovered = normalizeSubagentRun({
       ...run,
-      status: "error",
-      summary: SUBAGENT_INTERRUPTED_MESSAGE,
-      stderr: trimOutput([run.stderr || "", SUBAGENT_INTERRUPTED_MESSAGE].filter(Boolean).join("\n")),
-      code: null,
-      durationMs: interruptedDurationMs(run.startedAt, endedAt, run.durationMs),
-      endedAt,
-      runtimeOwner: "",
+      ...(run.status === "running" ? {
+        status: "error",
+        summary: SUBAGENT_INTERRUPTED_MESSAGE,
+        stderr: appendRecoveryNotice(
+          appendRecoveryNotice(run.stderr, SUBAGENT_INTERRUPTED_MESSAGE),
+          processWarning,
+        ),
+        code: null,
+        durationMs: interruptedDurationMs(run.startedAt, endedAt, run.durationMs),
+        endedAt,
+      } : {
+        stderr: appendRecoveryNotice(run.stderr, processWarning),
+      }),
+      ...runtimePatch,
     }, store);
     upsertSubagentRun(store, recovered);
-    upsertSubagentRunEvent(store, recovered, "error");
+    upsertSubagentRunEvent(store, recovered, recovered.status === "done" ? "ok" : recovered.status);
     recoveredSubagentEventIds.add(recovered.requestId || recovered.id);
     changed = true;
   }
 
-  for (const event of [...(store.runEvents || [])]) {
-    if (
-      event?.status !== "running" ||
-      !event.runtimeOwner ||
-      event.runtimeOwner === runtimeInstanceId ||
-      recoveredSubagentEventIds.has(event.id)
-    ) {
-      continue;
+  for (const item of [...(store.commandRuns || [])]) {
+    const run = normalizeCommandRun(item, store);
+    const staleRuntime = Number(run.runtimePid || 0) > 0
+      && Boolean(run.runtimeOwner)
+      && run.runtimeOwner !== runtimeInstanceId;
+    if (!staleRuntime) continue;
+    let processRecovery;
+    try {
+      processRecovery = await reapInterruptedRuntimeProcess(run);
+    } catch (_error) {
+      processRecovery = { status: "inspection-unavailable", resolved: false };
     }
+    const processWarning = processRecovery.resolved ? "" : LOCAL_PROCESS_STOP_UNCONFIRMED_MESSAGE;
+    const recovered = upsertCommandRun(store, {
+      ...run,
+      code: null,
+      cancelled: false,
+      durationMs: interruptedDurationMs(run.startedAt, endedAt, run.durationMs),
+      endedAt,
+      stderr: appendRecoveryNotice(
+        appendRecoveryNotice(run.stderr, WORKSPACE_COMMAND_INTERRUPTED_MESSAGE),
+        processWarning,
+      ),
+      ...recoveredRuntimePatch(run, processRecovery),
+    });
+    upsertCommandRunEvent(store, recovered, "error");
+    recoveredCommandEventIds.add(recovered.requestId || recovered.id);
+    changed = true;
+  }
+
+  for (const event of [...(store.runEvents || [])]) {
     const isSubagent = event.type === "subagent";
     const isWorkspaceCommand = event.type === "workspace-command" || event.type === "git-command";
     if (!isSubagent && !isWorkspaceCommand) continue;
+    const staleRuntime = Number(event.runtimePid || 0) > 0
+      && Boolean(event.runtimeOwner)
+      && event.runtimeOwner !== runtimeInstanceId;
+    if (
+      (event.status !== "running" && !staleRuntime) ||
+      recoveredSubagentEventIds.has(event.id) ||
+      recoveredCommandEventIds.has(event.id)
+    ) continue;
+    let processRecovery = { status: "not-recorded", resolved: true };
+    if (staleRuntime) {
+      try {
+        processRecovery = await reapInterruptedRuntimeProcess(event);
+      } catch (_error) {
+        processRecovery = { status: "inspection-unavailable", resolved: false };
+      }
+    }
     const message = isSubagent ? SUBAGENT_INTERRUPTED_MESSAGE : WORKSPACE_COMMAND_INTERRUPTED_MESSAGE;
+    const processWarning = processRecovery.resolved ? "" : LOCAL_PROCESS_STOP_UNCONFIRMED_MESSAGE;
     upsertRunEvent(store, {
       ...event,
-      status: "error",
-      detail: [event.detail || "", message].filter(Boolean).join(" · "),
-      code: null,
-      durationMs: interruptedDurationMs(event.createdAt, endedAt, event.durationMs),
-      stderr: trimOutput([event.stderr || "", message].filter(Boolean).join("\n")),
-      runtimeOwner: "",
+      ...(event.status === "running" ? {
+        status: "error",
+        detail: [event.detail || "", message].filter(Boolean).join(" · "),
+        code: null,
+        durationMs: interruptedDurationMs(event.createdAt, endedAt, event.durationMs),
+        stderr: appendRecoveryNotice(appendRecoveryNotice(event.stderr, message), processWarning),
+      } : {
+        stderr: appendRecoveryNotice(event.stderr, processWarning),
+      }),
+      ...recoveredRuntimePatch(event, processRecovery),
     });
     changed = true;
   }
@@ -4923,6 +5497,12 @@ async function runAutomationById(automationId, { requestId = "", trigger = "manu
       stdout: "",
       stderr: "",
       code: null,
+      runtimeOwner: runtimeInstanceId,
+      runtimePid: 0,
+      runtimeCommand: "",
+      runtimeExecutable: "",
+      runtimeStartedAt: "",
+      runtimeStopStatus: "",
     };
     automation.status = "running";
     prependAutomationHistory(automation, runningEntry);
@@ -4995,6 +5575,12 @@ async function runAutomationById(automationId, { requestId = "", trigger = "manu
         stderr: stderr || existingEntry?.stderr || "",
         code,
         artifacts,
+        runtimeOwner: "",
+        runtimePid: 0,
+        runtimeCommand: "",
+        runtimeExecutable: "",
+        runtimeStartedAt: "",
+        runtimeStopStatus: status,
       };
       prependAutomationHistory(latestAutomation, finalEntry);
       if (trigger === "scheduled" && latestAutomation.schedule?.type === "once") {
@@ -5025,7 +5611,13 @@ async function runAutomationById(automationId, { requestId = "", trigger = "manu
       activeProject: automation.project || store.activeProject || localWorkspaceProject(),
     };
     try {
-      const assistantPromise = requestAssistant(runtimeStore, session, runtime.requestId);
+      const assistantPromise = requestAssistant(runtimeStore, session, runtime.requestId, null, {
+        onStart: (processRuntime) => persistAutomationRuntimeProcess({
+          automationId,
+          runId,
+          runtime: processRuntime,
+        }),
+      });
       if (runtime.cancelled) stopActiveRequest(runtime.requestId);
       const assistantResult = await assistantPromise;
       if (runtime.cancelled) {
@@ -5327,6 +5919,11 @@ async function runSubagent(payload = {}, sender) {
     startedAt,
     artifacts: [],
     runtimeOwner: runtimeInstanceId,
+    runtimePid: 0,
+    runtimeCommand: "",
+    runtimeExecutable: "",
+    runtimeStartedAt: "",
+    runtimeStopStatus: "",
   }, store);
   try {
     upsertSubagentRun(store, run);
@@ -5341,6 +5938,7 @@ async function runSubagent(payload = {}, sender) {
       requestId,
       timeoutMs: Number(store.settings.timeoutMs || CLAUDE_TIMEOUT_MS),
       env: claudeProcessEnv({ CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC: "1" }),
+      onStart: (processRuntime) => persistSubagentRuntimeProcess({ runId, requestId, runtime: processRuntime }),
       onChunk: (stream, text) => {
         if (stream === "stderr") stderr = trimOutput(`${stderr}${text || ""}`);
         else stdout = trimOutput(`${stdout}${text || ""}`);
@@ -5386,6 +5984,11 @@ async function runSubagent(payload = {}, sender) {
       durationMs: result.durationMs,
       endedAt: now(),
       runtimeOwner: "",
+      runtimePid: 0,
+      runtimeCommand: "",
+      runtimeExecutable: "",
+      runtimeStartedAt: "",
+      runtimeStopStatus: finalStatus,
       artifacts: [
         ...subagentArtifactsFromResult({
           summary: cleanSummary,
@@ -5459,10 +6062,11 @@ app.on("before-quit", (event) => {
   });
 });
 
-app.whenReady().then(() => {
+app.whenReady().then(async () => {
   if (!hasSingleInstanceLock) return;
-  recoverInterruptedAutomationRuns();
-  recoverInterruptedLocalRuns();
+  await recoverInterruptedAutomationRuns();
+  await recoverInterruptedLocalRuns();
+  await recoverInterruptedChatRuns();
   createWindow();
   startAutomationScheduler();
 
@@ -5477,6 +6081,25 @@ app.on("window-all-closed", () => {
 });
 
 ipcMain.handle("app:get-state", (_event) => sanitizeStore(readStore(), _event.sender.id));
+
+// Keep unresolved identities retryable from the evidence UI; every retry uses
+// the same PID/start-time/command checks as startup recovery.
+ipcMain.handle("app:retry-runtime-recovery", async (event) => {
+  if (!runtimeRecoveryRetryPromise) {
+    runtimeRecoveryRetryPromise = (async () => {
+      await recoverInterruptedAutomationRuns();
+      await recoverInterruptedLocalRuns();
+      await recoverInterruptedChatRuns();
+      const store = readStore();
+      broadcastStoreUpdate(store);
+      return store;
+    })().finally(() => {
+      runtimeRecoveryRetryPromise = null;
+    });
+  }
+  const store = await runtimeRecoveryRetryPromise;
+  return sanitizeStore(store, event.sender.id);
+});
 
 ipcMain.handle("app:save-settings", (_event, nextSettings) => {
   const store = readStore();
@@ -5667,6 +6290,14 @@ ipcMain.handle("automation:run-now", async (_event, { automationId, requestId } 
 ipcMain.handle("automation:cancel", async (_event, { automationId, runId } = {}) => {
   const runtime = activeAutomationRuns.get(automationId);
   if (!runtime || (runId && runtime.runId !== runId)) {
+    if (runId) {
+      const store = readStore();
+      const automation = (store.automations || []).find((item) => item?.id === automationId);
+      const matched = automation ? findAutomationRunEntry(store, runId) : null;
+      if (matched?.automation?.id === automationId && matched.entry?.status !== "running") {
+        return { ...sanitizeStore(store), automationRun: matched.entry };
+      }
+    }
     const error = new Error("AUTOMATION_NOT_RUNNING: 没有找到对应的运行中自动化任务。");
     error.code = "AUTOMATION_NOT_RUNNING";
     throw error;
@@ -5719,6 +6350,13 @@ ipcMain.handle("subagent:cancel", async (_event, { runId, requestId } = {}) => {
   }
   const runtime = runtimeByRunId || runtimeByRequestId;
   if (!runtime) {
+    if (runId || requestId) {
+      const store = readStore();
+      const run = findSubagentRun(store, { runId, requestId });
+      if (run && run.status !== "running") {
+        return { ...sanitizeStore(store), subagentRun: run };
+      }
+    }
     const error = new Error("SUBAGENT_NOT_RUNNING: 没有找到对应的运行中子代理。");
     error.code = "SUBAGENT_NOT_RUNNING";
     throw error;
@@ -5849,6 +6487,56 @@ ipcMain.handle("app:set-active-project", (_event, project) => {
     : { name: projectName || "本地工作区", path: "" };
   addProject(store, nextProject);
   ensureActiveProjectDraftSession(store);
+  writeStore(store);
+  return sanitizeStore(store);
+});
+
+ipcMain.handle("app:remove-project", (_event, project) => {
+  const store = readStore();
+  const projectPath = String(project?.path || "").trim();
+  const projectName = String(project?.name || "").trim();
+  const key = projectPath || projectName;
+  if (!key) throw new Error("PROJECT_REQUIRED: 缺少要移除的项目。");
+
+  const projects = Array.isArray(store.projects) ? store.projects : [];
+  const nextProjects = projects.filter((item) => (item?.path || item?.name || "") !== key);
+  if (nextProjects.length === projects.length) {
+    const error = new Error("PROJECT_NOT_FOUND: 项目不在最近项目列表中。");
+    error.code = "PROJECT_NOT_FOUND";
+    throw error;
+  }
+
+  const activeKey = store.activeProject?.path || store.activeProject?.name || "";
+  store.projects = nextProjects;
+  if (activeKey === key) {
+    store.activeProject = nextProjects[0] || localWorkspaceProject();
+    ensureActiveProjectDraftSession(store);
+  }
+  writeStore(store);
+  return sanitizeStore(store);
+});
+
+ipcMain.handle("app:reorder-project", (_event, payload = {}) => {
+  const store = readStore();
+  const project = payload.project || payload;
+  const key = String(project?.path || project?.name || "").trim();
+  const direction = String(payload.direction || "").trim();
+  if (!key || !["up", "down"].includes(direction)) {
+    const error = new Error("PROJECT_REORDER_INVALID: 项目排序参数无效。");
+    error.code = "PROJECT_REORDER_INVALID";
+    throw error;
+  }
+  const projects = Array.isArray(store.projects) ? store.projects : [];
+  const index = projects.findIndex((item) => (item?.path || item?.name || "") === key);
+  const targetIndex = direction === "up" ? index - 1 : index + 1;
+  if (index < 0 || targetIndex < 0 || targetIndex >= projects.length) {
+    const error = new Error("PROJECT_REORDER_UNAVAILABLE: 项目已位于列表边界或不存在。");
+    error.code = "PROJECT_REORDER_UNAVAILABLE";
+    throw error;
+  }
+  const nextProjects = [...projects];
+  [nextProjects[index], nextProjects[targetIndex]] = [nextProjects[targetIndex], nextProjects[index]];
+  store.projects = nextProjects;
   writeStore(store);
   return sanitizeStore(store);
 });
@@ -6072,6 +6760,12 @@ ipcMain.handle("chat:send-message", async (_event, { sessionId, content, request
       cwd: session.projectPath || project?.path || "",
       project,
       sessionId: session.id,
+      runtimeOwner: status === "running" ? runtimeInstanceId : "",
+      runtimePid: 0,
+      runtimeCommand: "",
+      runtimeExecutable: "",
+      runtimeStartedAt: "",
+      runtimeStopStatus: status === "running" ? "" : status,
       createdAt,
     });
     upsertRunEvent(store, chatRunEvent(session, "running", userContent.slice(0, 140)));
@@ -6231,6 +6925,7 @@ ipcMain.handle("app:open-browser-url", async (_event, value) => {
     status: "external",
     external: true,
     project,
+    sessionId: String(payload.sessionId || payload.threadId || "").trim(),
     startedAt: now(),
     endedAt: now(),
     lastEventAt: now(),
@@ -6565,6 +7260,20 @@ ipcMain.handle("claude:run", async (_event, { projectPath, args, requestId, sess
   };
 });
 
+ipcMain.handle("claude:cancel-command", async (_event, { requestId } = {}) => {
+  const key = String(requestId || "");
+  if (!key.startsWith("claude_")) return false;
+  const runtime = activeRequests.get(key);
+  if (!runtime) {
+    const store = readStore();
+    const run = (store.commandRuns || []).find((item) => (
+      (item?.id === key || item?.requestId === key) && item?.kind === "claude"
+    ));
+    return Boolean(run?.cancelled || run?.code === 130);
+  }
+  return Boolean(await runtime.kill?.());
+});
+
 ipcMain.handle("workspace:search-files", (_event, { projectPath, query = "", limit = WORKSPACE_SEARCH_LIMIT } = {}) => {
   const root = resolveProjectRoot(projectPath);
   const needle = String(query || "").trim().toLowerCase();
@@ -6766,9 +7475,10 @@ ipcMain.handle("workspace:save-file", (_event, { projectPath, relativePath, cont
     if (existingStat && !existingStat.isFile()) throw new Error("所选路径不是文件。");
     fs.mkdirSync(path.dirname(target), { recursive: true });
     fs.writeFileSync(target, nextContent, "utf8");
+    const snapshot = { ...fileSnapshot(target), path: relative };
     return {
-      ...fileSnapshot(target),
-      path: relative,
+      ...snapshot,
+      ...recordWorkspaceSourceSnapshot(projectPath, snapshot),
     };
   }
 
@@ -6962,13 +7672,17 @@ ipcMain.handle("workspace:save-file", (_event, { projectPath, relativePath, cont
       return conflictForPathState("replaced");
     }
 
-    return {
+    const snapshot = {
       path: relative,
       name: path.basename(target),
       content: writtenSnapshot.buffer.toString("utf8"),
       size: statSizeNumber(writtenSnapshot.stat),
       updatedAt: statUpdatedAt(writtenSnapshot.stat),
       sha256: hashBuffer(writtenSnapshot.buffer),
+    };
+    return {
+      ...snapshot,
+      ...recordWorkspaceSourceSnapshot(projectPath, snapshot),
     };
   } finally {
     if (typeof fd === "number") fs.closeSync(fd);
@@ -7245,7 +7959,21 @@ ipcMain.handle("workspace:cancel-command", async (_event, { requestId } = {}) =>
   const key = String(requestId || "");
   if (!key.startsWith("workspace_")) return { cancelled: false };
   const runtime = activeWorkspaceCommandRuns.get(key);
-  if (!runtime) return { cancelled: false };
+  if (!runtime) {
+    const store = readStore();
+    const commandRun = (store.commandRuns || []).find((item) => item.id === key || item.requestId === key);
+    const runEvent = (store.runEvents || []).find((item) => item.id === key);
+    if (!commandRun || runEvent?.status === "running") return { cancelled: false };
+    const sanitized = sanitizeStore(store);
+    return {
+      ...commandRun,
+      commandRun,
+      commandRuns: sanitized.commandRuns,
+      runEvent,
+      runEvents: sanitized.runEvents,
+      cancelled: Boolean(commandRun.cancelled),
+    };
+  }
 
   stopActiveRequest(runtime.requestId);
   if (!await waitForRuntimeCompletion(runtime, RUN_STOP_WAIT_MS)) {
@@ -7279,11 +8007,12 @@ ipcMain.handle("workspace:cancel-command", async (_event, { requestId } = {}) =>
   };
 });
 
-ipcMain.handle("workspace:run-command", async (_event, { projectPath, command, requestId } = {}) => {
+ipcMain.handle("workspace:run-command", async (_event, { projectPath, command, requestId, sessionId } = {}) => {
   const cwd = resolveProjectRoot(projectPath);
   const cmd = String(command || "").trim();
   if (!cmd) throw new Error("命令为空。");
   const runId = requestId || id("workspace_command");
+  const threadId = String(sessionId || "").trim();
   if (activeWorkspaceCommandRuns.has(runId) || activeRequests.has(runId)) {
     const error = new Error("WORKSPACE_COMMAND_RUNNING: 这个 Workspace 命令正在运行。");
     error.code = "WORKSPACE_COMMAND_RUNNING";
@@ -7300,8 +8029,14 @@ ipcMain.handle("workspace:run-command", async (_event, { projectPath, command, r
     command: cmd,
     cwd,
     project,
+    sessionId: threadId,
     startedAt: startedAtIso,
     runtimeOwner: runtimeInstanceId,
+    runtimePid: 0,
+    runtimeCommand: "",
+    runtimeExecutable: "",
+    runtimeStartedAt: "",
+    runtimeStopStatus: "",
   }, "running");
   writeStore(startStore);
   broadcastStoreUpdate(startStore);
@@ -7312,6 +8047,7 @@ ipcMain.handle("workspace:run-command", async (_event, { projectPath, command, r
 
   activeWorkspaceCommandRuns.set(runId, runtime);
   try {
+    let processRuntime = {};
     const result = await new Promise((resolve) => {
       const startedAt = Date.now();
       let child;
@@ -7323,6 +8059,14 @@ ipcMain.handle("workspace:run-command", async (_event, { projectPath, command, r
           shell: process.platform === "win32" ? process.env.ComSpec || true : true,
           detached: process.platform !== "win32",
         });
+        const shellIdentity = workspaceShellRuntimeIdentity();
+        processRuntime = {
+          pid: Number(child.pid || 0),
+          command: shellIdentity.command,
+          executable: shellIdentity.executable,
+          startedAt: now(),
+        };
+        persistWorkspaceRuntimeProcess({ runId, runtime: processRuntime });
       } catch (error) {
         resolve({
           id: runId,
@@ -7363,7 +8107,13 @@ ipcMain.handle("workspace:run-command", async (_event, { projectPath, command, r
           startedAt: startedAtIso,
           kind: isGitCommandLine(cmd) ? "git" : "workspace",
           project,
+          sessionId: threadId,
           runtimeOwner: runtimeInstanceId,
+          runtimePid: processRuntime.pid || 0,
+          runtimeCommand: processRuntime.command || "",
+          runtimeExecutable: processRuntime.executable || "",
+          runtimeStartedAt: processRuntime.startedAt || "",
+          runtimeStopStatus: processRuntime.pid ? "running" : "",
         },
         "running",
       );
@@ -7438,6 +8188,7 @@ ipcMain.handle("workspace:run-command", async (_event, { projectPath, command, r
       requestId: runId,
       kind: isGitCommandLine(cmd) ? "git" : "workspace",
       project,
+      sessionId: threadId,
     });
     const runEvent = upsertCommandRunEvent(
       store,

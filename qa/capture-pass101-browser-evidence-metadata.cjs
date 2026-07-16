@@ -143,6 +143,7 @@ function writeInitialStore() {
         excerpt: "pass101 structured browser excerpt from stored webview snapshot",
         status: "ready",
         httpStatus: 200,
+        sessionId: "pass101-session",
         project,
         startedAt: "2026-07-06T01:02:00.000Z",
         endedAt: "2026-07-06T01:02:03.000Z",
@@ -158,10 +159,23 @@ function writeInitialStore() {
         errorCode: -312,
         validatedUrl: "http://127.0.0.1:9/pass101-error",
         isMainFrame: true,
+        sessionId: "pass101-session",
         project,
         startedAt: "2026-07-06T01:03:00.000Z",
         endedAt: "2026-07-06T01:03:01.000Z",
         lastEventAt: "2026-07-06T01:03:01.000Z",
+      },
+      {
+        id: "pass101-foreign-visit",
+        url: "http://127.0.0.1/pass101-foreign",
+        finalUrl: "http://127.0.0.1/pass101-foreign",
+        title: "foreign thread browser evidence",
+        status: "ready",
+        sessionId: "other-session",
+        project,
+        startedAt: "2026-07-06T01:04:00.000Z",
+        endedAt: "2026-07-06T01:04:01.000Z",
+        lastEventAt: "2026-07-06T01:04:01.000Z",
       },
     ],
     notices: [],
@@ -219,6 +233,12 @@ async function runTest() {
       );
     })();
   `, 10000));
+  assertStep("PASS101_BROWSER_FILTERS_FOREIGN_THREAD", await waitFor(win, `
+    (() => {
+      const cards = [...document.querySelectorAll('.bottom-work-panel .browser-evidence-card')];
+      return cards.length === 2 && !cards.some((card) => /foreign thread browser evidence/.test(card.textContent || ''));
+    })()
+  `, 10000));
   assertStep("PASS101_ERROR_RECOVERY_ACTIONS", await waitFor(win, `
     (function() {
       const error = Array.from(document.querySelectorAll('.bottom-work-panel .browser-evidence-card'))
@@ -246,6 +266,7 @@ async function runTest() {
         visit.status === "external" &&
         visit.external === true &&
         visit.url === "http://127.0.0.1:9/pass101-error" &&
+        visit.sessionId === "pass101-session" &&
         visit.project?.path === ${JSON.stringify(PROJECT_DIR)}
       ));
     })();

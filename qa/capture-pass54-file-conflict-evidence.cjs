@@ -36,6 +36,8 @@ const FILE_PATH = path.join(PROJECT_DIR, FILE_NAME);
 const ORIGINAL_CONTENT = "pass54 original\n";
 const DRAFT_CONTENT = "pass54 original\nrenderer draft\n";
 const EXTERNAL_CONTENT = "pass54 external edit\n";
+const CREATED_SOURCE_NAME = "created-by-pass54-save.txt";
+const CREATED_SOURCE_CONTENT = "pass54 save-created source evidence\n";
 
 function sha256Text(value) {
   return crypto.createHash("sha256").update(String(value), "utf8").digest("hex");
@@ -297,6 +299,26 @@ async function runTest() {
   assertStep("PASS54_RELOADED_EXTERNAL_CONTENT", await waitFor(win, `
     document.querySelector('.file-editor textarea')?.value === ${JSON.stringify(EXTERNAL_CONTENT)}
   `, 8000));
+
+  assertStep("PASS54_SAVE_CREATED_FILE_SOURCE_REF", await win.webContents.executeJavaScript(`
+    (async function() {
+      const result = await window.claudexDesktop.saveWorkspaceFile({
+        projectPath: ${JSON.stringify(PROJECT_DIR)},
+        relativePath: ${JSON.stringify(CREATED_SOURCE_NAME)},
+        content: ${JSON.stringify(CREATED_SOURCE_CONTENT)},
+      });
+      const state = await window.claudexDesktop.getState();
+      return Boolean(
+        result?.sourceRef?.path === ${JSON.stringify(CREATED_SOURCE_NAME)} &&
+        state.sourceRefs?.some((source) =>
+          source.path === ${JSON.stringify(CREATED_SOURCE_NAME)} &&
+          source.project?.path === ${JSON.stringify(PROJECT_DIR)} &&
+          source.sha256 === result.sha256
+        )
+      );
+    })();
+  `));
+  assertStep("PASS54_CREATED_SOURCE_ON_DISK", fs.readFileSync(path.join(PROJECT_DIR, CREATED_SOURCE_NAME), "utf8") === CREATED_SOURCE_CONTENT);
 
   console.log("PASS54_FILE_CONFLICT_EVIDENCE_DONE");
   cleanup();

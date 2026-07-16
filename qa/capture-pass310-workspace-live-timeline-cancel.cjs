@@ -298,6 +298,21 @@ async function runTest() {
     Array.from(document.querySelectorAll('.run-timeline-row'))
       .filter((item) => item.getAttribute('data-run-event-id') === ${JSON.stringify(runningEventId)}).length === 1
   `));
+  assertStep("PASS310_RUNTIME_METADATA_PERSISTED", await waitForStore((state) => {
+    const event = (state.runEvents || []).find((item) => item.id === runningEventId);
+    return Boolean(
+      event?.runtimeOwner && Number(event.runtimePid) > 0 &&
+      event.runtimeCommand && event.runtimeStartedAt &&
+      !/pass310 stdout live|setInterval/.test(event.runtimeCommand || "")
+    );
+  }, 10000));
+  assertStep("PASS310_RUNTIME_RECOVERY_STATE_SANITIZED", await win.webContents.executeJavaScript(`
+    window.claudexDesktop.getState().then((state) => {
+      const event = (state.runEvents || []).find((item) => item.id === ${JSON.stringify(runningEventId)});
+      return event?.runtimeRecoveryPending === true && !event.runtimeOwner && !event.runtimePid &&
+        !event.runtimeCommand && !event.runtimeExecutable && !event.runtimeStartedAt;
+    })
+  `));
 
   assertStep("PASS310_CANCEL_BUTTON_READY", await waitFor(win, `
     Boolean(document.querySelector('#workspace-tool-detail .command-runner button:not(:disabled)'))
@@ -325,6 +340,7 @@ async function runTest() {
       runs[0].cancelled === true && runs[0].code === 130 &&
       /pass310 stdout live/.test(runs[0].stdout || "") && /pass310 stderr live/.test(runs[0].stderr || "") &&
       events[0].status === "cancelled" && events[0].code === 130 &&
+      !events[0].runtimeOwner && !events[0].runtimePid && !events[0].runtimeCommand && !events[0].runtimeStartedAt &&
       /pass310 stdout live/.test(events[0].stdout || "") && /pass310 stderr live/.test(events[0].stderr || "");
   }, 15000));
 

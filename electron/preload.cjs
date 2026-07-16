@@ -2,6 +2,7 @@ const { contextBridge, ipcRenderer } = require("electron");
 
 const desktopApi = {
   getState: () => ipcRenderer.invoke("app:get-state"),
+  retryRuntimeRecovery: () => ipcRenderer.invoke("app:retry-runtime-recovery"),
   onStateUpdate: (handler) => {
     const listener = (_event, payload) => handler(payload);
     ipcRenderer.on("app:state-updated", listener);
@@ -29,6 +30,8 @@ const desktopApi = {
   },
   selectProject: () => ipcRenderer.invoke("app:select-project"),
   setActiveProject: (project) => ipcRenderer.invoke("app:set-active-project", project),
+  removeProject: (project) => ipcRenderer.invoke("app:remove-project", project),
+  reorderProject: (payload) => ipcRenderer.invoke("app:reorder-project", payload),
   createSession: (title) => ipcRenderer.invoke("chat:create-session", title),
   updateSession: (payload) => ipcRenderer.invoke("chat:update-session", payload),
   deleteSession: (sessionId) => ipcRenderer.invoke("chat:delete-session", sessionId),
@@ -51,6 +54,7 @@ const desktopApi = {
   getEnvironment: (payload) => ipcRenderer.invoke("app:get-environment", payload),
   getClaudeStatus: (payload) => ipcRenderer.invoke("claude:status", payload),
   runClaudeCommand: (payload) => ipcRenderer.invoke("claude:run", payload),
+  cancelClaudeCommand: (payload) => ipcRenderer.invoke("claude:cancel-command", payload),
   onClaudeRunStream: (handler) => {
     const listener = (_event, payload) => handler(payload);
     ipcRenderer.on("claude:run-stream-event", listener);

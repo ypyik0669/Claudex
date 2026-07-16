@@ -134,7 +134,7 @@ function out(value) { process.stdout.write(typeof value === 'string' ? value + '
 if (args[0] === '-p' && /pass337 complete tool evidence/.test(String(args[1] || ''))) {
   out({ type: 'system', subtype: 'init', session_id: 'pass337-session', claude_code_version: '2.10.0' });
   out({ type: 'stream_event', event: { type: 'content_block_start', index: 0, content_block: { type: 'tool_use', id: '${READ_TOOL_ID}', name: 'Read', input: {} } } });
-  out({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: '${READ_TOOL_ID}', name: 'Read', input: { file_path: 'README.md', evidence: 'i'.repeat(9000) } }] } });
+  out({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: '${READ_TOOL_ID}', name: 'Read', input: { file_path: 'package.json', evidence: 'i'.repeat(9000) } }] } });
   setTimeout(() => {
     out({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: '${READ_TOOL_ID}', content: [{ type: 'text', text: 'pass337 read result ' + 'o'.repeat(9000) }], is_error: false }] } });
     out({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: '${BASH_TOOL_ID}', name: 'Bash', input: { command: 'npm run build' } }] } });
@@ -158,7 +158,7 @@ if (args[0] === '-p' && /pass337 complete tool evidence/.test(String(args[1] || 
     out({ type: 'assistant', message: { role: 'assistant', content: [{ type: 'tool_use', id: toolUseId, name: 'RunningTool', input: { index } }] } });
     out({ type: 'user', message: { role: 'user', content: [{ type: 'tool_result', tool_use_id: toolUseId, content: 'running retention result ' + index, is_error: false }] } });
   }
-  setTimeout(() => out({ type: 'result', result: 'pass337 running retention complete', session_id: 'pass337-session', duration_ms: 339 }), 2000);
+  setTimeout(() => out({ type: 'result', result: 'pass337 running retention complete', session_id: 'pass337-session', duration_ms: 339 }), 6000);
 } else if (args[0] === '-p' && /pass337 tool evidence budget/.test(String(args[1] || ''))) {
   out({ type: 'system', subtype: 'init', session_id: 'pass337-session', claude_code_version: '2.10.0' });
   for (let index = 0; index < 5; index += 1) {
@@ -233,8 +233,27 @@ function writeInitialStore(claudeCommand) {
     automations: [],
     subagentRuns: [],
     commandRuns: [],
-    runEvents: [],
-    sourceRefs: [],
+    runEvents: [{
+      id: "pass337-foreign-thread-event",
+      type: "chat",
+      status: "ok",
+      title: "foreign thread timeline evidence",
+      detail: "must not appear in default thread outputs",
+      sessionId: "foreign-session",
+      project: { name: "pass337-project", path: PROJECT_DIR },
+      createdAt: "2026-07-16T00:00:00.000Z",
+    }],
+    sourceRefs: [{
+      id: "chat-file:foreign-chat-event:package.json",
+      type: "file",
+      path: "package.json",
+      title: "package.json",
+      eventId: "foreign-chat-event",
+      project: { name: "pass337-project", path: PROJECT_DIR },
+      size: 1,
+      updatedAt: "2026-07-16T00:00:00.000Z",
+      lastOpenedAt: "2026-07-16T00:00:00.000Z",
+    }],
     browserVisits: [],
     notices: [],
   }, null, 2), "utf8");
@@ -304,7 +323,14 @@ async function runTest() {
     const event = (state.runEvents || []).find((item) => item.id === completedRequestId);
     const steps = event?.steps || [];
     const read = steps.find((step) => step.toolUseId === READ_TOOL_ID);
-    return event?.status === "running" && steps.length === 1 && read?.status === "running" && /README\.md/.test(read.input || "");
+    return event?.status === "running" && steps.length === 1 && read?.status === "running" && /package\.json/.test(read.input || "") &&
+      Boolean(event.runtimeOwner) && Number(event.runtimePid) > 0 && /fake-claude\.cjs/.test(event.runtimeCommand || "") && Boolean(event.runtimeStartedAt);
+  }, 10000));
+  assertStep("PASS337_READ_TOOL_RECORDS_SOURCE", await waitForStore((state) => {
+    const source = (state.sourceRefs || []).find((item) => item.path === "package.json");
+    return source?.eventId === completedRequestId && source?.reason === "Claude Code Read" &&
+      source?.project?.path === PROJECT_DIR && source?.size > 0 &&
+      (state.sourceRefs || []).filter((item) => item.path === "package.json").length === 2;
   }, 10000));
   assertStep("PASS337_RUNNING_ACTIVITY_DEDUPED", await waitFor(win, `
     (() => {
@@ -333,11 +359,12 @@ async function runTest() {
     const bash = steps.find((step) => step.toolUseId === BASH_TOOL_ID);
     const totalEvidenceChars = steps.reduce((total, step) => total + String(step.input || "").length + String(step.output || "").length, 0);
     return event?.status === "ok" && steps.length === 2 &&
-      read?.status === "ok" && /README\.md/.test(read.input || "") && /pass337 read result/.test(read.output || "") &&
+      read?.status === "ok" && /package\.json/.test(read.input || "") && /pass337 read result/.test(read.output || "") &&
       read.input.length <= 6000 && read.output.length <= 6000 && /证据已截断/.test(read.input) && /证据已截断/.test(read.output) &&
       bash?.status === "ok" && /npm run build/.test(bash.input || "") && Boolean(bash.endedAt) &&
       steps.filter((step) => step.toolUseId === READ_TOOL_ID).length === 1 &&
-      steps.filter((step) => step.toolUseId === BASH_TOOL_ID).length === 1 && totalEvidenceChars <= 48000;
+      steps.filter((step) => step.toolUseId === BASH_TOOL_ID).length === 1 && totalEvidenceChars <= 48000 &&
+      !event.runtimeOwner && !event.runtimePid && !event.runtimeCommand && !event.runtimeStartedAt;
   }, 10000));
   assertStep("PASS337_OPEN_OUTPUTS", await openOutputsPanel(win));
   assertStep("PASS337_TOOL_STEPS_VISIBLE", await waitFor(win, `
@@ -347,7 +374,18 @@ async function runTest() {
       row.open = true;
       const steps = row.querySelectorAll('[data-run-step-id]');
       const text = row.textContent || '';
-      return steps.length === 2 && /Read/.test(text) && /Bash/.test(text) && /pass337 read result/.test(text);
+      return steps.length === 2 && /Read/.test(text) && /Bash/.test(text) && /pass337 read result/.test(text) &&
+        !document.querySelector('.run-timeline-row[data-run-event-id="pass337-foreign-thread-event"]');
+    })()
+  `, 10000));
+  assertStep("PASS337_SOURCES_FILTER_TO_CURRENT_THREAD", await waitFor(win, `
+    (() => {
+      const tab = document.querySelector('[data-context-tab="sources"]');
+      if (!tab) return false;
+      tab.click();
+      const cards = [...document.querySelectorAll('.source-ref-card strong')].map((item) => item.textContent || '');
+      return cards.length === 1 && cards[0] === 'package.json' &&
+        tab.querySelector('.context-tab-badge')?.textContent === '1';
     })()
   `, 10000));
 
@@ -362,8 +400,7 @@ async function runTest() {
       return row.querySelectorAll('[data-run-step-id]').length === 2 && /pass337 read result/.test(row.textContent || '');
     })()
   `, 10000));
-  clipboard.writeText("");
-  assertStep("PASS337_COPY_TOOL_EVIDENCE", await win.webContents.executeJavaScript(`
+  const copyToolEvidence = () => win.webContents.executeJavaScript(`
     (() => {
       const row = document.querySelector('.run-timeline-row[data-run-event-id="${completedRequestId}"]');
       const button = row?.querySelector('[data-run-timeline-action="copy-evidence"]');
@@ -371,13 +408,24 @@ async function runTest() {
       button.click();
       return true;
     })()
-  `));
-  assertStep("PASS337_COPIED_TOOL_EVIDENCE_COMPLETE", Boolean(await waitForClipboard([
-    READ_TOOL_ID,
-    BASH_TOOL_ID,
-    "pass337 read result",
-    "[证据已截断]",
-  ])));
+  `);
+  clipboard.writeText("");
+  assertStep("PASS337_COPY_TOOL_EVIDENCE", await copyToolEvidence());
+  let copiedToolEvidence = "";
+  for (let attempt = 0; attempt < 2 && !copiedToolEvidence; attempt += 1) {
+    copiedToolEvidence = await waitForClipboard([
+      READ_TOOL_ID,
+      BASH_TOOL_ID,
+      "pass337 read result",
+      "[证据已截断]",
+    ], 7000);
+    if (!copiedToolEvidence) {
+      clipboard.writeText("");
+      await wait(180);
+      await copyToolEvidence();
+    }
+  }
+  assertStep("PASS337_COPIED_TOOL_EVIDENCE_COMPLETE", Boolean(copiedToolEvidence));
 
   assertStep("PASS337_SET_LIMIT_PROMPT", await setComposer(win, LIMIT_PROMPT));
   assertStep("PASS337_SEND_LIMIT_PROMPT", await clickSend(win));

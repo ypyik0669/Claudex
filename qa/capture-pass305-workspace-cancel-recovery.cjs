@@ -221,6 +221,15 @@ async function runTest() {
     })();
   `, 12000));
 
+  assertStep("PASS305_REPEAT_CANCEL_RETURNS_TERMINAL_RUN", await win.webContents.executeJavaScript(`
+    (async function() {
+      const state = await window.claudexDesktop.getState();
+      const run = (state.commandRuns || []).find((item) => /pass305 should not finish/.test(item.commandLine || item.command || ''));
+      const result = await window.claudexDesktop.cancelWorkspaceCommand({ requestId: run?.requestId || run?.id });
+      return result?.commandRun?.id === run?.id && result?.commandRun?.cancelled === true && result?.code === 130;
+    })();
+  `));
+
   assertStep("PASS305_SET_RECOVERY_COMMAND", await setCommand(win, RECOVERY_COMMAND));
   assertStep("PASS305_RUN_RECOVERY_COMMAND", await clickRunnerButton(win));
   assertStep("PASS305_RECOVERY_COMMAND_OK", await waitFor(win, `

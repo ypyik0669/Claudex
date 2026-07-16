@@ -290,6 +290,9 @@ async function runTest() {
         /pass312 stdout live/.test(row.textContent || '') && /pass312 stderr live/.test(row.textContent || '');
     })()
   `, 15000));
+  assertStep("PASS312_REPEAT_CANCEL_RETURNS_TRUE", await win.webContents.executeJavaScript(`
+    window.claudexDesktop.cancelClaudeCommand({ requestId: ${JSON.stringify(eventId)} })
+  `));
   assertStep("PASS312_RUNNER_RECOVERED", await waitFor(win, `
     Boolean(document.querySelector('#claude-tool-detail .command-output-card.cancelled')) &&
       Boolean(document.querySelector('#claude-tool-detail .claude-primary-card .primary-action-row .primary-action:not(:disabled)'))

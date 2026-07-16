@@ -269,6 +269,15 @@ app.whenReady().then(async () => {
     }
     assertStep("PASS55_CANCEL_SUBAGENT", cancelConfirmed);
 
+    assertStep("PASS55_REPEAT_CANCEL_RETURNS_TERMINAL_RUN", await win.webContents.executeJavaScript(`
+      (async function() {
+        const before = await window.claudexDesktop.getState();
+        const run = before.subagentRuns?.find((item) => item.requestId === 'pass55-subagent-request');
+        const result = await window.claudexDesktop.cancelSubagent({ runId: run?.id, requestId: run?.requestId });
+        return result?.subagentRun?.id === run?.id && result?.subagentRun?.status === 'cancelled';
+      })();
+    `));
+
     assertStep("PASS55_TIMELINE_CANCELLED", await waitFor(win, `
       (async function() {
         const open = Array.from(document.querySelectorAll('.subagent-run-foot button'))

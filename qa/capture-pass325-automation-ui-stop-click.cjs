@@ -308,7 +308,13 @@ async function runTest() {
     (async function() {
       const state = await window.claudexDesktop.getState();
       const automation = state.automations?.find((item) => item.id === ${JSON.stringify(AUTOMATION_ID)});
-      return Boolean(automation?.status === 'running' && automation.lastRun?.status === 'running');
+      const event = state.runEvents?.find((item) => item.id === automation?.lastRun?.id);
+      return Boolean(
+        automation?.status === 'running' && automation.lastRun?.status === 'running' &&
+        automation.lastRun?.runtimeRecoveryPending === true && !automation.lastRun?.runtimeOwner && !automation.lastRun?.runtimePid &&
+        !automation.lastRun?.runtimeCommand && !automation.lastRun?.runtimeExecutable && !automation.lastRun?.runtimeStartedAt &&
+        event?.runtimeRecoveryPending === true && !event.runtimeOwner && !event.runtimePid && !event.runtimeCommand && !event.runtimeExecutable && !event.runtimeStartedAt
+      );
     })();
   `, 10000));
   assertStep("PASS325_FAKE_PROCESS_STARTED", await (async () => {
@@ -393,9 +399,10 @@ async function runTest() {
         cancelled?.status === 'cancelled' &&
         cancelled.code === 130 &&
         cancelled.endedAt &&
+        !cancelled.runtimeOwner && !cancelled.runtimePid && !cancelled.runtimeCommand && !cancelled.runtimeStartedAt &&
         automation.history?.some((entry) => entry.id === ${JSON.stringify(OLD_FAILURE_ID)} && entry.status === 'failed') &&
         automation.history?.some((entry) => entry.id === cancelled.id && entry.status === 'cancelled') &&
-        state.runEvents?.some((event) => event.id === cancelled.id && event.status === 'cancelled') &&
+        state.runEvents?.some((event) => event.id === cancelled.id && event.status === 'cancelled' && !event.runtimeOwner && !event.runtimePid && !event.runtimeCommand && !event.runtimeStartedAt) &&
         card?.classList.contains('cancelled') &&
         card.querySelector('[data-automation-history-run-id="${OLD_FAILURE_ID}"]') &&
         card.querySelector('[data-automation-history-run-id="' + cancelled.id + '"]') &&

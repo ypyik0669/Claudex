@@ -182,6 +182,7 @@ async function runTest() {
         projectPath: ${JSON.stringify(PROJECT_DIR)},
         command: ${JSON.stringify(successCommand)},
         requestId: 'workspace_pass133_success',
+        sessionId: 'pass133-session',
       });
       return Boolean(result?.code === 0 && /pass133 direct stdout evidence/.test(result?.stdout || ''));
     })();
@@ -192,10 +193,12 @@ async function runTest() {
     return Boolean(
       run &&
       run.kind === "workspace" &&
+      run.sessionId === "pass133-session" &&
       run.code === 0 &&
       /pass133 direct stdout evidence/.test(run.stdout || "") &&
       event &&
       event.type === "workspace-command" &&
+      event.sessionId === "pass133-session" &&
       event.status === "ok" &&
       event.code === 0 &&
       /pass133 direct stdout evidence/.test(event.stdout || "") &&
@@ -209,6 +212,7 @@ async function runTest() {
         projectPath: ${JSON.stringify(PROJECT_DIR)},
         command: ${JSON.stringify(cancelCommand)},
         requestId: 'workspace_pass133_cancel',
+        sessionId: 'pass133-session',
       });
       await new Promise((resolve) => setTimeout(resolve, 650));
       const cancel = await window.claudexDesktop.cancelWorkspaceCommand({ requestId: 'workspace_pass133_cancel' });
@@ -222,12 +226,14 @@ async function runTest() {
     return Boolean(
       run &&
       run.kind === "workspace" &&
+      run.sessionId === "pass133-session" &&
       run.cancelled === true &&
       run.code === 130 &&
       /pass133 direct cancel start/.test(run.stdout || "") &&
       /命令已取消/.test(run.stderr || "") &&
       event &&
       event.type === "workspace-command" &&
+      event.sessionId === "pass133-session" &&
       event.status === "cancelled" &&
       event.code === 130 &&
       /pass133 direct cancel start/.test(event.stdout || "") &&

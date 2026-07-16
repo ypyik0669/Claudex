@@ -459,6 +459,16 @@ async function runTest() {
       event?.status === "cancelled";
   })());
 
+  assertStep("PASS323_REPEAT_CANCEL_RETURNS_TERMINAL_RUN", await win.webContents.executeJavaScript(`
+    (async function() {
+      const next = await window.claudexDesktop.cancelAutomation({
+        automationId: ${JSON.stringify(AUTOMATION_ID)},
+        runId: ${JSON.stringify(RUN_ID)}
+      });
+      return next?.automationRun?.id === ${JSON.stringify(RUN_ID)} && next.automationRun?.status === 'cancelled';
+    })();
+  `));
+
   win.webContents.reload();
   assertStep("PASS323_CANCEL_RELOAD_READY", await waitFor(win, "Boolean(document.querySelector('.app-grid') && window.claudexDesktop)", 15000));
   assertStep("PASS323_REOPEN_TASK_CENTER", await openTaskCenter(win));
