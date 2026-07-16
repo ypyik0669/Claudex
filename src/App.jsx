@@ -822,6 +822,10 @@ const copy = {
     timelineEvidenceSourceSubagent: "本地 subagentRuns",
     timelineEvidenceSourceBrowser: "本地 browserVisits",
     timelineEvidenceSourceEvent: "本地 runEvents",
+    timelineSteps: "工具步骤",
+    timelineToolId: "Tool use ID",
+    timelineToolInput: "输入",
+    timelineToolOutput: "结果",
     timelineProjectPath: "项目路径",
     timelineAutomationAction: "自动化操作",
     timelineSubagentAction: "子代理操作",
@@ -4506,6 +4510,15 @@ function runTimelineStatusLabel(status, t) {
   return t.commandSucceeded;
 }
 
+function runTimelineStepsEvidenceText(steps = [], t = {}) {
+  return (Array.isArray(steps) ? steps : []).map((step, index) => [
+    `${index + 1}. ${step?.toolName || step?.title || "Tool"} · ${runTimelineStatusLabel(step?.status, t)}`,
+    step?.toolUseId ? `${t.timelineToolId || "Tool use ID"}: ${step.toolUseId}` : "",
+    step?.input ? `${t.timelineToolInput || "Input"}\n${step.input}` : "",
+    step?.output ? `${t.timelineToolOutput || "Output"}\n${step.output}` : "",
+  ].filter(Boolean).join("\n")).filter(Boolean).join("\n\n");
+}
+
 function runTimelineTypeRaw(event, evidence) {
   return String(evidence?.type || event?.type || "run");
 }
@@ -4732,6 +4745,7 @@ function runTimelineEvidenceForEvent(event, { commandRuns = [], automations = []
     stdout: event?.stdout || "",
     stderr: event?.stderr || "",
     summary: event?.detail || "",
+    steps: Array.isArray(event?.steps) ? event.steps : [],
     ...(capabilityContext ? { capabilityContext } : {}),
   };
 }
@@ -4791,6 +4805,7 @@ function runTimelineEvidenceText(event, evidence, t) {
     `${t.subagentArtifacts}: ${artifactLabels.length ? artifactLabels.join(", ") : "-"}`,
     "",
     evidence?.summary || evidence?.detail || "",
+    runTimelineStepsEvidenceText(evidence?.steps || [], t),
     runTimelineOutputEvidenceText(evidence || {}, t),
     subagentArtifactsEvidenceText(evidence?.artifacts || [], t),
   ];
@@ -4809,6 +4824,7 @@ function runTimelineHasEvidence(evidence) {
     || evidence?.summary
     || evidence?.detail
     || evidence?.capabilityContext
+    || (Array.isArray(evidence?.steps) && evidence.steps.length > 0)
     || (Array.isArray(evidence?.artifacts) && evidence.artifacts.length > 0)
   );
 }
@@ -9408,6 +9424,7 @@ function NoticeCenter({ notices = [], onDismiss, onClear, onAction, t }) {
 
 function RunEvidenceDetails({ event, evidence, onCopy, onOpenWorkspaceFile, t, pinned = false, focusedArtifactIndex = "" }) {
   const hasRawEvidence = runTimelineHasEvidence(evidence);
+  const steps = Array.isArray(evidence?.steps) ? evidence.steps : [];
   const typeRaw = runTimelineTypeRaw(event, evidence);
   const typeLabel = runTimelineTypeLabel(event, evidence, t);
   const eventId = runTimelineEventId(event, evidence);
@@ -9520,6 +9537,41 @@ function RunEvidenceDetails({ event, evidence, onCopy, onOpenWorkspaceFile, t, p
             )}
           </dl>
           {(evidence.summary || evidence.detail) && <p className="run-timeline-summary">{evidence.summary || evidence.detail}</p>}
+          {steps.length > 0 && (
+            <section className="run-timeline-steps">
+              <span>{t.timelineSteps}</span>
+              <div className="run-timeline-step-list">
+                {steps.map((step, index) => (
+                  <article
+                    className={cx("run-timeline-step", step.status)}
+                    key={step.id || step.toolUseId || `${step.toolName || "tool"}:${index}`}
+                    data-run-step-id={step.id || step.toolUseId || ""}
+                    data-run-step-status={step.status || ""}
+                    data-run-step-name={step.toolName || step.title || ""}
+                  >
+                    <div className="run-timeline-step-head">
+                      <span className="run-timeline-step-dot" />
+                      <strong>{step.toolName || step.title || "Tool"}</strong>
+                      <em>{runTimelineStatusLabel(step.status, t)}</em>
+                    </div>
+                    {step.toolUseId && <code title={step.toolUseId}>{step.toolUseId}</code>}
+                    {step.input && (
+                      <div className="run-timeline-step-evidence">
+                        <span>{t.timelineToolInput}</span>
+                        <pre>{step.input}</pre>
+                      </div>
+                    )}
+                    {step.output && (
+                      <div className="run-timeline-step-evidence">
+                        <span>{t.timelineToolOutput}</span>
+                        <pre className={step.status === "error" ? "error-output" : ""}>{step.output}</pre>
+                      </div>
+                    )}
+                  </article>
+                ))}
+              </div>
+            </section>
+          )}
           {evidence.stdout && (
             <section>
               <span>{primaryOutputLabel}</span>

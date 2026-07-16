@@ -3664,6 +3664,105 @@ select:focus-visible,
   gap: 4px;
 }
 
+.run-timeline-step-list {
+  display: grid;
+  gap: 6px;
+}
+
+.run-timeline-step {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+  border: 1px solid #272727;
+  border-radius: 7px;
+  background: rgba(255, 255, 255, 0.02);
+  padding: 7px;
+}
+
+.run-timeline-step-head {
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 8px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 7px;
+}
+
+.run-timeline-step-head strong {
+  overflow: hidden;
+  color: #e2dfd6;
+  font-size: 11.5px;
+  font-weight: 500;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.run-timeline-step-head em {
+  color: #999b97;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-style: normal;
+}
+
+.run-timeline-step-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 999px;
+  background: #8a8a82;
+}
+
+.run-timeline-step.ok .run-timeline-step-dot {
+  background: #7dd3a8;
+}
+
+.run-timeline-step.error .run-timeline-step-dot {
+  background: #e36f6f;
+}
+
+.run-timeline-step.running .run-timeline-step-dot {
+  background: #d18357;
+  box-shadow: 0 0 0 3px rgba(209, 131, 87, 0.12);
+}
+
+.run-timeline-step.cancelled .run-timeline-step-dot {
+  background: #aeb3b1;
+}
+
+.run-timeline-step > code {
+  overflow: hidden;
+  color: #858783;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.run-timeline-step-evidence {
+  min-width: 0;
+  display: grid;
+  gap: 3px;
+}
+
+.run-timeline-step-evidence > span {
+  color: #858783;
+  font-size: 10px;
+}
+
+.run-timeline-step-evidence pre {
+  max-height: 180px;
+  margin: 0;
+  overflow: auto;
+  border: 1px solid #242424;
+  border-radius: 6px;
+  background: #0f0f0f;
+  color: #c9c7be;
+  padding: 6px;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  line-height: 1.45;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
 .run-timeline-artifacts code {
   width: fit-content;
   max-width: 100%;

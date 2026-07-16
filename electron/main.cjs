@@ -77,6 +77,8 @@ const MAX_TEXT_FILE_BYTES = 2 * 1024 * 1024;
 const WORKSPACE_SEARCH_LIMIT = 40;
 const WORKSPACE_SEARCH_SCAN_LIMIT = 6000;
 const MAX_COMMAND_OUTPUT_CHARS = 30000;
+const RUN_EVENT_STEP_EVIDENCE_CHARS = 6000;
+const RUN_EVENT_STEP_TOTAL_EVIDENCE_CHARS = 48000;
 const MAX_COMMAND_ARG_ITEMS = 256;
 const MAX_GIT_DIFF_CHARS = 80000;
 const CLAUDE_TIMEOUT_MS = 10 * 60 * 1000;
@@ -90,6 +92,7 @@ const AUTOMATION_REPEAT_MS = {
 const SUBAGENT_RUN_LIMIT = 40;
 const COMMAND_RUN_LIMIT = 80;
 const RUN_EVENT_LIMIT = 120;
+const RUN_EVENT_STEP_LIMIT = 32;
 const SOURCE_REF_LIMIT = 80;
 const BROWSER_VISIT_LIMIT = 60;
 const NOTICE_LIMIT = 80;
@@ -783,6 +786,120 @@ function upsertCommandRunEvent(store, run, status, fallbackType = "workspace-com
   });
 }
 
+function runEventStepEvidenceText(value) {
+  if (value === null || value === undefined) return "";
+  if (typeof value === "string") return truncateRunEventStepEvidence(stripAnsi(value), RUN_EVENT_STEP_EVIDENCE_CHARS);
+  if (Array.isArray(value)) {
+    const text = value.map((item) => {
+      if (typeof item === "string") return item;
+      if (item?.type === "text" && item.text) return item.text;
+      try {
+        return JSON.stringify(item);
+      } catch (_error) {
+        return String(item || "");
+      }
+    }).filter(Boolean).join("\n");
+    return truncateRunEventStepEvidence(stripAnsi(text), RUN_EVENT_STEP_EVIDENCE_CHARS);
+  }
+  try {
+    return truncateRunEventStepEvidence(stripAnsi(JSON.stringify(value, null, 2)), RUN_EVENT_STEP_EVIDENCE_CHARS);
+  } catch (_error) {
+    return truncateRunEventStepEvidence(stripAnsi(String(value || "")), RUN_EVENT_STEP_EVIDENCE_CHARS);
+  }
+}
+
+function normalizeRunEventStep(item = {}) {
+  const toolUseId = String(item.toolUseId || item.tool_use_id || "").trim();
+  const toolName = String(item.toolName || item.name || "").trim();
+  const status = ["running", "ok", "error", "cancelled"].includes(item.status) ? item.status : "running";
+  return {
+    id: String(item.id || toolUseId || id("run_step")).trim(),
+    kind: "tool",
+    status,
+    title: String(item.title || toolName || "工具").trim(),
+    detail: String(item.detail || "").trim(),
+    toolName,
+    toolUseId,
+    input: runEventStepEvidenceText(item.input),
+    output: runEventStepEvidenceText(item.output),
+    createdAt: isoOrEmpty(item.createdAt || item.startedAt) || now(),
+    endedAt: isoOrEmpty(item.endedAt),
+  };
+}
+
+function truncateRunEventStepEvidence(value, maxChars) {
+  const text = String(value || "");
+  const limit = Math.max(0, Number(maxChars || 0));
+  if (!limit || !text) return "";
+  if (text.length <= limit) return text;
+  const marker = "\n[证据已截断]";
+  if (limit <= marker.length) return text.slice(0, limit);
+  return `${text.slice(0, limit - marker.length)}${marker}`;
+}
+
+function boundRunEventSteps(steps = []) {
+  const rows = Array.isArray(steps) ? steps : [];
+  const running = rows.filter((step) => step.status === "running").slice(-RUN_EVENT_STEP_LIMIT);
+  const runningIds = new Set(running.map((step) => step.id));
+  const terminalSlots = Math.max(0, RUN_EVENT_STEP_LIMIT - running.length);
+  const terminal = terminalSlots > 0
+    ? rows.filter((step) => step.status !== "running").slice(-terminalSlots)
+    : [];
+  const selectedIds = new Set([...running, ...terminal].map((step) => step.id));
+  const bounded = rows.filter((step) => selectedIds.has(step.id) || runningIds.has(step.id)).slice(-RUN_EVENT_STEP_LIMIT);
+  let remaining = RUN_EVENT_STEP_TOTAL_EVIDENCE_CHARS;
+  for (let index = bounded.length - 1; index >= 0; index -= 1) {
+    const step = bounded[index];
+    const input = truncateRunEventStepEvidence(step.input, remaining);
+    remaining = Math.max(0, remaining - input.length);
+    const output = truncateRunEventStepEvidence(step.output, remaining);
+    remaining = Math.max(0, remaining - output.length);
+    bounded[index] = { ...step, input, output };
+  }
+  return bounded;
+}
+
+function mergeRunEventSteps(current = [], incoming = []) {
+  const merged = (Array.isArray(current) ? current : []).map(normalizeRunEventStep);
+  for (const item of Array.isArray(incoming) ? incoming : []) {
+    const next = normalizeRunEventStep(item);
+    const index = merged.findIndex((candidate) => (
+      candidate.id === next.id || (next.toolUseId && candidate.toolUseId === next.toolUseId)
+    ));
+    if (index < 0) {
+      merged.push(next);
+      continue;
+    }
+    const existing = merged[index];
+    const preserveExistingTerminal = existing.status !== "running" && next.status !== existing.status;
+    merged[index] = normalizeRunEventStep({
+      ...existing,
+      ...next,
+      id: existing.id || next.id,
+      toolUseId: existing.toolUseId || next.toolUseId,
+      toolName: next.toolName || existing.toolName,
+      title: next.toolName ? next.title : existing.title || next.title,
+      status: preserveExistingTerminal ? existing.status : next.status,
+      detail: richerRunEventOutput(existing.detail, next.detail),
+      input: richerRunEventOutput(existing.input, next.input),
+      output: richerRunEventOutput(existing.output, next.output),
+      createdAt: existing.createdAt || next.createdAt,
+      endedAt: preserveExistingTerminal ? existing.endedAt : next.endedAt || existing.endedAt,
+    });
+  }
+  return boundRunEventSteps(merged);
+}
+
+function settleRunEventSteps(steps = [], eventStatus = "ok", endedAt = now()) {
+  if (eventStatus === "running") return mergeRunEventSteps([], steps);
+  const terminalStatus = eventStatus === "cancelled" ? "cancelled" : eventStatus === "error" ? "error" : "ok";
+  return mergeRunEventSteps([], steps).map((step) => (
+    step.status === "running"
+      ? normalizeRunEventStep({ ...step, status: terminalStatus, endedAt })
+      : step
+  ));
+}
+
 function normalizeRunEvent(item, store) {
   const project = normalizeAutomationProject(item?.project, store);
   const status = ["running", "ok", "error", "cancelled"].includes(item?.status) ? item.status : "ok";
@@ -805,6 +922,7 @@ function normalizeRunEvent(item, store) {
     sessionId: String(item?.sessionId || ""),
     runtimeOwner: String(item?.runtimeOwner || ""),
     createdAt: isoOrEmpty(item?.createdAt) || now(),
+    steps: settleRunEventSteps(item?.steps, status, item?.endedAt || now()),
     ...(capabilityContext ? { capabilityContext } : {}),
   };
 }
@@ -818,13 +936,21 @@ function richerRunEventOutput(current, incoming) {
 function upsertRunEvent(store, event) {
   const existing = (store.runEvents || []).find((item) => item.id && item.id === event?.id);
   const incomingIsStaleStart = existing && existing.status !== "running" && event?.status === "running";
-  const normalized = normalizeRunEvent({
+  const merged = {
     ...existing,
     ...event,
     ...(incomingIsStaleStart ? existing : {}),
     stdout: richerRunEventOutput(existing?.stdout, event?.stdout),
     stderr: richerRunEventOutput(existing?.stderr, event?.stderr),
     createdAt: existing?.createdAt || event?.createdAt,
+  };
+  const normalized = normalizeRunEvent({
+    ...merged,
+    steps: settleRunEventSteps(
+      mergeRunEventSteps(existing?.steps, event?.steps),
+      merged.status,
+      event?.endedAt || now(),
+    ),
   }, store);
   store.runEvents = [
     normalized,
@@ -3499,6 +3625,7 @@ function activeChatRequestsForStore(store) {
       activities: Array.isArray(runtime.activities)
         ? runtime.activities.map((item) => ({ ...item })).slice(-8)
         : [],
+      steps: mergeRunEventSteps(event?.steps, runtime.steps),
       createdAt: isoOrEmpty(runtime.createdAt || event?.createdAt),
     };
   });
@@ -4194,6 +4321,7 @@ function activeChatStreamCheckpoint(requestId) {
     activities: Array.isArray(runtime.activities)
       ? runtime.activities.map((item) => ({ ...item })).slice(-8)
       : [],
+    steps: mergeRunEventSteps([], runtime.steps),
   };
 }
 
@@ -4245,6 +4373,78 @@ function appendActiveChatActivity(requestId, text) {
   }));
 }
 
+function chatToolUseStep(requestId, block = {}, index = 0) {
+  const toolName = String(block.name || block.tool_name || "工具").trim() || "工具";
+  const toolUseId = String(block.id || block.tool_use_id || `${requestId}:tool:${toolName}:${index}`).trim();
+  return normalizeRunEventStep({
+    id: toolUseId,
+    toolUseId,
+    toolName,
+    title: toolName,
+    status: "running",
+    input: block.input,
+    createdAt: now(),
+  });
+}
+
+function chatToolResultStep(block = {}) {
+  const toolUseId = String(block.tool_use_id || block.toolUseId || block.id || "").trim();
+  if (!toolUseId) return null;
+  return normalizeRunEventStep({
+    id: toolUseId,
+    toolUseId,
+    status: block.is_error ? "error" : "ok",
+    output: block.content ?? block.result ?? block.output,
+    endedAt: now(),
+  });
+}
+
+function activeChatToolStep(requestId, toolUseId) {
+  const targetId = String(toolUseId || "").trim();
+  if (!targetId) return null;
+  return (activeChatRequestRuntime.get(requestId)?.steps || []).find((step) => (
+    step?.id === targetId || step?.toolUseId === targetId
+  )) || null;
+}
+
+function persistChatToolStep(requestId, step) {
+  if (!requestId || !step?.id) return null;
+  let runtimeStep = step;
+  updateActiveChatRequestRuntime(requestId, (current) => {
+    const steps = mergeRunEventSteps(current.steps, [step]);
+    runtimeStep = steps.find((item) => item.id === step.id || (step.toolUseId && item.toolUseId === step.toolUseId)) || step;
+    return { steps };
+  });
+  const store = readStore();
+  const existing = (store.runEvents || []).find((event) => event?.id === requestId);
+  if (!existing) return runtimeStep;
+  const before = JSON.stringify(existing.steps || []);
+  const runEvent = upsertRunEvent(store, { id: requestId, steps: [step] });
+  if (JSON.stringify(runEvent.steps || []) !== before) {
+    writeStore(store);
+    broadcastStoreUpdate(store);
+  }
+  return runtimeStep;
+}
+
+function settleActiveChatToolSteps(requestId, status) {
+  return updateActiveChatRequestRuntime(requestId, (current) => ({
+    steps: settleRunEventSteps(current.steps, status),
+  }));
+}
+
+function settlePersistedChatToolSteps(requestId, status) {
+  const store = readStore();
+  const existing = (store.runEvents || []).find((event) => event?.id === requestId);
+  if (!existing?.steps?.length) return false;
+  const settledSteps = settleRunEventSteps(existing.steps, status);
+  if (JSON.stringify(settledSteps) === JSON.stringify(existing.steps)) return false;
+  upsertRunEvent(store, { id: requestId, steps: settledSteps });
+  writeStore(store);
+  broadcastStoreUpdate(store);
+  return true;
+}
+
 function emitClaudeStreamLine(sender, requestId, session, line) {
   const payload = parseJsonOutput(line);
   if (!payload) return;
@@ -4291,8 +4491,25 @@ function emitClaudeStreamLine(sender, requestId, session, line) {
     return;
   }
   if (payload.type === "assistant" && Array.isArray(payload.message?.content)) {
+    for (const [index, block] of payload.message.content.entries()) {
+      if (block?.type !== "tool_use") continue;
+      const candidate = chatToolUseStep(requestId, block, index);
+      const existing = activeChatToolStep(requestId, candidate.toolUseId);
+      const step = persistChatToolStep(requestId, candidate);
+      if (!existing) emitActivity(`正在使用 ${block.name || "工具"}`, { toolUseId: step?.toolUseId || "" });
+    }
+    return;
+  }
+  if (payload.type === "user" && Array.isArray(payload.message?.content)) {
     for (const block of payload.message.content) {
-      if (block?.type === "tool_use") emitActivity(`正在使用 ${block.name || "工具"}`);
+      if (block?.type !== "tool_result") continue;
+      const step = chatToolResultStep(block);
+      if (!step) continue;
+      const existing = activeChatToolStep(requestId, step.toolUseId);
+      persistChatToolStep(requestId, step);
+      if (!existing || existing.status === "running") {
+        emitActivity(block.is_error ? "工具返回错误" : "工具已完成", { toolUseId: step.toolUseId });
+      }
     }
     return;
   }
@@ -4313,7 +4530,12 @@ function emitClaudeStreamLine(sender, requestId, session, line) {
   }
   if (payload.type === "stream_event" && payload.event?.type === "content_block_start") {
     const block = payload.event.content_block;
-    if (block?.type === "tool_use") emitActivity(`正在使用 ${block.name || "工具"}`);
+    if (block?.type === "tool_use") {
+      const candidate = chatToolUseStep(requestId, block, payload.event.index || 0);
+      const existing = activeChatToolStep(requestId, candidate.toolUseId);
+      const step = persistChatToolStep(requestId, candidate);
+      if (!existing) emitActivity(`正在使用 ${block.name || "工具"}`, { toolUseId: step?.toolUseId || "" });
+    }
     return;
   }
   if (payload.type === "hook_event") {
@@ -4321,10 +4543,18 @@ function emitClaudeStreamLine(sender, requestId, session, line) {
     return;
   }
   if (payload.type === "tool_result") {
-    emitActivity(payload.is_error ? "工具返回错误" : "工具已完成");
+    const step = chatToolResultStep(payload);
+    const existing = step ? activeChatToolStep(requestId, step.toolUseId) : null;
+    if (step) persistChatToolStep(requestId, step);
+    if (!existing || existing.status === "running") {
+      emitActivity(payload.is_error ? "工具返回错误" : "工具已完成", { toolUseId: step?.toolUseId || "" });
+    }
     return;
   }
   if (payload.type === "result") {
+    const resultStatus = payload.is_error ? "error" : "ok";
+    settleActiveChatToolSteps(requestId, resultStatus);
+    settlePersistedChatToolSteps(requestId, resultStatus);
     send({
       ...base,
       type: payload.is_error ? "error" : "done",
@@ -5763,7 +5993,8 @@ ipcMain.handle("chat:fork-session", (_event, sessionId) => {
 function cancelActiveChatRequest(requestId) {
   if (!activeChatRequestIds.has(requestId)) return false;
   cancelledChatRequestIds.add(requestId);
-  broadcastStoreUpdate(readStore());
+  settleActiveChatToolSteps(requestId, "cancelled");
+  if (!settlePersistedChatToolSteps(requestId, "cancelled")) broadcastStoreUpdate(readStore());
   stopActiveRequest(requestId);
   return true;
 }
@@ -5783,6 +6014,7 @@ function claimActiveChatRequest({ requestId, ownerWebContents, sessionId, create
     streamStatus: "",
     streamRevision: 0,
     activities: [],
+    steps: [],
     createdAt,
   });
   const cancelOnOwnerDestroyed = () => {
