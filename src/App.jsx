@@ -15825,7 +15825,7 @@ function SettingsBackedStatus({
       [t.effort, form.claudeCode?.effort || t.effortDefault],
     ],
     worktrees: [
-      [t.settingsWorktrees, t.settingsRouteThroughCli],
+      [t.settingsWorktrees, git?.available ? `${Array.isArray(git?.worktrees) ? git.worktrees.length : 0}` : t.gitUnavailable],
       [t.activeProject, projectLabel(activeProject, t)],
       [t.branch, git?.available ? git.branch || "main" : t.gitUnavailable],
       [t.path, activeProject.path || t.noProjectPath],
@@ -15848,6 +15848,7 @@ function SettingsBackedStatus({
   const settingsMcpServers = Array.isArray(claudeStatus?.mcpServers) ? claudeStatus.mcpServers : [];
   const settingsMarketplaceSources = Array.isArray(claudeStatus?.marketplaces) ? claudeStatus.marketplaces : [];
   const settingsMarketplacePlugins = Array.isArray(claudeStatus?.marketplacePlugins) ? claudeStatus.marketplacePlugins : [];
+  const gitWorktrees = Array.isArray(git?.worktrees) ? git.worktrees : [];
   const rawCliOutput = activeSection === "mcp"
     ? `${claudeStatus?.plugins || ""}\n\n${claudeStatus?.mcp || ""}\n\n${claudeStatus?.marketplaceOutput || ""}`.trim()
     : activeSection === "git"
@@ -16091,6 +16092,28 @@ function SettingsBackedStatus({
             </div>
           </div>
           <pre className="settings-raw-output">{rawCliOutput}</pre>
+        </section>
+      )}
+      {activeSection === "worktrees" && (
+        <section className="settings-section">
+          <div className="settings-section-head">
+            <div>
+              <span>{t.settingsWorktrees}</span>
+              <h3>{git?.available ? `${gitWorktrees.length}` : t.gitUnavailable}</h3>
+            </div>
+          </div>
+          {!git?.available && <p className="empty-list">{t.noGitProject}</p>}
+          {git?.available && !gitWorktrees.length && <p className="empty-list">{t.settingsRouteThroughCli}</p>}
+          <dl className="settings-status-grid">
+            {gitWorktrees.map((worktree) => (
+              <div key={worktree.path}>
+                <dt title={worktree.path}>{compactPath(worktree.path, 64)}</dt>
+                <dd title={worktree.head || worktree.branch || ""}>
+                  {worktree.branch || (worktree.detached ? "HEAD detached" : worktree.head || t.gitUnavailable)}
+                </dd>
+              </div>
+            ))}
+          </dl>
         </section>
       )}
       {activeSection === "connections" && (

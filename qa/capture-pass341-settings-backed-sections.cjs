@@ -181,6 +181,17 @@ async function runTest() {
     `, 10000));
   }
 
+  assertStep("PASS341_WORKTREES_FROM_GIT", await selectSettingsSection(win, "worktrees") && await waitFor(win, `
+    (async function() {
+      const environment = await window.claudexDesktop.getEnvironment({ projectPath: ${JSON.stringify(REPO_DIR)} });
+      const worktrees = environment?.git?.worktrees || [];
+      const text = document.querySelector('.settings-content')?.textContent || '';
+      return worktrees.length >= 1 &&
+        worktrees.some((item) => item.path === ${JSON.stringify(REPO_DIR)}) &&
+        text.includes(${JSON.stringify(REPO_DIR)});
+    })();
+  `, 10000));
+
   assertStep("PASS341_RETURN_APPEARANCE", await selectSettingsSection(win, "appearance"));
   assertStep("PASS341_APPEARANCE_HAS_PERSISTED_CONTROLS", await waitFor(win, `
     (function() {

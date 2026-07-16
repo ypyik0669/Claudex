@@ -3570,6 +3570,42 @@ function parseGitRemotes(result) {
   return [...byName.values()];
 }
 
+function parseGitWorktrees(result) {
+  if (result?.code !== 0) return [];
+  const items = [];
+  let current = null;
+  const flush = () => {
+    if (!current?.path) return;
+    items.push({
+      path: path.resolve(current.path),
+      head: current.head || "",
+      branch: current.branch ? current.branch.replace(/^refs\/heads\//, "") : "",
+      detached: Boolean(current.detached),
+      bare: Boolean(current.bare),
+    });
+  };
+  for (const line of String(result.stdout || "").split(/\r?\n/)) {
+    if (!line.trim()) {
+      flush();
+      current = null;
+      continue;
+    }
+    const separator = line.indexOf(" ");
+    const key = separator >= 0 ? line.slice(0, separator) : line;
+    const value = separator >= 0 ? line.slice(separator + 1).trim() : "";
+    if (key === "worktree") {
+      flush();
+      current = { path: value };
+    } else if (current && (key === "HEAD" || key === "branch")) {
+      current[key.toLowerCase()] = value;
+    } else if (current && (key === "detached" || key === "bare")) {
+      current[key] = true;
+    }
+  }
+  flush();
+  return items.slice(0, 24);
+}
+
 function parseDiffGitPath(value) {
   const raw = String(value || "").trim().replace(/^"|"$/g, "");
   return raw.replace(/^[ab]\//, "");
@@ -3711,8 +3747,9 @@ async function loadGitEnvironment(cwd) {
       relativePath: gitRoot ? slashPath(path.relative(gitRoot, cwd)) || "." : "",
     };
   }
-  const [remoteResult, worktreeStat, stagedStat, worktreeDiff, stagedDiff] = await Promise.all([
+  const [remoteResult, worktreeList, worktreeStat, stagedStat, worktreeDiff, stagedDiff] = await Promise.all([
     runProcess("git", ["remote", "-v"], { cwd: gitCwd, timeoutMs: 8000 }),
+    runProcess("git", ["worktree", "list", "--porcelain"], { cwd: gitCwd, timeoutMs: 8000 }),
     runProcess("git", ["diff", "--stat", "--no-ext-diff"], { cwd: gitCwd, timeoutMs: 8000 }),
     runProcess("git", ["diff", "--cached", "--stat", "--no-ext-diff"], { cwd: gitCwd, timeoutMs: 8000 }),
     runProcess("git", ["diff", "--no-ext-diff", "--find-renames", "--unified=3", "--"], {
@@ -3758,6 +3795,7 @@ async function loadGitEnvironment(cwd) {
     cwd,
     relativePath: gitRoot ? slashPath(path.relative(gitRoot, cwd)) || "." : "",
     remotes,
+    worktrees: parseGitWorktrees(worktreeList),
     remote: status.remote || primaryRemote?.name || "",
     remoteUrl: primaryRemote?.pushUrl || primaryRemote?.fetchUrl || "",
     files: filesWithDiffStats,
