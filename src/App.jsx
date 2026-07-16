@@ -615,6 +615,10 @@ const copy = {
     confirmCliActionWarning: "这会通过 Claude Code CLI 修改本机插件、MCP 或市场状态：{command}",
     confirmCliActionButton: "确认执行",
     pluginMutationRisk: "会通过 Claude Code CLI 修改本机插件状态，并把执行结果写入本地命令证据。",
+    pluginUpdateRisk: "这会在 {scope} 范围更新插件；命令成功后仍需重启 Claude Code 才会应用新版本。",
+    pluginUpdateScopeRequired: "Claude Code 未返回可更新的安装范围，无法安全更新。",
+    pluginUpdateProjectRequired: "project 和 local 范围的插件更新需要先选择真实项目文件夹。",
+    pluginUpdateSelectInstalled: "请先输入已安装且具有有效范围的插件。",
     pluginUninstallRisk: "卸载会从 {scope} 范围移除该插件；默认不传 --keep-data 或 --prune，插件持久化数据可能被删除，依赖不会自动清理。",
     pluginUninstallScopeRequired: "Claude Code 未返回有效的安装范围，无法安全卸载。",
     dismissAction: "取消",
@@ -1198,6 +1202,41 @@ function normalizePluginScope(value) {
   return ["user", "project", "local"].includes(scope) ? scope : "";
 }
 
+function normalizePluginUpdateScope(value) {
+  const scope = String(value || "").trim().toLowerCase();
+  return ["user", "project", "local", "managed"].includes(scope) ? scope : "";
+}
+
+function pluginUpdateCommandArgs(plugin = {}, scopeOverride = "") {
+  const identifier = String(plugin?.id || plugin?.name || "").trim();
+  const scope = normalizePluginUpdateScope(scopeOverride || plugin?.scope);
+  return identifier && !identifier.startsWith("-") && !/[\s\u0000-\u001f\u007f]/.test(identifier) && scope
+    ? ["plugin", "update", "--scope", scope, identifier]
+    : [];
+}
+
+function parsePluginUpdateCommand(value) {
+  if (Array.isArray(value)) {
+    const args = value.map(String);
+    if (args.length !== 5 || args[0] !== "plugin" || args[1] !== "update" || args[2] !== "--scope") return null;
+    const scope = normalizePluginUpdateScope(args[3]);
+    const identifier = String(args[4] || "").trim();
+    const canonical = pluginUpdateCommandArgs({ id: identifier }, scope);
+    return canonical.length && JSON.stringify(canonical) === JSON.stringify(args)
+      ? { action: "update", scope, identifier }
+      : null;
+  }
+  const command = String(value || "").trim().replace(/^claude\s+/i, "");
+  const match = command.match(/^plugin\s+update\s+--scope\s+(user|project|local|managed)\s+([^\s]+)$/i);
+  if (!match) return null;
+  const parsed = {
+    action: "update",
+    scope: normalizePluginUpdateScope(match[1]),
+    identifier: String(match[2] || "").trim(),
+  };
+  return pluginUpdateCommandArgs({ id: parsed.identifier }, parsed.scope).length ? parsed : null;
+}
+
 function pluginUninstallCommandArgs(plugin = {}, scopeOverride = "") {
   const identifier = String(plugin?.id || plugin?.name || "").trim();
   const scope = normalizePluginScope(scopeOverride || plugin?.scope);
@@ -1421,13 +1460,16 @@ function pluginActionRegex(identifier, actions = ["install", "update", "disable"
   if (!id) return null;
   const suffix = id.includes("@") ? "" : "(?:@[^\\s]+)?";
   const normalizedActions = [...new Set((actions || []).map((action) => String(action || "").trim().toLowerCase()).filter(Boolean))];
-  const directActions = normalizedActions.filter((action) => !["uninstall", "remove"].includes(action));
+  const directActions = normalizedActions.filter((action) => !["update", "uninstall", "remove"].includes(action));
   const patterns = [];
   if (directActions.length) {
     patterns.push(`(?:^|\\s)plugin\\s+(?:${directActions.map(escapeRegExp).join("|")})\\s+${escapeRegExp(id)}${suffix}(?=\\s|$)`);
   }
   if (normalizedActions.some((action) => ["uninstall", "remove"].includes(action))) {
     patterns.push(`(?:^|\\s)plugin\\s+(?:uninstall|remove)\\s+--scope\\s+(?:user|project|local)\\s+${escapeRegExp(id)}${suffix}(?=\\s|$)`);
+  }
+  if (normalizedActions.includes("update")) {
+    patterns.push(`(?:^|\\s)plugin\\s+update(?:\\s+--scope\\s+(?:user|project|local|managed))?\\s+${escapeRegExp(id)}${suffix}(?=\\s|$)`);
   }
   return patterns.length ? new RegExp(patterns.map((pattern) => `(?:${pattern})`).join("|"), "i") : null;
 }
@@ -1472,11 +1514,15 @@ function findRecentMcpServerActionRun(runs, serverName) {
 
 function pluginActionArgsFromRun(run, fallbackIdentifier = "") {
   const commandLine = capabilityCommandLine(run);
-  const uninstall = parsePluginUninstallCommand(commandLine);
-  if (uninstall?.identifier && uninstall.scope) {
-    return `plugin uninstall --scope ${uninstall.scope} ${uninstall.identifier}`;
+  const update = parsePluginUpdateCommand(Array.isArray(run?.args) ? run.args : commandLine);
+  if (update?.identifier && update.scope) {
+    return pluginUpdateCommandArgs({ id: update.identifier }, update.scope);
   }
-  const match = commandLine.match(/(?:^|\s)plugin\s+(enable|disable|update|install)\s+([^\s]+)/i);
+  const uninstall = parsePluginUninstallCommand(Array.isArray(run?.args) ? run.args : commandLine);
+  if (uninstall?.identifier && uninstall.scope) {
+    return pluginUninstallCommandArgs({ id: uninstall.identifier }, uninstall.scope);
+  }
+  const match = commandLine.match(/(?:^|\s)plugin\s+(enable|disable|install)\s+([^\s]+)/i);
   const action = String(match?.[1] || "").trim().toLowerCase();
   const identifier = String(match?.[2] || fallbackIdentifier || "").trim();
   if (!action || !identifier) return "";
@@ -1508,10 +1554,13 @@ function safeCapabilityRetryArgsFromRun(run) {
 function mutatingCapabilityRetryArgsFromRun(run) {
   const mcpAdd = parseMcpAddCommand(Array.isArray(run?.args) ? run.args : null);
   if (mcpAdd) return mcpAddCommandArgs(mcpAdd);
+  const pluginUpdate = parsePluginUpdateCommand(Array.isArray(run?.args) ? run.args : capabilityCommandLine(run));
+  if (pluginUpdate) return pluginUpdateCommandArgs({ id: pluginUpdate.identifier }, pluginUpdate.scope);
   const args = claudeArgsFromRun(run);
   if (!args) return "";
   const mutatingPatterns = [
-    /^plugin\s+(?:install|update|enable|disable)\s+\S+/i,
+    /^plugin\s+(?:install|enable|disable)\s+\S+/i,
+    /^plugin\s+update\s+--scope\s+(?:user|project|local|managed)\s+\S+$/i,
     /^plugin\s+(?:uninstall|remove)\s+--scope\s+(?:user|project|local)\s+\S+$/i,
     /^mcp\s+remove\s+--scope\s+(?:local|user|project)\s+\S+$/i,
     /^plugin\s+marketplace\s+update$/i,
@@ -1624,6 +1673,17 @@ function capabilityActionFocusForCommand(args, context = {}) {
       query: mcpRemove.name,
       action: "remove",
       target: mcpRemove.scope,
+    };
+  }
+  const pluginUpdate = parsePluginUpdateCommand(args);
+  if (pluginUpdate?.identifier && pluginUpdate.scope) {
+    return {
+      tab: "plugins",
+      kind: "plugin",
+      id: pluginUpdate.identifier,
+      query: panelPluginNameFromId(pluginUpdate.identifier),
+      action: "update",
+      target: pluginUpdate.scope,
     };
   }
   const uninstall = parsePluginUninstallCommand(args);
@@ -2247,6 +2307,16 @@ function pluginUninstallReviewRows(plugin = {}, t, activeProject = null, scopeOv
     actionLabel: t.uninstallPlugin,
     commandArgs,
     risk: t.pluginUninstallRisk.replace("{scope}", scope || "-"),
+  });
+}
+
+function pluginUpdateReviewRows(plugin = {}, t, activeProject = null, scopeOverride = "") {
+  const scope = normalizePluginUpdateScope(scopeOverride || plugin.scope);
+  const commandArgs = pluginUpdateCommandArgs(plugin, scope);
+  return installedPluginActionReviewRows(plugin, t, activeProject, {
+    actionLabel: t.updatePlugin,
+    commandArgs,
+    risk: t.pluginUpdateRisk.replace("{scope}", scope || "-"),
   });
 }
 
@@ -11092,6 +11162,13 @@ function ToolsPanel({
     : Array.isArray(claudeStatus?.pluginItems)
       ? claudeStatus.pluginItems
       : [];
+  const selectedPluginActionItem = findPluginByIdentifiers(installedPluginItems, [pluginName]);
+  const selectedPluginUpdateScope = normalizePluginUpdateScope(selectedPluginActionItem?.scope);
+  const selectedPluginUpdateArgs = pluginUpdateCommandArgs(selectedPluginActionItem, selectedPluginUpdateScope);
+  const selectedPluginUpdateNeedsProject = ["project", "local"].includes(selectedPluginUpdateScope);
+  const selectedPluginUpdateReady = Boolean(
+    selectedPluginUpdateArgs.length && (!selectedPluginUpdateNeedsProject || activeProject?.path),
+  );
   const mcpPanelItems = Array.isArray(claudeStatus?.mcpServers) ? claudeStatus.mcpServers : [];
   const marketplacePanelSources = Array.isArray(claudeStatus?.marketplaces) ? claudeStatus.marketplaces : [];
   const marketplacePanelPlugins = Array.isArray(claudeStatus?.marketplacePlugins) ? claudeStatus.marketplacePlugins : [];
@@ -11102,6 +11179,28 @@ function ToolsPanel({
     projectPath: activeProject?.path || "",
     ...options,
   });
+
+  function openScopedPluginUpdateReview() {
+    if (!selectedPluginActionItem || !selectedPluginUpdateReady) return;
+    const identifier = selectedPluginActionItem.id || selectedPluginActionItem.name;
+    const capabilityContext = {
+      tab: "plugins",
+      kind: "plugin",
+      id: identifier,
+      query: identifier,
+      action: "update",
+      target: selectedPluginUpdateScope,
+    };
+    onCapabilities?.("plugins", {
+      ...capabilityContext,
+      confirmCommand: {
+        args: selectedPluginUpdateArgs,
+        label: `${t.updatePlugin}: ${identifier}`,
+        reviewRows: pluginUpdateReviewRows(selectedPluginActionItem, t, activeProject, selectedPluginUpdateScope),
+        capabilityContext,
+      },
+    });
+  }
 
   return (
     <aside className="tools-panel">
@@ -11671,7 +11770,21 @@ function ToolsPanel({
                 </label>
                 <div className="tool-actions">
                   <button type="button" className="plain-action" onClick={() => pluginName.trim() && runClaudeAndRefreshPlugins(`plugin install ${pluginName.trim()}`)} disabled={claudeBusy || !pluginName.trim()} title={claudeBusy ? t.workingHint : !pluginName.trim() ? t.pluginNameRequired : undefined}>{t.installPlugin}</button>
-                  <button type="button" className="plain-action" onClick={() => pluginName.trim() && runClaudeAndRefreshPlugins(`plugin update ${pluginName.trim()}`)} disabled={claudeBusy || !pluginName.trim()} title={claudeBusy ? t.workingHint : !pluginName.trim() ? t.pluginNameRequired : undefined}>{t.updatePlugin}</button>
+                  <button
+                    type="button"
+                    className="plain-action"
+                    onClick={openScopedPluginUpdateReview}
+                    disabled={claudeBusy || !selectedPluginUpdateReady}
+                    title={claudeBusy
+                      ? t.workingHint
+                      : !pluginName.trim() || !selectedPluginActionItem || !selectedPluginUpdateArgs.length
+                        ? t.pluginUpdateSelectInstalled
+                        : selectedPluginUpdateNeedsProject && !activeProject?.path
+                          ? t.pluginUpdateProjectRequired
+                          : t.pluginUpdateRisk.replace("{scope}", selectedPluginUpdateScope)}
+                  >
+                    {t.updatePlugin}
+                  </button>
                   <button type="button" className="plain-action danger-action" onClick={() => pluginName.trim() && setConfirmingPluginAction(pluginName.trim())} disabled={claudeBusy || !pluginName.trim()} title={claudeBusy ? t.workingHint : !pluginName.trim() ? t.pluginNameRequired : undefined}>{t.disablePlugin}</button>
                 </div>
                 {confirmingPluginAction && (
@@ -14029,7 +14142,10 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                   const pluginRetryArgs = recentRun && recentRun.code !== 0
                     ? pluginActionArgsFromRun(recentRun, item.id)
                     : "";
-                  const pluginRetryAction = String(pluginRetryArgs.match(/(?:^|\s)plugin\s+(install|update)\s+/i)?.[1] || "").toLowerCase();
+                  const pluginRetryUpdate = parsePluginUpdateCommand(pluginRetryArgs);
+                  const pluginRetryDisplayArgs = normalizeClaudeCommandInput(pluginRetryArgs).displayArgs;
+                  const pluginRetryAction = pluginRetryUpdate?.action
+                    || String(pluginRetryDisplayArgs.match(/(?:^|\s)plugin\s+install\s+/i) ? "install" : "").toLowerCase();
                   const pluginRetryBaseContext = capabilityContextFromRun(recentRun);
                   const pluginRetryContext = pluginRetryArgs
                     ? normalizeCapabilityContext({
@@ -14038,13 +14154,21 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                         id: pluginRetryBaseContext?.id || item.id,
                         query: pluginRetryBaseContext?.query || item.id,
                         action: pluginRetryAction || pluginRetryBaseContext?.action || "install",
+                        target: pluginRetryUpdate?.scope || pluginRetryBaseContext?.target || "",
                       })
                     : null;
                   const pluginRetryLabel = pluginRetryAction === "update"
                     ? `${t.updatePlugin}: ${item.name || item.id}`
                     : `${t.installFromMarketplace}: ${item.name || item.id}`;
                   const pluginRetry = pluginFocused && pluginRetryArgs
-                    ? () => requestCapabilityClaude(pluginRetryArgs, pluginRetryLabel, marketplaceInstallReviewRows(item), pluginRetryContext)
+                    ? () => requestCapabilityClaude(
+                        pluginRetryArgs,
+                        pluginRetryLabel,
+                        pluginRetryAction === "update"
+                          ? pluginUpdateReviewRows(installedPlugin || item, t, activeProject, pluginRetryUpdate?.scope || pluginRetryContext?.target)
+                          : marketplaceInstallReviewRows(item),
+                        pluginRetryContext,
+                      )
                     : null;
                   return (
                     <article
@@ -14301,21 +14425,34 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                   const pluginCopyFocused = capabilityActionFocusMatches("plugin", "copy", plugin.id, plugin.name);
                   const pluginRetryFocused = capabilityActionFocusMatches("plugin", "retry", plugin.id, plugin.name);
                   const toolDetails = Array.isArray(plugin.toolDetails) ? plugin.toolDetails : [];
+                  const pluginUpdateScope = normalizePluginUpdateScope(plugin.scope);
+                  const pluginUpdateArgs = pluginUpdateCommandArgs(plugin, pluginUpdateScope);
+                  const pluginUpdateNeedsProject = ["project", "local"].includes(pluginUpdateScope);
+                  const pluginUpdateProjectMissing = pluginUpdateNeedsProject && !activeProject?.path;
                   const pluginUninstallScope = normalizePluginScope(plugin.scope);
                   const pluginUninstallArgs = pluginUninstallCommandArgs(plugin, pluginUninstallScope);
                   const pluginRetryArgs = pluginFocused && recentRun && recentRun.code !== 0
                     ? pluginActionArgsFromRun(recentRun, plugin.id)
                     : "";
-                  const pluginActionContext = (action) => ({
-                    tab: "plugins",
-                    kind: "plugin",
-                    id: plugin.id,
-                    query: plugin.id,
-                    action,
-                    ...(action === "uninstall" && pluginUninstallScope ? { target: pluginUninstallScope } : {}),
-                  });
+                  const pluginActionContext = (action) => {
+                    const target = action === "update"
+                      ? pluginUpdateScope
+                      : action === "uninstall" ? pluginUninstallScope : "";
+                    return {
+                      tab: "plugins",
+                      kind: "plugin",
+                      id: plugin.id,
+                      query: plugin.id,
+                      action,
+                      ...(target ? { target } : {}),
+                    };
+                  };
+                  const pluginRetryUpdate = parsePluginUpdateCommand(pluginRetryArgs);
                   const pluginRetryUninstall = parsePluginUninstallCommand(pluginRetryArgs);
-                  const pluginRetryAction = pluginRetryUninstall?.action || String(pluginRetryArgs.match(/(?:^|\s)plugin\s+(enable|disable|update|install)\s+/i)?.[1] || "").toLowerCase();
+                  const pluginRetryDisplayArgs = normalizeClaudeCommandInput(pluginRetryArgs).displayArgs;
+                  const pluginRetryAction = pluginRetryUpdate?.action
+                    || pluginRetryUninstall?.action
+                    || String(pluginRetryDisplayArgs.match(/(?:^|\s)plugin\s+(enable|disable|install)\s+/i)?.[1] || "").toLowerCase();
                   const pluginRetryBaseContext = capabilityContextFromRun(recentRun);
                   const pluginRetryContext = pluginRetryArgs
                     ? normalizeCapabilityContext({
@@ -14324,12 +14461,14 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                         id: pluginRetryBaseContext?.id || plugin.id,
                         query: pluginRetryBaseContext?.query || plugin.id,
                         action: pluginRetryAction || pluginRetryBaseContext?.action || "retry",
-                        target: pluginRetryUninstall?.scope || pluginRetryBaseContext?.target || "",
+                        target: pluginRetryUpdate?.scope || pluginRetryUninstall?.scope || pluginRetryBaseContext?.target || "",
                       })
                     : null;
-                  const pluginRetryReviewRows = pluginRetryAction === "uninstall"
-                    ? pluginUninstallReviewRows(plugin, t, activeProject, pluginRetryUninstall?.scope || pluginRetryContext?.target)
-                    : pluginActionReviewRows(plugin);
+                  const pluginRetryReviewRows = pluginRetryAction === "update"
+                    ? pluginUpdateReviewRows(plugin, t, activeProject, pluginRetryUpdate?.scope || pluginRetryContext?.target)
+                    : pluginRetryAction === "uninstall"
+                      ? pluginUninstallReviewRows(plugin, t, activeProject, pluginRetryUninstall?.scope || pluginRetryContext?.target)
+                      : pluginActionReviewRows(plugin);
                   const pluginRetry = pluginRetryArgs
                     ? () => requestCapabilityClaude(pluginRetryArgs, `${t.pluginActions}: ${plugin.id}`, pluginRetryReviewRows, pluginRetryContext)
                     : null;
@@ -14414,9 +14553,20 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                         data-plugin-action="update"
                         {...capabilityActionFocusAttributes(pluginUpdateFocused)}
                         {...surfaceTraceAttributes("plugin", "update", plugin, { id: plugin.id || plugin.name })}
-                        onClick={() => requestCapabilityClaude(`plugin update ${plugin.id}`, `${t.updatePlugin}: ${plugin.id}`, pluginActionReviewRows(plugin, t.updatePlugin), pluginActionContext("update"))}
-                        disabled={cliWorking}
-                        title={cliWorking ? t.workingHint : undefined}
+                        onClick={() => requestCapabilityClaude(
+                          pluginUpdateArgs,
+                          `${t.updatePlugin}: ${plugin.id}`,
+                          pluginUpdateReviewRows(plugin, t, activeProject, pluginUpdateScope),
+                          pluginActionContext("update"),
+                        )}
+                        disabled={cliWorking || !pluginUpdateArgs.length || pluginUpdateProjectMissing}
+                        title={cliWorking
+                          ? t.workingHint
+                          : !pluginUpdateArgs.length
+                            ? t.pluginUpdateScopeRequired
+                            : pluginUpdateProjectMissing
+                              ? t.pluginUpdateProjectRequired
+                              : t.pluginUpdateRisk.replace("{scope}", pluginUpdateScope)}
                       >
                         {t.updatePlugin}
                       </button>
@@ -16562,7 +16712,23 @@ export function App() {
       ? mcpServers.find((server) => server?.name === mcpRemoveCommand.name)
         || { name: mcpRemoveCommand.name, scope: mcpRemoveCommand.scope }
       : null;
-    const uninstallCommand = parsePluginUninstallCommand(nextArgs);
+    const pluginUpdateCommand = parsePluginUpdateCommand(commandInput.args) || parsePluginUpdateCommand(nextArgs);
+    const pluginUpdateContext = pluginUpdateCommand?.identifier && pluginUpdateCommand.scope
+      ? normalizeCapabilityContext({
+          ...(retryContext || {}),
+          tab: "plugins",
+          kind: "plugin",
+          id: pluginUpdateCommand.identifier,
+          query: panelPluginNameFromId(pluginUpdateCommand.identifier),
+          action: "update",
+          target: pluginUpdateCommand.scope,
+        })
+      : null;
+    const pluginUpdatePlugin = pluginUpdateCommand?.identifier
+      ? findPluginByIdentifiers(installedPlugins, [pluginUpdateCommand.identifier])
+        || { id: pluginUpdateCommand.identifier, scope: pluginUpdateCommand.scope }
+      : null;
+    const uninstallCommand = parsePluginUninstallCommand(commandInput.args) || parsePluginUninstallCommand(nextArgs);
     const uninstallContext = uninstallCommand?.identifier && uninstallCommand.scope
       ? normalizeCapabilityContext({
           ...(retryContext || {}),
@@ -16606,6 +16772,8 @@ export function App() {
       ? mcpAddReviewRows(mcpAddCommand, t, activeProject)
       : mcpRemoveServer && mcpRemoveCommand?.scope
       ? mcpRemoveReviewRows(mcpRemoveServer, t, activeProject, mcpRemoveCommand.scope)
+      : pluginUpdatePlugin && pluginUpdateCommand?.scope
+      ? pluginUpdateReviewRows(pluginUpdatePlugin, t, activeProject, pluginUpdateCommand.scope)
       : uninstallPlugin && uninstallCommand?.scope
       ? pluginUninstallReviewRows(uninstallPlugin, t, activeProject, uninstallCommand.scope)
       : marketplaceAddSource
@@ -16624,6 +16792,8 @@ export function App() {
       ? `${t.retry}: ${t.addMcpServer} / ${mcpAddCommand.name}`
       : mcpRemoveServer && mcpRemoveCommand?.scope
       ? `${t.retry}: ${t.removeMcpServer} / ${mcpRemoveCommand.name}`
+      : pluginUpdatePlugin && pluginUpdateCommand?.scope
+      ? `${t.retry}: ${t.updatePlugin} / ${pluginUpdatePlugin.id || pluginUpdateCommand.identifier}`
       : uninstallPlugin && uninstallCommand?.scope
       ? `${t.retry}: ${t.uninstallPlugin} / ${uninstallPlugin.id || uninstallCommand.identifier}`
       : marketplaceAddSource
@@ -16640,12 +16810,16 @@ export function App() {
           ? mcpAddCommandArgs(mcpAddCommand)
           : mcpRemoveServer && mcpRemoveCommand?.scope
           ? mcpRemoveCommandArgs(mcpRemoveServer, mcpRemoveCommand.scope)
+          : pluginUpdatePlugin && pluginUpdateCommand?.scope
+          ? pluginUpdateCommandArgs(pluginUpdatePlugin, pluginUpdateCommand.scope)
           : uninstallPlugin && uninstallCommand?.scope
           ? pluginUninstallCommandArgs(uninstallPlugin, uninstallCommand.scope)
           : nextArgs,
         label: retryLabel,
         reviewRows: retryReviewRows,
-        ...((mcpAddContext || mcpRemoveContext || uninstallContext || retryContext) ? { capabilityContext: mcpAddContext || mcpRemoveContext || uninstallContext || retryContext } : {}),
+        ...((mcpAddContext || mcpRemoveContext || pluginUpdateContext || uninstallContext || retryContext)
+          ? { capabilityContext: mcpAddContext || mcpRemoveContext || pluginUpdateContext || uninstallContext || retryContext }
+          : {}),
       },
     });
   }
@@ -16656,7 +16830,7 @@ export function App() {
     if (!focus) return;
     if (
       (focus.kind === "custom-marketplace" && ["add", "remove"].includes(focus.action))
-      || (focus.kind === "plugin" && focus.action === "uninstall")
+      || (focus.kind === "plugin" && ["update", "uninstall"].includes(focus.action))
       || (focus.kind === "mcp" && ["add", "remove"].includes(focus.action))
     ) {
       openCapabilityRetryConfirmation(args, retryContext ? { capabilityContext: retryContext } : context);
@@ -18792,12 +18966,15 @@ export function App() {
       .filter((plugin) => plugin?.id || plugin?.name)
       .flatMap((plugin) => {
         const id = plugin.id || plugin.name;
+        const updateScope = normalizePluginUpdateScope(plugin.scope);
+        const updateNeedsProject = ["project", "local"].includes(updateScope);
+        const updateAvailable = Boolean(updateScope && (!updateNeedsProject || activeProject?.path));
         const uninstallScope = normalizePluginScope(plugin.scope);
         const specs = [
           plugin.enabled
             ? { action: "disable", label: t.disablePlugin, keywords: "disable plugin installed turn off 禁用 插件" }
             : { action: "enable", label: t.enablePlugin, keywords: "enable plugin installed turn on 启用 插件" },
-          { action: "update", label: t.updatePlugin, keywords: "update plugin installed upgrade refresh 更新 插件" },
+          updateAvailable ? { action: "update", label: t.updatePlugin, keywords: `update plugin installed upgrade refresh ${updateScope} 更新 插件` } : null,
           uninstallScope ? { action: "uninstall", label: t.uninstallPlugin, keywords: `uninstall remove plugin installed ${uninstallScope} 卸载 移除 插件` } : null,
           { action: "copy", label: t.copyEvidence, keywords: "copy evidence plugin installed clipboard focus 复制 证据 插件" },
         ].filter(Boolean);
@@ -18808,6 +18985,7 @@ export function App() {
             t.capabilities,
             plugin.enabled ? t.pluginStatusEnabled : t.pluginStatusDisabled,
             plugin.version && plugin.version !== "unknown" ? `${t.version}: ${plugin.version}` : "",
+            plugin.scope && `${t.scope}: ${plugin.scope}`,
             plugin.source,
           ].filter(Boolean).join(" · "),
           group: t.capabilities,
