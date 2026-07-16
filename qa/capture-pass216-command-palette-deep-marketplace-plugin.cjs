@@ -120,7 +120,7 @@ else if (args[0] === 'mcp' && args[1] === 'list' && args.includes('--json')) out
 else if (args[0] === 'mcp' && args[1] === 'list') out('No MCP servers configured');
 else if (args[0] === 'plugin' && args[1] === 'marketplace' && args[2] === 'list' && args.includes('--json')) out([{ name: 'pass216-market', source: 'path', repo: marketplaceDir, installLocation: marketplaceDir, version: '2026.7.7', status: 'ready', permissions: ['Read', 'Bash'] }]);
 else if (args[0] === 'plugin' && args[1] === 'marketplace' && args[2] === 'list') out('Configured marketplaces:\\n\\n  > pass216-market\\n    Source: Path (' + marketplaceDir + ')');
-else if (args[0] === 'plugin' && args[1] === 'install') out({ installed: args[2], ok: true });
+else if (args[0] === 'plugin' && args[1] === 'install' && args[2] === '--scope' && args[3] === 'user' && args[4] === 'pass216-deep-plugin-31@pass216-market' && args.length === 5) out({ installed: args[4], scope: args[3], ok: true });
 else out('pass216 fake claude command: ' + args.join(' '));
 `;
   fs.writeFileSync(path.join(FAKE_BIN_DIR, "fake-claude.cjs"), fakeScript, "utf8");
@@ -270,7 +270,7 @@ async function runTest() {
         /agent-tools/.test(cardText) &&
         /network access/.test(cardText) &&
         confirm &&
-        /plugin install pass216-deep-plugin-31@pass216-market/.test(confirmText) &&
+        /plugin install --scope user pass216-deep-plugin-31@pass216-market/.test(confirmText) &&
         /runs local plugin code/.test(metaText) &&
         /network access/.test(metaText) &&
         /Read/.test(metaText) &&
@@ -278,7 +278,7 @@ async function runTest() {
       );
     })();
   `, 15000));
-  assertStep("PASS216_INSTALL_NOT_RUN_BEFORE_CONFIRM", !/plugin install pass216-deep-plugin-31@pass216-market/.test(readCommandLog()));
+  assertStep("PASS216_INSTALL_NOT_RUN_BEFORE_CONFIRM", !/plugin install --scope user pass216-deep-plugin-31@pass216-market/.test(readCommandLog()));
 
   console.log("PASS216_COMMAND_PALETTE_DEEP_MARKETPLACE_PLUGIN_DONE");
   cleanup();

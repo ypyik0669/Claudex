@@ -351,7 +351,7 @@ async function runTest() {
     requiredText: ["pass269-catalog-plugin", MARKET_TOOL_NAME, "PASS269 local plugin code risk"],
     extraCheck: `
       (async function() {
-        const installCommand = ${JSON.stringify(`plugin install ${MARKET_PLUGIN_ID}`)};
+        const installCommand = ${JSON.stringify(`plugin install --scope user ${MARKET_PLUGIN_ID}`)};
         const hasInstallRun = async () => {
           const state = await window.claudexDesktop.getState();
           return Boolean((state.commandRuns || []).some((run) => String(run.command || run.commandLine || "").includes(installCommand)));

@@ -268,7 +268,7 @@ async function runTest() {
     })();
   `));
   assertStep("PASS59_INSTALL_CONFIRM_VISIBLE", await waitFor(win, "Boolean(document.querySelector('.plugin-cli-confirm'))", 5000));
-  assertStep("PASS59_INSTALL_NOT_RUN_BEFORE_CONFIRM", !/plugin install qa-structured-plugin/.test(readCommandLog().slice(beforeInstall.length)));
+  assertStep("PASS59_INSTALL_NOT_RUN_BEFORE_CONFIRM", !/plugin install --scope user qa-structured-plugin/.test(readCommandLog().slice(beforeInstall.length)));
   assertStep("PASS59_CONFIRM_INSTALL", await win.webContents.executeJavaScript(`
     (function() {
       const button = document.querySelector('.plugin-cli-confirm .danger-action');
@@ -277,14 +277,14 @@ async function runTest() {
       return true;
     })();
   `));
-  assertStep("PASS59_INSTALL_RAN_AFTER_CONFIRM", await waitForLog(/plugin install qa-structured-plugin/));
+  assertStep("PASS59_INSTALL_RAN_AFTER_CONFIRM", await waitForLog(/plugin install --scope user qa-structured-plugin/));
   assertStep("PASS59_MARKETPLACE_ROW_ACTION_EVIDENCE_VISIBLE", await waitFor(win, `
     (function() {
       const card = [...document.querySelectorAll('.marketplace-plugin-card')]
         .find((item) => /qa-structured-plugin/.test(item.textContent || ''));
       const evidence = card?.querySelector('.row-cli-action-evidence.ok');
       const text = evidence?.textContent || '';
-      return Boolean(evidence && /plugin install qa-structured-plugin/.test(text) && /退出码/.test(text) && /\\b0\\b/.test(text));
+      return Boolean(evidence && /plugin install --scope user qa-structured-plugin/.test(text) && /退出码/.test(text) && /\\b0\\b/.test(text));
     })();
   `, 10000));
   assertStep("PASS59_ROW_EVIDENCE_ACTIONS_VISIBLE", await win.webContents.executeJavaScript(`
@@ -319,7 +319,7 @@ async function runTest() {
     (function() {
       const card = document.querySelector('.plugin-cli-action-evidence.ok');
       const text = card?.textContent || '';
-      return Boolean(card && /plugin install qa-structured-plugin/.test(text) && /\\b0\\b/.test(text));
+      return Boolean(card && /plugin install --scope user qa-structured-plugin/.test(text) && /\\b0\\b/.test(text));
     })();
   `, 10000));
   assertStep("PASS59_OPEN_OUTPUTS_FROM_ROW_EVIDENCE", await win.webContents.executeJavaScript(`
@@ -336,7 +336,7 @@ async function runTest() {
   assertStep("PASS59_OUTPUTS_PANEL_FROM_ROW_EVIDENCE", await waitFor(win, `
     Boolean(document.querySelector('.bottom-work-panel') &&
       document.querySelector('.capability-command-evidence-stack') &&
-      /plugin install qa-structured-plugin/.test(document.querySelector('.capability-command-evidence-stack')?.textContent || ''))
+      /plugin install --scope user qa-structured-plugin/.test(document.querySelector('.capability-command-evidence-stack')?.textContent || ''))
   `, 5000));
   assertStep("PASS59_APP_RETURNED_FROM_ROW_OUTPUTS", await waitFor(win, `
     Boolean(!document.querySelector('.plugin-manager-modal') &&
@@ -345,19 +345,19 @@ async function runTest() {
   `, 5000));
   assertStep("PASS59_TIMELINE_HAS_CLI_EVENT", await waitFor(win, `
     Boolean(document.querySelector('.run-timeline') &&
-      /plugin install qa-structured-plugin/.test(document.querySelector('.run-timeline')?.textContent || '') &&
+      /plugin install --scope user qa-structured-plugin/.test(document.querySelector('.run-timeline')?.textContent || '') &&
       /退出码: 0/.test(document.querySelector('.run-timeline')?.textContent || ''))
   `, 8000));
   assertStep("PASS59_BOTTOM_EVIDENCE_HAS_CLI_OUTPUT", await waitFor(win, `
     Boolean(document.querySelector('.capability-command-evidence-stack') &&
       /Plugin\\/MCP CLI/.test(document.querySelector('.capability-command-evidence-stack')?.textContent || '') &&
-      /plugin install qa-structured-plugin/.test(document.querySelector('.capability-command-evidence-stack')?.textContent || '') &&
+      /plugin install --scope user qa-structured-plugin/.test(document.querySelector('.capability-command-evidence-stack')?.textContent || '') &&
       /退出码/.test(document.querySelector('.capability-command-evidence-stack')?.textContent || ''))
   `, 8000));
   assertStep("PASS59_SELECT_CLI_TIMELINE_EVENT", await win.webContents.executeJavaScript(`
     (async function() {
       const row = [...document.querySelectorAll('.run-timeline-row')]
-        .find((candidate) => /plugin install qa-structured-plugin/.test(candidate.textContent || ''));
+        .find((candidate) => /plugin install --scope user qa-structured-plugin/.test(candidate.textContent || ''));
       if (!row) return false;
       row.querySelector('summary')?.click();
       await new Promise((resolve) => setTimeout(resolve, 200));
@@ -372,8 +372,8 @@ async function runTest() {
       return Boolean(
         panel &&
         /Plugin\\/MCP CLI/.test(text) &&
-        /plugin install qa-structured-plugin/.test(text) &&
-        /ok plugin install qa-structured-plugin/.test(text) &&
+        /plugin install --scope user qa-structured-plugin/.test(text) &&
+        /ok plugin install --scope user qa-structured-plugin/.test(text) &&
         /退出码/.test(text) &&
         /capability-(?:cli|command)/.test(type)
       );
@@ -397,19 +397,19 @@ async function runTest() {
       const panelText = document.querySelector('.selected-run-evidence-panel')?.textContent || '';
       return /Plugin\\/MCP CLI/.test(text) &&
         /Raw 类型: capability-(?:cli|command)/.test(text) &&
-        /命令: claude plugin install qa-structured-plugin/.test(text) &&
+        /命令: claude plugin install --scope user qa-structured-plugin/.test(text) &&
         /工作目录: /.test(text) &&
         /退出码: 0/.test(text) &&
-        /标准输出\\n(ok )?plugin install qa-structured-plugin/.test(text) &&
+        /标准输出\\n(ok )?plugin install --scope user qa-structured-plugin/.test(text) &&
         /已复制/.test(panelText);
     })();
   `, 5000));
   assertStep("PASS59_CAPABILITY_COMMAND_PERSISTED", (() => {
     const parsed = JSON.parse(fs.readFileSync(path.join(USER_DATA_DIR, "desktop-data.json"), "utf8"));
     return parsed.commandRuns?.some((run) => run.kind === "capability" &&
-      /plugin install qa-structured-plugin/.test(run.command || "") &&
+      /plugin install --scope user qa-structured-plugin/.test(run.command || "") &&
       run.code === 0 &&
-      /ok plugin install qa-structured-plugin/.test(run.stdout || ""));
+      /ok plugin install --scope user qa-structured-plugin/.test(run.stdout || ""));
   })());
 
   console.log("PASS59_ROW_ACTION_EVIDENCE_DONE");

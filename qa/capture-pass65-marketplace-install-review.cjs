@@ -95,7 +95,7 @@ else if (args[0] === 'plugin' && args[1] === 'list') out('Installed plugins: non
 else if (args[0] === 'mcp' && args[1] === 'list') out('✓ pass65-mcp: connected');
 else if (args[0] === 'plugin' && args[1] === 'marketplace' && args[2] === 'list' && args.includes('--json')) out([{ name: 'pass65-market', source: 'path', repo: marketplaceDir, installLocation: marketplaceDir, version: '2026.7.6', status: 'ready', permissions: ['Read', 'Bash'] }]);
 else if (args[0] === 'plugin' && args[1] === 'marketplace' && args[2] === 'list') out('Configured marketplaces:\\n\\n  > pass65-market\\n    Source: Path (' + marketplaceDir + ')');
-else if (args[0] === 'plugin' && args[1] === 'install') out('ok ' + args.join(' '));
+else if (args[0] === 'plugin' && args[1] === 'install' && args[2] === '--scope' && args[3] === 'user' && args[4] === 'pass65-audited-plugin@pass65-market' && args.length === 5) out('ok ' + args.join(' '));
 else out('fake claude command: ' + args.join(' '));
 `;
 
@@ -217,7 +217,7 @@ async function runTest() {
         /风险/.test(text) && /本地插件代码/.test(text) && /PASS65 QA/.test(text));
     })();
   `));
-  assertStep("PASS65_INSTALL_NOT_RUN_BEFORE_CONFIRM", !/plugin install pass65-audited-plugin/.test(readCommandLog().slice(beforeInstall.length)));
+  assertStep("PASS65_INSTALL_NOT_RUN_BEFORE_CONFIRM", !/plugin install --scope user pass65-audited-plugin/.test(readCommandLog().slice(beforeInstall.length)));
   assertStep("PASS65_CONFIRM_INSTALL", await win.webContents.executeJavaScript(`
     (function() {
       const button = document.querySelector('.plugin-cli-confirm .danger-action');
@@ -226,14 +226,14 @@ async function runTest() {
       return true;
     })();
   `));
-  assertStep("PASS65_INSTALL_RAN_AFTER_CONFIRM", await waitForLog(/plugin install pass65-audited-plugin/));
+  assertStep("PASS65_INSTALL_RAN_AFTER_CONFIRM", await waitForLog(/plugin install --scope user pass65-audited-plugin/));
   assertStep("PASS65_INSTALL_COMMAND_PERSISTED", await waitFor(win, `
     (async function() {
       const state = await window.claudexDesktop.getState();
       return state.commandRuns?.some((run) => run.kind === "capability" &&
-        /plugin install pass65-audited-plugin/.test(run.command || "") &&
+        /plugin install --scope user pass65-audited-plugin/.test(run.command || "") &&
         run.code === 0 &&
-        /ok plugin install pass65-audited-plugin/.test(run.stdout || ""));
+        /ok plugin install --scope user pass65-audited-plugin/.test(run.stdout || ""));
     })();
   `, 10000));
 

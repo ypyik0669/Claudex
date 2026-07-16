@@ -12,7 +12,7 @@ const MARKETPLACE_MANIFEST_DIR = path.join(MARKETPLACE_DIR, ".claude-plugin");
 const COMMAND_LOG = path.join(USER_DATA_DIR, "claude-command-log.txt");
 const DATA_FILE = path.join(USER_DATA_DIR, "desktop-data.json");
 const MARKETPLACE_PLUGIN_ID = "pass106-retry-plugin@pass106-market";
-const MARKETPLACE_INSTALL_COMMAND = `plugin install ${MARKETPLACE_PLUGIN_ID}`;
+const MARKETPLACE_INSTALL_COMMAND = `plugin install --scope user ${MARKETPLACE_PLUGIN_ID}`;
 
 function cleanup() {
   for (const dir of [USER_DATA_DIR, FAKE_BIN_DIR, PROJECT_DIR, MARKETPLACE_DIR]) {
@@ -163,7 +163,7 @@ else if (args[0] === 'plugin' && args[1] === 'list') out(installCount() >= 2 ? '
 else if (args[0] === 'mcp' && args[1] === 'list') out('âœ“ pass106-mcp: connected');
 else if (args[0] === 'plugin' && args[1] === 'marketplace' && args[2] === 'list' && args.includes('--json')) out([{ name: 'pass106-market', source: 'path', repo: marketplaceDir, installLocation: marketplaceDir, version: '2026.7.6', status: 'ready', permissions: ['Read', 'Bash'] }]);
 else if (args[0] === 'plugin' && args[1] === 'marketplace' && args[2] === 'list') out('Configured marketplaces:\\n\\n  > pass106-market\\n    Source: Path (' + marketplaceDir + ')');
-else if (args[0] === 'plugin' && args[1] === 'install') { const nextInstallCount = installCount() + 1; fs.writeFileSync(installCountFile, String(nextInstallCount), 'utf8'); if (nextInstallCount === 1) { process.stderr.write('pass106 plugin install failed\\n'); process.exitCode = 42; } else { out('ok plugin install ' + args.slice(2).join(' ')); } }
+else if (args[0] === 'plugin' && args[1] === 'install' && args[2] === '--scope' && args[3] === 'user' && args[4] === 'pass106-retry-plugin@pass106-market' && args.length === 5) { const nextInstallCount = installCount() + 1; fs.writeFileSync(installCountFile, String(nextInstallCount), 'utf8'); if (nextInstallCount === 1) { process.stderr.write('pass106 plugin install failed\\n'); process.exitCode = 42; } else { out('ok ' + args.join(' ')); } }
 else out('pass106 fake claude command: ' + args.join(' '));
 `;
   fs.writeFileSync(path.join(FAKE_BIN_DIR, "fake-claude.cjs"), fakeScript, "utf8");
@@ -305,7 +305,7 @@ async function runTest() {
   `));
   assertStep("PASS106_CONFIRM_INSTALL_VISIBLE", await waitForPluginConfirmReady(win, MARKETPLACE_INSTALL_COMMAND));
   assertStep("PASS106_CONFIRM_INSTALL", await clickPluginConfirm(win, MARKETPLACE_INSTALL_COMMAND));
-  assertStep("PASS106_INSTALL_RAN", await waitForLog(/plugin install pass106-retry-plugin@pass106-market/));
+  assertStep("PASS106_INSTALL_RAN", await waitForLog(/plugin install --scope user pass106-retry-plugin@pass106-market/));
   assertStep("PASS106_MARKETPLACE_INSTALL_FAILURE_FOCUS", await waitFor(win, `
     (function() {
       const input = document.querySelector('.capability-search input');
@@ -328,7 +328,7 @@ async function runTest() {
     (async function() {
       const state = await window.claudexDesktop.getState();
       const failedRun = state.commandRuns?.find((run) => run.kind === 'capability' &&
-        /plugin install pass106-retry-plugin@pass106-market/.test(run.command || '') &&
+        /plugin install --scope user pass106-retry-plugin@pass106-market/.test(run.command || '') &&
         run.code === 42 &&
         /pass106 plugin install failed/.test(run.stderr || ''));
       const notice = state.notices?.find((item) => item.level === 'error' &&
@@ -360,7 +360,7 @@ async function runTest() {
         bucket.getAttribute('data-notice-recovery-count') === '1' &&
         bucket.getAttribute('data-notice-recovery-first-id') === noticeId &&
         bucket.getAttribute('data-notice-recovery-first-action')?.startsWith('capability-recovery:') &&
-        /plugin install pass106-retry-plugin@pass106-market/.test(bucket.getAttribute('data-notice-recovery-first-title') || text)
+        /plugin install --scope user pass106-retry-plugin@pass106-market/.test(bucket.getAttribute('data-notice-recovery-first-title') || text)
       );
     })();
   `, 10000));
@@ -375,7 +375,7 @@ async function runTest() {
         retry &&
         retry.getAttribute('data-run-recovery-action-focused') === 'true' &&
         document.activeElement === retry &&
-        /plugin install pass106-retry-plugin@pass106-market/.test(text) &&
+        /plugin install --scope user pass106-retry-plugin@pass106-market/.test(text) &&
         /pass106 plugin install failed/.test(text)
       );
     })();
@@ -452,7 +452,7 @@ async function runTest() {
       );
     })();
   `, 12000));
-  assertStep("PASS106_SUMMARY_CONTEXT_DID_NOT_RUN_INSTALL", !/plugin install pass106-retry-plugin@pass106-market/.test(readCommandLog().slice(beforeSummaryContextOpen.length)));
+  assertStep("PASS106_SUMMARY_CONTEXT_DID_NOT_RUN_INSTALL", !/plugin install --scope user pass106-retry-plugin@pass106-market/.test(readCommandLog().slice(beforeSummaryContextOpen.length)));
   assertStep("PASS106_LEAVE_SUMMARY_CONTEXT", await leaveSurface(win));
   assertStep("PASS106_RETURN_TO_NOTICE_CENTER", await openNoticeCenter(win));
 
@@ -469,7 +469,7 @@ async function runTest() {
         button.getAttribute('data-notice-recovery-count') === '1' &&
         button.getAttribute('data-notice-recovery-first-id') === noticeId &&
         button.getAttribute('data-command-notice-recovery-first-action')?.startsWith('capability-recovery:') &&
-        /plugin install pass106-retry-plugin@pass106-market/.test(text)
+        /plugin install --scope user pass106-retry-plugin@pass106-market/.test(text)
       );
     })();
   `, 10000));
@@ -491,7 +491,7 @@ async function runTest() {
         panel.getAttribute('data-run-capability-action') === 'install' &&
         context &&
         context.getAttribute('data-run-capability-kind') === 'marketplace-plugin' &&
-        /plugin install pass106-retry-plugin@pass106-market/.test(text) &&
+        /plugin install --scope user pass106-retry-plugin@pass106-market/.test(text) &&
         /pass106 plugin install failed/.test(text)
       );
     })();
@@ -521,7 +521,7 @@ async function runTest() {
   assertStep("PASS106_RETRY_CONFIRM_AUDIT_DETAILS", await waitFor(win, `
     (function() {
       const confirm = [...document.querySelectorAll('.plugin-cli-confirm')]
-        .find((item) => /plugin install pass106-retry-plugin@pass106-market/.test(item.textContent || ''));
+        .find((item) => /plugin install --scope user pass106-retry-plugin@pass106-market/.test(item.textContent || ''));
       const meta = confirm?.querySelector('.plugin-cli-confirm-meta');
       const text = meta?.textContent || '';
       return Boolean(
@@ -537,9 +537,9 @@ async function runTest() {
       );
     })();
   `, 7000));
-  assertStep("PASS106_RETRY_NOT_RUN_BEFORE_CONFIRM", !/plugin install pass106-retry-plugin@pass106-market/.test(readCommandLog().slice(beforeRetry.length)));
+  assertStep("PASS106_RETRY_NOT_RUN_BEFORE_CONFIRM", !/plugin install --scope user pass106-retry-plugin@pass106-market/.test(readCommandLog().slice(beforeRetry.length)));
   assertStep("PASS106_CONFIRM_RETRY", await clickPluginConfirm(win, MARKETPLACE_INSTALL_COMMAND));
-  assertStep("PASS106_RETRY_INSTALL_RAN", await waitForLog(/plugin install pass106-retry-plugin@pass106-market(?:.|\n)*plugin install pass106-retry-plugin@pass106-market/, 12000));
+  assertStep("PASS106_RETRY_INSTALL_RAN", await waitForLog(/plugin install --scope user pass106-retry-plugin@pass106-market(?:.|\n)*plugin install --scope user pass106-retry-plugin@pass106-market/, 12000));
   assertStep("PASS106_RETRY_RECOVERED_INLINE", await waitFor(win, `
     (function() {
       const input = document.querySelector('.capability-search input');
@@ -551,7 +551,7 @@ async function runTest() {
         card?.classList.contains('focused-capability-row') &&
         card?.classList.contains('installed') &&
         card?.querySelector('.row-cli-action-evidence.ok') &&
-        /ok plugin install pass106-retry-plugin@pass106-market/.test(text) &&
+        /ok plugin install --scope user pass106-retry-plugin@pass106-market/.test(text) &&
         /\u672c\u5730\u5df2\u5b89\u88c5/.test(text)
       );
     })();
@@ -559,9 +559,9 @@ async function runTest() {
   assertStep("PASS106_RETRY_PERSISTED", await waitFor(win, `
     (async function() {
       const state = await window.claudexDesktop.getState();
-      const runs = state.commandRuns?.filter((run) => run.kind === 'capability' && /plugin install pass106-retry-plugin@pass106-market/.test(run.command || '')) || [];
+      const runs = state.commandRuns?.filter((run) => run.kind === 'capability' && /plugin install --scope user pass106-retry-plugin@pass106-market/.test(run.command || '')) || [];
       const failed = runs.find((run) => run.code === 42 && /pass106 plugin install failed/.test(run.stderr || ''));
-      const recovered = runs.find((run) => run.code === 0 && /ok plugin install pass106-retry-plugin@pass106-market/.test(run.stdout || ''));
+      const recovered = runs.find((run) => run.code === 0 && /ok plugin install --scope user pass106-retry-plugin@pass106-market/.test(run.stdout || ''));
       return Boolean(
         runs.length >= 2 &&
         failed?.capabilityContext?.tab === 'marketplace' &&

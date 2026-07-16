@@ -92,7 +92,7 @@ const marketplaceDir = ${JSON.stringify(MARKETPLACE_DIR)};
 const commandLog = ${JSON.stringify(COMMAND_LOG)};
 fs.appendFileSync(commandLog, args.join(' ') + '\\n', 'utf8');
 const logText = (() => { try { return fs.readFileSync(commandLog, 'utf8'); } catch (_error) { return ''; } })();
-const installed = /plugin install pass102-polished-plugin@pass102-market/.test(logText);
+const installed = /plugin install --scope user pass102-polished-plugin@pass102-market/.test(logText);
 function out(value) { process.stdout.write(typeof value === 'string' ? value + '\\n' : JSON.stringify(value, null, 2) + '\\n'); }
 if (args[0] === '--version') out('2.10.2 (Claude Code QA)');
 else if (args[0] === 'auth' && args[1] === 'status') out({ loggedIn: true, apiProvider: 'qa-provider', authMethod: 'api_key' });
@@ -101,7 +101,7 @@ else if (args[0] === 'plugin' && args[1] === 'list') out(installed ? 'Installed 
 else if (args[0] === 'mcp' && args[1] === 'list') out('✓ pass102-mcp: connected');
 else if (args[0] === 'plugin' && args[1] === 'marketplace' && args[2] === 'list' && args.includes('--json')) out([{ name: 'pass102-market', source: 'path', repo: marketplaceDir, installLocation: marketplaceDir, version: '2026.7.6', status: 'ready', permissions: ['Read', 'Bash'] }]);
 else if (args[0] === 'plugin' && args[1] === 'marketplace' && args[2] === 'list') out('Configured marketplaces:\\n\\n  > pass102-market\\n    Source: Path (' + marketplaceDir + ')');
-else if (args[0] === 'plugin' && args[1] === 'install') out('ok ' + args.join(' '));
+else if (args[0] === 'plugin' && args[1] === 'install' && args[2] === '--scope' && args[3] === 'user' && args[4] === 'pass102-polished-plugin@pass102-market' && args.length === 5) out('ok ' + args.join(' '));
 else out('pass102 fake claude command: ' + args.join(' '));
 `;
   fs.writeFileSync(path.join(FAKE_BIN_DIR, "fake-claude.cjs"), fakeScript, "utf8");
@@ -186,15 +186,19 @@ async function runTest() {
   assertStep("PASS102_READY", await waitFor(win, "Boolean(document.querySelector('.app-grid') && window.claudexDesktop)", 15000));
   await openMarketplace(win);
   assertStep("PASS102_MARKETPLACE_CARD_READY", await waitFor(win, `
-    Boolean([...document.querySelectorAll('.marketplace-plugin-card')]
-      .find((item) => /pass102-polished-plugin/.test(item.textContent || '')))
+    (function() {
+      const card = [...document.querySelectorAll('.marketplace-plugin-card')]
+        .find((item) => /pass102-polished-plugin/.test(item.textContent || ''));
+      const install = card?.querySelector('[data-marketplace-plugin-action="install"]');
+      return Boolean(card && install && !install.disabled);
+    })()
   `, 15000));
   assertStep("PASS102_CLICK_INSTALL", await win.webContents.executeJavaScript(`
     (function() {
       const card = [...document.querySelectorAll('.marketplace-plugin-card')]
         .find((item) => /pass102-polished-plugin/.test(item.textContent || ''));
-      const button = card?.querySelector('.marketplace-card-actions button');
-      if (!button) return false;
+      const button = card?.querySelector('[data-marketplace-plugin-action="install"]');
+      if (!button || button.disabled) return false;
       button.click();
       return true;
     })();
@@ -208,7 +212,7 @@ async function runTest() {
       return true;
     })();
   `));
-  assertStep("PASS102_INSTALL_RAN", await waitForLog(/plugin install pass102-polished-plugin@pass102-market/));
+  assertStep("PASS102_INSTALL_RAN", await waitForLog(/plugin install --scope user pass102-polished-plugin@pass102-market/));
   assertStep("PASS102_MARKETPLACE_INSTALL_REFRESH_FOCUS", await waitFor(win, `
     (function() {
       const input = document.querySelector('.capability-search input');
@@ -223,7 +227,7 @@ async function runTest() {
         /本地已安装/.test(text) &&
         installButton?.disabled &&
         card?.querySelector('.row-cli-action-evidence.ok') &&
-        /ok plugin install pass102-polished-plugin@pass102-market/.test(text)
+        /ok plugin install --scope user pass102-polished-plugin@pass102-market/.test(text)
       );
     })();
   `, 15000));
@@ -231,9 +235,9 @@ async function runTest() {
     (async function() {
       const state = await window.claudexDesktop.getState();
       return state.commandRuns?.some((run) => run.kind === 'capability' &&
-        /plugin install pass102-polished-plugin@pass102-market/.test(run.command || '') &&
+        /plugin install --scope user pass102-polished-plugin@pass102-market/.test(run.command || '') &&
         run.code === 0 &&
-        /ok plugin install pass102-polished-plugin@pass102-market/.test(run.stdout || ''));
+        /ok plugin install --scope user pass102-polished-plugin@pass102-market/.test(run.stdout || ''));
     })();
   `, 10000));
 

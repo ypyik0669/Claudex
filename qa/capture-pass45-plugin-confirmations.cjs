@@ -243,7 +243,7 @@ async function runTest() {
     })();
   `));
   assertStep("PASS45_INSTALL_CONFIRM_VISIBLE", await waitFor(win, "Boolean(document.querySelector('.plugin-cli-confirm'))", 5000));
-  assertStep("PASS45_INSTALL_NOT_RUN_BEFORE_CONFIRM", !/plugin install qa-structured-plugin/.test(readCommandLog().slice(beforeInstall.length)));
+  assertStep("PASS45_INSTALL_NOT_RUN_BEFORE_CONFIRM", !/plugin install --scope user qa-structured-plugin/.test(readCommandLog().slice(beforeInstall.length)));
   assertStep("PASS45_CONFIRM_INSTALL", await win.webContents.executeJavaScript(`
     (function() {
       const button = document.querySelector('.plugin-cli-confirm .danger-action');
@@ -252,12 +252,12 @@ async function runTest() {
       return true;
     })();
   `));
-  assertStep("PASS45_INSTALL_RAN_AFTER_CONFIRM", await waitForLog(/plugin install qa-structured-plugin/));
+  assertStep("PASS45_INSTALL_RAN_AFTER_CONFIRM", await waitForLog(/plugin install --scope user qa-structured-plugin/));
   assertStep("PASS45_INSTALL_EVIDENCE_VISIBLE", await waitFor(win, `
     (function() {
       const card = document.querySelector('.plugin-cli-action-evidence.ok');
       const text = card?.textContent || '';
-      return Boolean(card && /plugin install qa-structured-plugin/.test(text) && /\\b0\\b/.test(text));
+      return Boolean(card && /plugin install --scope user qa-structured-plugin/.test(text) && /\\b0\\b/.test(text));
     })();
   `, 10000));
   assertStep("PASS45_BACK_TO_APP", await win.webContents.executeJavaScript(`
@@ -271,21 +271,21 @@ async function runTest() {
   assertStep("PASS45_OPEN_OUTPUTS_PANEL", await waitFor(win, "Boolean(document.querySelector('.workspace-context-tabs'))", 5000) && await openOutputsPanel(win));
   assertStep("PASS45_TIMELINE_HAS_CLI_EVENT", await waitFor(win, `
     Boolean(document.querySelector('.run-timeline') &&
-      /plugin install qa-structured-plugin/.test(document.querySelector('.run-timeline')?.textContent || '') &&
+      /plugin install --scope user qa-structured-plugin/.test(document.querySelector('.run-timeline')?.textContent || '') &&
       /退出码: 0/.test(document.querySelector('.run-timeline')?.textContent || ''))
   `, 8000));
   assertStep("PASS45_BOTTOM_EVIDENCE_HAS_CLI_OUTPUT", await waitFor(win, `
     Boolean(document.querySelector('.capability-command-evidence-stack') &&
       /Plugin\\/MCP CLI/.test(document.querySelector('.capability-command-evidence-stack')?.textContent || '') &&
-      /plugin install qa-structured-plugin/.test(document.querySelector('.capability-command-evidence-stack')?.textContent || '') &&
+      /plugin install --scope user qa-structured-plugin/.test(document.querySelector('.capability-command-evidence-stack')?.textContent || '') &&
       /退出码/.test(document.querySelector('.capability-command-evidence-stack')?.textContent || ''))
   `, 8000));
   assertStep("PASS45_CAPABILITY_COMMAND_PERSISTED", (() => {
     const parsed = JSON.parse(fs.readFileSync(path.join(USER_DATA_DIR, "desktop-data.json"), "utf8"));
     return parsed.commandRuns?.some((run) => run.kind === "capability" &&
-      /plugin install qa-structured-plugin/.test(run.command || "") &&
+      /plugin install --scope user qa-structured-plugin/.test(run.command || "") &&
       run.code === 0 &&
-      /ok plugin install qa-structured-plugin/.test(run.stdout || ""));
+      /ok plugin install --scope user qa-structured-plugin/.test(run.stdout || ""));
   })());
 
   console.log("PASS45_PLUGIN_CONFIRMATIONS_DONE");

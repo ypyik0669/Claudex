@@ -99,7 +99,7 @@ else if (args[0] === 'plugin' && args[1] === 'list') out('Installed plugins: non
 else if (args[0] === 'mcp' && args[1] === 'list') out('✓ pass105-mcp: connected');
 else if (args[0] === 'plugin' && args[1] === 'marketplace' && args[2] === 'list' && args.includes('--json')) out([{ name: 'pass105-market', source: 'path', repo: marketplaceDir, installLocation: marketplaceDir, version: '2026.7.6', status: 'ready', permissions: ['Read', 'Bash'] }]);
 else if (args[0] === 'plugin' && args[1] === 'marketplace' && args[2] === 'list') out('Configured marketplaces:\\n\\n  > pass105-market\\n    Source: Path (' + marketplaceDir + ')');
-else if (args[0] === 'plugin' && args[1] === 'install') { process.stderr.write('pass105 plugin install failed\\n'); process.exitCode = 42; }
+else if (args[0] === 'plugin' && args[1] === 'install' && args[2] === '--scope' && args[3] === 'user' && args[4] === 'pass105-failing-plugin@pass105-market' && args.length === 5) { process.stderr.write('pass105 plugin install failed\\n'); process.exitCode = 42; }
 else out('pass105 fake claude command: ' + args.join(' '));
 `;
   fs.writeFileSync(path.join(FAKE_BIN_DIR, "fake-claude.cjs"), fakeScript, "utf8");
@@ -214,7 +214,7 @@ async function runTest() {
       return true;
     })();
   `));
-  assertStep("PASS105_INSTALL_RAN", await waitForLog(/plugin install pass105-failing-plugin@pass105-market/));
+  assertStep("PASS105_INSTALL_RAN", await waitForLog(/plugin install --scope user pass105-failing-plugin@pass105-market/));
   assertStep("PASS105_MARKETPLACE_INSTALL_FAILURE_FOCUS", await waitFor(win, `
     (function() {
       const input = document.querySelector('.capability-search input');
@@ -238,7 +238,7 @@ async function runTest() {
       const state = await window.claudexDesktop.getState();
       return Boolean(
         state.commandRuns?.some((run) => run.kind === 'capability' &&
-          /plugin install pass105-failing-plugin@pass105-market/.test(run.command || '') &&
+          /plugin install --scope user pass105-failing-plugin@pass105-market/.test(run.command || '') &&
           run.code === 42 &&
           /pass105 plugin install failed/.test(run.stderr || '')) &&
         state.notices?.some((notice) => notice.level === 'error' &&

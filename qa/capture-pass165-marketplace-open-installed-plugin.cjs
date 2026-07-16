@@ -138,9 +138,9 @@ else if (args[0] === 'plugin' && args[1] === 'list') out(installed() ? 'Installe
 else if (args[0] === 'mcp' && args[1] === 'list') out('✓ pass165-mcp: connected');
 else if (args[0] === 'plugin' && args[1] === 'marketplace' && args[2] === 'list' && args.includes('--json')) out([{ name: 'pass165-market', source: 'path', repo: marketplaceDir, installLocation: marketplaceDir, version: '2026.7.7', status: 'ready', permissions: ['Read', 'Bash'] }]);
 else if (args[0] === 'plugin' && args[1] === 'marketplace' && args[2] === 'list') out('Configured marketplaces:\\n\\n  > pass165-market\\n    Source: Path (' + marketplaceDir + ')');
-else if (args[0] === 'plugin' && args[1] === 'install' && args[2] === 'pass165-link-plugin@pass165-market') {
+else if (args[0] === 'plugin' && args[1] === 'install' && args[2] === '--scope' && args[3] === 'user' && args[4] === 'pass165-link-plugin@pass165-market' && args.length === 5) {
   fs.writeFileSync(installedFile, '1', 'utf8');
-  out('ok plugin install pass165-link-plugin@pass165-market');
+  out('ok plugin install --scope user pass165-link-plugin@pass165-market');
 }
 else out('pass165 fake claude command: ' + args.join(' '));
 `;
@@ -230,13 +230,17 @@ async function runTest() {
   assertStep("PASS165_READY", await waitFor(win, "Boolean(document.querySelector('.app-grid') && window.claudexDesktop)", 15000));
   await openMarketplace(win);
   assertStep("PASS165_MARKETPLACE_CARD_READY", await waitFor(win, `
-    Boolean(document.querySelector('.marketplace-plugin-card[data-marketplace-plugin-id="pass165-link-plugin@pass165-market"]'))
+    (function() {
+      const card = document.querySelector('.marketplace-plugin-card[data-marketplace-plugin-id="pass165-link-plugin@pass165-market"]');
+      const install = card?.querySelector('[data-marketplace-plugin-action="install"]');
+      return Boolean(card && install && !install.disabled);
+    })()
   `, 15000));
   assertStep("PASS165_CLICK_INSTALL", await win.webContents.executeJavaScript(`
     (function() {
       const card = document.querySelector('.marketplace-plugin-card[data-marketplace-plugin-id="pass165-link-plugin@pass165-market"]');
-      const button = card?.querySelector('.marketplace-card-actions button');
-      if (!button) return false;
+      const button = card?.querySelector('[data-marketplace-plugin-action="install"]');
+      if (!button || button.disabled) return false;
       button.click();
       return true;
     })();
@@ -250,7 +254,7 @@ async function runTest() {
       return true;
     })();
   `));
-  assertStep("PASS165_INSTALL_RAN", await waitForLog(/plugin install pass165-link-plugin@pass165-market/));
+  assertStep("PASS165_INSTALL_RAN", await waitForLog(/plugin install --scope user pass165-link-plugin@pass165-market/));
   assertStep("PASS165_MARKETPLACE_CARD_LINK_READY", await waitFor(win, `
     (function() {
       const card = document.querySelector('.marketplace-plugin-card[data-marketplace-plugin-id="pass165-link-plugin@pass165-market"]');
@@ -260,7 +264,7 @@ async function runTest() {
         card?.classList.contains('focused-capability-row') &&
         card?.querySelector('.row-cli-action-evidence.ok') &&
         card?.querySelector('[data-marketplace-plugin-action="open-installed"]') &&
-        /ok plugin install pass165-link-plugin@pass165-market/.test(text) &&
+        /ok plugin install --scope user pass165-link-plugin@pass165-market/.test(text) &&
         /\\u6253\\u5f00\\u5df2\\u5b89\\u88c5/.test(text)
       );
     })();
@@ -284,7 +288,7 @@ async function runTest() {
         row?.querySelector('.row-cli-action-evidence.ok') &&
         /16\\.5\\.0/.test(text) &&
         /pass165-read-tool/.test(text) &&
-        /ok plugin install pass165-link-plugin@pass165-market/.test(text)
+        /ok plugin install --scope user pass165-link-plugin@pass165-market/.test(text)
       );
     })();
   `, 15000));
@@ -293,9 +297,9 @@ async function runTest() {
       const state = await window.claudexDesktop.getState();
       return Boolean(state.commandRuns?.some((run) =>
         run.kind === 'capability' &&
-        /plugin install pass165-link-plugin@pass165-market/.test(run.command || '') &&
+        /plugin install --scope user pass165-link-plugin@pass165-market/.test(run.command || '') &&
         run.code === 0 &&
-        /ok plugin install pass165-link-plugin@pass165-market/.test(run.stdout || '')
+        /ok plugin install --scope user pass165-link-plugin@pass165-market/.test(run.stdout || '')
       ));
     })();
   `, 10000));

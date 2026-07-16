@@ -4049,6 +4049,31 @@ select:focus-visible,
   padding: 12px 0;
 }
 
+.plugin-install-scope {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  border: 0;
+  padding: 0;
+}
+
+.plugin-install-scope legend {
+  padding: 0;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.marketplace-install-scope {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.marketplace-install-scope legend {
+  flex: 0 0 auto;
+}
+
 .plugin-status-list {
   display: grid;
   gap: 8px;

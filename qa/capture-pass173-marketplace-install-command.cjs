@@ -103,9 +103,9 @@ if (args[0] === '--version') out('2.10.0 (Claude Code PASS173)');
 else if (args[0] === 'auth' && args[1] === 'status') out({ loggedIn: true, apiProvider: 'qa-provider', authMethod: 'api_key' });
 else if (args[0] === 'plugin' && args[1] === 'list' && args.includes('--json')) out({ plugins: [] });
 else if (args[0] === 'plugin' && args[1] === 'list') out('Installed plugins:\\n\\n  No plugins installed');
-else if (args[0] === 'plugin' && args[1] === 'install') {
+else if (args[0] === 'plugin' && args[1] === 'install' && args[2] === '--scope' && args[3] === 'user' && args[4] === 'pass173-risk-plugin@pass173-market' && args.length === 5) {
   fs.writeFileSync(installMarker, args.slice(2).join(' '), 'utf8');
-  out({ installed: args[2], ok: true });
+  out({ installed: args[4], scope: args[3], ok: true });
 }
 else if (args[0] === 'plugin' && args[1] === 'marketplace' && args[2] === 'list' && args.includes('--json')) out([{ name: 'pass173-market', source: 'path', repo: marketplaceDir, installLocation: marketplaceDir, version: '2026.7.7', status: 'ready', permissions: ['Read', 'Bash'] }]);
 else if (args[0] === 'plugin' && args[1] === 'marketplace' && args[2] === 'list') out('Configured marketplaces:\\n\\n  > pass173-market\\n    Source: Path (' + marketplaceDir + ')');
@@ -248,7 +248,7 @@ app.whenReady().then(async () => {
           document.querySelector('.marketplace-filter-control [data-marketplace-filter="available"].active') &&
           card?.classList.contains('focused-capability-row') &&
           confirm &&
-          /plugin install pass173-risk-plugin@pass173-market/.test(confirmText) &&
+          /plugin install --scope user pass173-risk-plugin@pass173-market/.test(confirmText) &&
           /runs local plugin code/.test(metaText) &&
           /network access/.test(metaText) &&
           /Read/.test(metaText) &&

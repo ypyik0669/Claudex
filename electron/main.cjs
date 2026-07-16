@@ -2279,11 +2279,15 @@ function marketplacePluginSource(plugin) {
   return plugin?.source || plugin?.repository || plugin?.repo || plugin?.url || plugin?.homepage || "";
 }
 
-function marketplacePluginCatalogItem(plugin, manifest, marketplace, root, installedIds) {
+function marketplacePluginCatalogItem(plugin, manifest, marketplace, root, installedState) {
   const name = marketplacePluginName(plugin);
   if (!name) return null;
   const idText = `${name}@${marketplace.name}`;
-  const installed = installedIds.has(idText.toLowerCase()) || installedIds.has(name.toLowerCase());
+  const identityKeys = [idText, name].map((value) => value.toLowerCase());
+  const installed = identityKeys.some((key) => installedState.ids.has(key));
+  const installedScopes = [...new Set(identityKeys.flatMap((key) => (
+    [...(installedState.scopesById.get(key) || [])]
+  )))].sort((left, right) => ["user", "project", "local"].indexOf(left) - ["user", "project", "local"].indexOf(right));
   const toolSource = plugin.tools || plugin.toolNames || plugin.commands || plugin.slashCommands || plugin.mcpTools || plugin.capabilities;
   return {
     id: idText,
@@ -2301,6 +2305,7 @@ function marketplacePluginCatalogItem(plugin, manifest, marketplace, root, insta
     risk: marketplacePluginRiskSummary(plugin),
     installLocation: root,
     installed,
+    installedScopes,
   };
 }
 
@@ -2376,15 +2381,27 @@ function readMarketplacePluginManifests(root) {
 
 function loadMarketplacePluginCatalog(marketplaces, installedPlugins) {
   const installedIds = new Set();
+  const installedScopesById = new Map();
   for (const plugin of installedPlugins || []) {
-    if (plugin.id) installedIds.add(String(plugin.id).toLowerCase());
-    if (plugin.name) installedIds.add(String(plugin.name).toLowerCase());
-    if (plugin.name && plugin.marketplace) installedIds.add(`${plugin.name}@${plugin.marketplace}`.toLowerCase());
+    const identityKeys = [
+      plugin.id,
+      plugin.name,
+      plugin.name && plugin.marketplace ? `${plugin.name}@${plugin.marketplace}` : "",
+    ].map((value) => String(value || "").trim().toLowerCase()).filter(Boolean);
+    const scope = String(plugin.scope || "").trim().toLowerCase();
+    for (const key of identityKeys) {
+      installedIds.add(key);
+      if (!["user", "project", "local"].includes(scope)) continue;
+      const scopes = installedScopesById.get(key) || new Set();
+      scopes.add(scope);
+      installedScopesById.set(key, scopes);
+    }
   }
+  const installedState = { ids: installedIds, scopesById: installedScopesById };
   const catalog = [];
   const seenCatalogIds = new Set();
   function addCatalogItem(plugin, manifest, marketplace, root) {
-    const item = marketplacePluginCatalogItem(plugin, manifest, marketplace, root, installedIds);
+    const item = marketplacePluginCatalogItem(plugin, manifest, marketplace, root, installedState);
     if (!item?.id || seenCatalogIds.has(item.id.toLowerCase())) return false;
     seenCatalogIds.add(item.id.toLowerCase());
     catalog.push(item);
@@ -6063,10 +6080,32 @@ function existingProjectDirectory(value) {
   }
 }
 
+function scopedPluginInstallMutation(argv = []) {
+  const sourceArgs = Array.isArray(argv) ? argv : [];
+  const args = sourceArgs.map(String);
+  const requested = args[0] === "plugin" && ["install", "i"].includes(args[1]);
+  if (!requested) return null;
+  if (sourceArgs.some((arg) => typeof arg !== "string") || args.length !== 5 || args[1] !== "install" || args[2] !== "--scope") {
+    return { valid: false, scope: "", identifier: "" };
+  }
+  const scope = String(args[3] || "").trim().toLowerCase();
+  const identifier = String(args[4] || "").trim();
+  const validIdentifier = Boolean(
+    identifier
+    && !identifier.startsWith("-")
+    && !/[\s\u0000-\u001f\u007f&|<>^()%!"]/u.test(identifier),
+  );
+  return {
+    valid: ["user", "project", "local"].includes(scope) && validIdentifier,
+    scope,
+    identifier,
+  };
+}
+
 function projectBoundCapabilityScope(argv = []) {
   const args = Array.isArray(argv) ? argv.map(String) : [];
   const isMcpMutation = args[0] === "mcp" && ["add", "remove"].includes(args[1]);
-  const isScopedPluginMutation = args[0] === "plugin" && ["enable", "disable", "update", "uninstall", "remove"].includes(args[1]);
+  const isScopedPluginMutation = args[0] === "plugin" && ["install", "enable", "disable", "update", "uninstall", "remove"].includes(args[1]);
   if (!isMcpMutation && !isScopedPluginMutation) return "";
   const delimiterIndex = args.indexOf("--");
   const optionArgs = delimiterIndex >= 0 ? args.slice(0, delimiterIndex) : args;
@@ -6083,8 +6122,13 @@ function projectBoundCapabilityScope(argv = []) {
 }
 
 ipcMain.handle("claude:run", async (_event, { projectPath, args, requestId, sessionId = "", persistCommandRun = false, commandRunKind = "claude", capabilityContext = null } = {}) => {
-  const argv = Array.isArray(args) ? args.map(String).filter(Boolean) : splitArgs(args);
+  const rawArgv = Array.isArray(args) ? args : splitArgs(args);
+  const argv = rawArgv.map(String).filter(Boolean);
   if (!argv.length) throw new Error("Claude 命令为空。");
+  const capabilityPluginInstall = commandRunKind === "capability" ? scopedPluginInstallMutation(rawArgv) : null;
+  if (capabilityPluginInstall && (!Array.isArray(args) || !capabilityPluginInstall.valid)) {
+    throw new Error("插件安装必须使用结构化参数：plugin install --scope <user|project|local> <plugin>。");
+  }
   const requestedProjectDirectory = existingProjectDirectory(projectPath);
   const projectBoundScope = projectBoundCapabilityScope(argv);
   if (projectBoundScope && !requestedProjectDirectory) {

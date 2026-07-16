@@ -144,7 +144,7 @@ else if (args[0] === 'plugin' && args[1] === 'marketplace' && args[2] === 'updat
 else if (args[0] === 'mcp' && args[1] === 'list' && args.includes('--json')) out([{ name: '${MCP_SERVER_NAME}', status: 'connected', transport: 'stdio', source: 'pass208 fixture', tools: 1, toolNames: ['pass208-tool'] }]);
 else if (args[0] === 'mcp' && args[1] === 'list') out('pass208 mcp list recovered');
 else if (args[0] === 'plugin' && args[1] === 'disable' && args[2] === '--scope' && args[3] === 'user' && args[4] === '${PLUGIN_ID}') out('ok plugin disable --scope user ${PLUGIN_ID}');
-else if (args[0] === 'plugin' && args[1] === 'install' && args[2] === '${MARKETPLACE_PLUGIN_ID}') out('ok plugin install ${MARKETPLACE_PLUGIN_ID}');
+else if (args[0] === 'plugin' && args[1] === 'install' && args[2] === '--scope' && args[3] === 'user' && args[4] === '${MARKETPLACE_PLUGIN_ID}' && args.length === 5) out('ok plugin install --scope user ${MARKETPLACE_PLUGIN_ID}');
 else out('pass208 fake claude command: ' + args.join(' '));
 `;
   fs.mkdirSync(FAKE_BIN_DIR, { recursive: true });
@@ -290,8 +290,9 @@ function writeInitialStore() {
         id: MARKETPLACE_PLUGIN_RUN_ID,
         requestId: MARKETPLACE_PLUGIN_RUN_ID,
         kind: "capability",
-        command: `plugin install ${MARKETPLACE_PLUGIN_ID}`,
-        commandLine: `plugin install ${MARKETPLACE_PLUGIN_ID}`,
+        args: ["plugin", "install", "--scope", "user", MARKETPLACE_PLUGIN_ID],
+        command: `plugin install --scope user ${MARKETPLACE_PLUGIN_ID}`,
+        commandLine: `plugin install --scope user ${MARKETPLACE_PLUGIN_ID}`,
         cwd: PROJECT_DIR,
         project,
         code: 45,
@@ -306,6 +307,7 @@ function writeInitialStore() {
           id: MARKETPLACE_PLUGIN_ID,
           query: MARKETPLACE_PLUGIN_ID,
           action: "install",
+          target: "user",
         },
       },
     ],
@@ -531,7 +533,7 @@ async function runTest() {
   assertStep("PASS208_CLICK_MARKETPLACE_PLUGIN_TIMELINE", await clickCommandById(win, `capability-recovery:timeline:${MARKETPLACE_PLUGIN_RUN_ID}`));
   assertStep("PASS208_MARKETPLACE_PLUGIN_TIMELINE_FOCUSED", await waitFor(win, `
     Boolean(document.querySelector('.selected-run-evidence-panel') &&
-      /plugin install ${MARKETPLACE_PLUGIN_ID}/.test(document.querySelector('.selected-run-evidence-panel')?.textContent || '') &&
+      /plugin install --scope user ${MARKETPLACE_PLUGIN_ID}/.test(document.querySelector('.selected-run-evidence-panel')?.textContent || '') &&
       /pass208 marketplace plugin install failed before retry/.test(document.querySelector('.selected-run-evidence-panel')?.textContent || ''))
   `, 10000));
   const beforeMarketplacePluginContextRuns = await win.webContents.executeJavaScript(`
