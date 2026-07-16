@@ -199,7 +199,7 @@ async function runTest() {
     })();
   `));
   assertStep("PASS45_DISABLE_CONFIRM_VISIBLE", await waitFor(win, "Boolean(document.querySelector('.plugin-cli-confirm'))", 5000));
-  assertStep("PASS45_DISABLE_NOT_RUN_BEFORE_CONFIRM", !/plugin disable qa-installed-plugin@qa-market/.test(readCommandLog().slice(beforeDisable.length)));
+  assertStep("PASS45_DISABLE_NOT_RUN_BEFORE_CONFIRM", !/plugin disable --scope user qa-installed-plugin@qa-market/.test(readCommandLog().slice(beforeDisable.length)));
   assertStep("PASS45_CONFIRM_DISABLE", await win.webContents.executeJavaScript(`
     (function() {
       const button = document.querySelector('.plugin-cli-confirm .danger-action');
@@ -208,12 +208,12 @@ async function runTest() {
       return true;
     })();
   `));
-  assertStep("PASS45_DISABLE_RAN_AFTER_CONFIRM", await waitForLog(/plugin disable qa-installed-plugin@qa-market/));
+  assertStep("PASS45_DISABLE_RAN_AFTER_CONFIRM", await waitForLog(/plugin disable --scope user qa-installed-plugin@qa-market/));
   assertStep("PASS45_DISABLE_EVIDENCE_VISIBLE", await waitFor(win, `
     (function() {
       const card = document.querySelector('.plugin-cli-action-evidence.ok');
       const text = card?.textContent || '';
-      return Boolean(card && /plugin disable qa-installed-plugin@qa-market/.test(text) && /\\b0\\b/.test(text));
+      return Boolean(card && /plugin disable --scope user qa-installed-plugin@qa-market/.test(text) && /\\b0\\b/.test(text));
     })();
   `, 10000));
 

@@ -205,20 +205,24 @@ async function runTest() {
     })();
   `));
   assertStep("PASS59_PLUGIN_ROWS", await waitFor(win, `
-    Boolean(document.querySelector('.plugin-manager-modal') && /qa-installed-plugin@qa-market/.test(document.querySelector('.plugin-manager-list')?.textContent || ''))
+    (function() {
+      const row = document.querySelector('.structured-plugin-row[data-plugin-id="qa-installed-plugin@qa-market"]');
+      const action = row?.querySelector('[data-plugin-action="disable"]');
+      return Boolean(row && action && !action.disabled);
+    })()
   `, 15000));
 
   const beforeDisable = readCommandLog();
   assertStep("PASS59_CLICK_DISABLE", await win.webContents.executeJavaScript(`
     (function() {
-      const button = document.querySelector('.structured-row-actions button');
-      if (!button) return false;
+      const button = document.querySelector('.structured-plugin-row[data-plugin-id="qa-installed-plugin@qa-market"] [data-plugin-action="disable"]');
+      if (!button || button.disabled) return false;
       button.click();
       return true;
     })();
   `));
   assertStep("PASS59_DISABLE_CONFIRM_VISIBLE", await waitFor(win, "Boolean(document.querySelector('.plugin-cli-confirm'))", 5000));
-  assertStep("PASS59_DISABLE_NOT_RUN_BEFORE_CONFIRM", !/plugin disable qa-installed-plugin@qa-market/.test(readCommandLog().slice(beforeDisable.length)));
+  assertStep("PASS59_DISABLE_NOT_RUN_BEFORE_CONFIRM", !/plugin disable --scope user qa-installed-plugin@qa-market/.test(readCommandLog().slice(beforeDisable.length)));
   assertStep("PASS59_CONFIRM_DISABLE", await win.webContents.executeJavaScript(`
     (function() {
       const button = document.querySelector('.plugin-cli-confirm .danger-action');
@@ -227,14 +231,14 @@ async function runTest() {
       return true;
     })();
   `));
-  assertStep("PASS59_DISABLE_RAN_AFTER_CONFIRM", await waitForLog(/plugin disable qa-installed-plugin@qa-market/));
+  assertStep("PASS59_DISABLE_RAN_AFTER_CONFIRM", await waitForLog(/plugin disable --scope user qa-installed-plugin@qa-market/));
   assertStep("PASS59_PLUGIN_ROW_ACTION_EVIDENCE_VISIBLE", await waitFor(win, `
     (function() {
       const row = [...document.querySelectorAll('.structured-plugin-row')]
         .find((item) => /qa-installed-plugin@qa-market/.test(item.textContent || ''));
       const evidence = row?.querySelector('.row-cli-action-evidence.ok');
       const text = evidence?.textContent || '';
-      return Boolean(evidence && /plugin disable qa-installed-plugin@qa-market/.test(text) && /退出码/.test(text) && /\\b0\\b/.test(text));
+      return Boolean(evidence && /plugin disable --scope user qa-installed-plugin@qa-market/.test(text) && /退出码/.test(text) && /\\b0\\b/.test(text));
     })();
   `, 10000));
 

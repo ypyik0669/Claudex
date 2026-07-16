@@ -143,7 +143,7 @@ else if (args[0] === 'plugin' && args[1] === 'marketplace' && args[2] === 'list'
 else if (args[0] === 'plugin' && args[1] === 'marketplace' && args[2] === 'update') out('pass208 marketplace update recovered');
 else if (args[0] === 'mcp' && args[1] === 'list' && args.includes('--json')) out([{ name: '${MCP_SERVER_NAME}', status: 'connected', transport: 'stdio', source: 'pass208 fixture', tools: 1, toolNames: ['pass208-tool'] }]);
 else if (args[0] === 'mcp' && args[1] === 'list') out('pass208 mcp list recovered');
-else if (args[0] === 'plugin' && args[1] === 'disable' && args[2] === '${PLUGIN_ID}') out('ok plugin disable ${PLUGIN_ID}');
+else if (args[0] === 'plugin' && args[1] === 'disable' && args[2] === '--scope' && args[3] === 'user' && args[4] === '${PLUGIN_ID}') out('ok plugin disable --scope user ${PLUGIN_ID}');
 else if (args[0] === 'plugin' && args[1] === 'install' && args[2] === '${MARKETPLACE_PLUGIN_ID}') out('ok plugin install ${MARKETPLACE_PLUGIN_ID}');
 else out('pass208 fake claude command: ' + args.join(' '));
 `;
@@ -244,8 +244,9 @@ function writeInitialStore() {
         id: MUTATING_RUN_ID,
         requestId: MUTATING_RUN_ID,
         kind: "capability",
-        command: `plugin disable ${PLUGIN_ID}`,
-        commandLine: `plugin disable ${PLUGIN_ID}`,
+        args: ["plugin", "disable", "--scope", "user", PLUGIN_ID],
+        command: `plugin disable --scope user ${PLUGIN_ID}`,
+        commandLine: `plugin disable --scope user ${PLUGIN_ID}`,
         cwd: PROJECT_DIR,
         project,
         code: 33,
@@ -260,6 +261,7 @@ function writeInitialStore() {
           id: PLUGIN_ID,
           query: PLUGIN_ID,
           action: "disable",
+          target: "user",
         },
       },
       {
@@ -413,45 +415,30 @@ async function runTest() {
   assertStep("PASS208_MUTATING_RETRY_ACTION_FOCUSED", await waitFor(win, `
     (function() {
       const row = document.querySelector('.plugin-manager-modal [data-plugin-id="${PLUGIN_ID}"]');
-      const retry = row?.querySelector('[data-plugin-action="retry"]');
+      const action = row?.querySelector('[data-plugin-action="disable"]');
+      const confirm = document.querySelector('.plugin-cli-confirm');
       return Boolean(
         row &&
-        retry &&
+        action &&
         row.classList.contains('focused-capability-row') &&
-        retry.getAttribute('data-capability-action-focused') === 'true' &&
-        retry.getAttribute('data-capability-kind') === 'plugin' &&
-        retry.getAttribute('data-capability-action') === 'retry' &&
-        retry.getAttribute('data-capability-id') === '${PLUGIN_ID}' &&
-        /plugin disable ${PLUGIN_ID}/.test(row.textContent || '') &&
-        !document.querySelector('.plugin-cli-confirm')
+        action.getAttribute('data-capability-action-focused') === 'true' &&
+        action.getAttribute('data-capability-kind') === 'plugin' &&
+        action.getAttribute('data-capability-action') === 'disable' &&
+        action.getAttribute('data-capability-id') === '${PLUGIN_ID}' &&
+        /plugin disable --scope user ${PLUGIN_ID}/.test(row.textContent || '') &&
+        confirm &&
+        /plugin disable --scope user ${PLUGIN_ID}/.test(confirm.textContent || '')
       );
     })();
-  `, 10000));
-  assertStep("PASS208_MUTATING_NOT_RUN_BEFORE_ROW_RETRY", !/plugin disable pass208-plugin@qa-market/.test(readCommandLog().slice(beforeMutatingRetry.length)));
-  assertStep("PASS208_CLICK_MUTATING_ROW_RETRY", await win.webContents.executeJavaScript(`
-    (async function() {
-      let button = null;
-      let readinessButton = null;
-      const startedAt = Date.now();
-      while (Date.now() - startedAt < 5000) {
-        const row = document.querySelector('.plugin-manager-modal [data-plugin-id="${PLUGIN_ID}"]');
-        button = row?.querySelector('[data-plugin-action="retry"]');
-        readinessButton = row?.querySelector('[data-plugin-action="disable"], [data-plugin-action="enable"], [data-plugin-action="update"]');
-        if (button && (!readinessButton || !readinessButton.disabled)) break;
-        await new Promise((resolve) => setTimeout(resolve, 100));
-      }
-      if (!button || button.disabled || readinessButton?.disabled) return false;
-      button.click();
-      return true;
-    })();
   `));
+  assertStep("PASS208_MUTATING_NOT_RUN_BEFORE_CONFIRM_ROUTE", !/plugin disable --scope user pass208-plugin@qa-market/.test(readCommandLog().slice(beforeMutatingRetry.length)));
   assertStep("PASS208_MUTATING_CONFIRM_VISIBLE", await waitFor(win, `
     Boolean(document.querySelector('.plugin-manager-modal') &&
       document.querySelector('.plugin-cli-confirm') &&
       !document.querySelector('.plugin-cli-confirm .danger-action')?.disabled &&
-      /plugin disable ${PLUGIN_ID}/.test(document.querySelector('.plugin-cli-confirm')?.textContent || ''))
+      /plugin disable --scope user ${PLUGIN_ID}/.test(document.querySelector('.plugin-cli-confirm')?.textContent || ''))
   `, 10000));
-  assertStep("PASS208_MUTATING_NOT_RUN_BEFORE_CONFIRM", !/plugin disable pass208-plugin@qa-market/.test(readCommandLog().slice(beforeMutatingRetry.length)));
+  assertStep("PASS208_MUTATING_NOT_RUN_BEFORE_CONFIRM", !/plugin disable --scope user pass208-plugin@qa-market/.test(readCommandLog().slice(beforeMutatingRetry.length)));
   assertStep("PASS208_CONFIRM_MUTATING_RETRY", await win.webContents.executeJavaScript(`
     (function() {
       const button = document.querySelector('.plugin-cli-confirm .danger-action');
@@ -460,21 +447,21 @@ async function runTest() {
       return true;
     })();
   `));
-  assertStep("PASS208_MUTATING_RETRY_RAN", await waitForLogGrowth(/plugin disable pass208-plugin@qa-market/, beforeMutatingRetry, 12000));
+  assertStep("PASS208_MUTATING_RETRY_RAN", await waitForLogGrowth(/plugin disable --scope user pass208-plugin@qa-market/, beforeMutatingRetry, 12000));
   assertStep("PASS208_MUTATING_RETRY_PERSISTED", await waitFor(win, `
     (async function() {
       const state = await window.claudexDesktop.getState();
-      const runs = (state.commandRuns || []).filter((run) => run.kind === 'capability' && /plugin disable pass208-plugin@qa-market/.test(run.command || run.commandLine || ''));
+      const runs = (state.commandRuns || []).filter((run) => run.kind === 'capability' && /plugin disable --scope user pass208-plugin@qa-market/.test(run.command || run.commandLine || ''));
       return runs.some((run) => run.code === 33 && /pass208 plugin disable failed/.test(run.stderr || '')) &&
-        runs.some((run) => run.code === 0 && /ok plugin disable pass208-plugin@qa-market/.test(run.stdout || ''));
+        runs.some((run) => run.code === 0 && /ok plugin disable --scope user pass208-plugin@qa-market/.test(run.stdout || ''));
     })();
   `, 10000));
   assertStep("PASS208_MUTATING_RETRY_CAPABILITY_CONTEXT_PERSISTED", await waitFor(win, `
     (async function() {
       const state = await window.claudexDesktop.getState();
-      const runs = (state.commandRuns || []).filter((run) => run.kind === 'capability' && /plugin disable pass208-plugin@qa-market/.test(run.command || run.commandLine || ''));
+      const runs = (state.commandRuns || []).filter((run) => run.kind === 'capability' && /plugin disable --scope user pass208-plugin@qa-market/.test(run.command || run.commandLine || ''));
       const failed = runs.find((run) => run.code === 33 && /pass208 plugin disable failed/.test(run.stderr || ''));
-      const recovered = runs.find((run) => run.code === 0 && /ok plugin disable pass208-plugin@qa-market/.test(run.stdout || ''));
+      const recovered = runs.find((run) => run.code === 0 && /ok plugin disable --scope user pass208-plugin@qa-market/.test(run.stdout || ''));
       return Boolean(
         failed?.capabilityContext?.tab === 'plugins' &&
         failed?.capabilityContext?.kind === 'plugin' &&
@@ -493,7 +480,7 @@ async function runTest() {
   assertStep("PASS208_CLICK_PLUGIN_TIMELINE", await clickCommandById(win, `capability-recovery:timeline:${MUTATING_RUN_ID}`));
   assertStep("PASS208_PLUGIN_TIMELINE_FOCUSED", await waitFor(win, `
     Boolean(document.querySelector('.selected-run-evidence-panel') &&
-      /plugin disable ${PLUGIN_ID}/.test(document.querySelector('.selected-run-evidence-panel')?.textContent || '') &&
+      /plugin disable --scope user ${PLUGIN_ID}/.test(document.querySelector('.selected-run-evidence-panel')?.textContent || '') &&
       /pass208 plugin disable failed before retry/.test(document.querySelector('.selected-run-evidence-panel')?.textContent || ''))
   `, 10000));
   const beforePluginContextRuns = await win.webContents.executeJavaScript(`
@@ -670,7 +657,7 @@ async function runTest() {
   clipboard.writeText("");
   assertStep("PASS208_CLICK_COPY_EVIDENCE", await clickCommandById(win, `capability-recovery:copy:${MUTATING_RUN_ID}`));
   assertStep("PASS208_COPY_EVIDENCE_CLIPBOARD", await waitForClipboard([
-    /plugin disable pass208-plugin@qa-market/,
+    /plugin disable --scope user pass208-plugin@qa-market/,
     /pass208 plugin disable failed before retry/,
     /33/,
   ]));

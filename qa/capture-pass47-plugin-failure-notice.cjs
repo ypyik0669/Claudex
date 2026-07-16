@@ -77,7 +77,7 @@ else if (args[0] === 'plugin' && args[1] === 'list') out('Installed plugins:\\n\
 else if (args[0] === 'mcp' && args[1] === 'list') out('✓ qa-mcp: connected');
 else if (args[0] === 'plugin' && args[1] === 'marketplace' && args[2] === 'list' && args.includes('--json')) out([]);
 else if (args[0] === 'plugin' && args[1] === 'marketplace' && args[2] === 'list') out('Configured marketplaces: none');
-else if (args[0] === 'plugin' && args[1] === 'disable' && args[2] === 'qa-failing-plugin@qa-market') {
+else if (args[0] === 'plugin' && args[1] === 'disable' && args[2] === '--scope' && args[3] === 'user' && args[4] === 'qa-failing-plugin@qa-market') {
   process.stderr.write('pass47 disable failed\\n');
   process.exit(17);
 }
@@ -175,12 +175,16 @@ async function runTest() {
     })();
   `));
   assertStep("PASS47_PLUGIN_ROW_READY", await waitFor(win, `
-    Boolean(document.querySelector('.plugin-manager-modal') && /qa-failing-plugin@qa-market/.test(document.querySelector('.plugin-manager-list')?.textContent || ''))
+    (function() {
+      const row = document.querySelector('.structured-plugin-row[data-plugin-id="qa-failing-plugin@qa-market"]');
+      const action = row?.querySelector('[data-plugin-action="disable"]');
+      return Boolean(row && action && !action.disabled);
+    })()
   `, 15000));
   assertStep("PASS47_CLICK_DISABLE", await win.webContents.executeJavaScript(`
     (function() {
-      const button = document.querySelector('.structured-row-actions button');
-      if (!button) return false;
+      const button = document.querySelector('.structured-plugin-row[data-plugin-id="qa-failing-plugin@qa-market"] [data-plugin-action="disable"]');
+      if (!button || button.disabled) return false;
       button.click();
       return true;
     })();
@@ -194,13 +198,13 @@ async function runTest() {
       return true;
     })();
   `));
-  assertStep("PASS47_DISABLE_COMMAND_RAN", await waitForLog(/plugin disable qa-failing-plugin@qa-market/));
+  assertStep("PASS47_DISABLE_COMMAND_RAN", await waitForLog(/plugin disable --scope user qa-failing-plugin@qa-market/));
   assertStep("PASS47_PLUGIN_ERROR_VISIBLE", await waitFor(win, "Boolean(document.querySelector('.plugin-cli-error') && /pass47 disable failed/.test(document.body.textContent || ''))", 10000));
   assertStep("PASS47_FAILURE_EVIDENCE_VISIBLE", await waitFor(win, `
     (function() {
       const card = document.querySelector('.plugin-cli-action-evidence.error');
       const text = card?.textContent || '';
-      return Boolean(card && /plugin disable qa-failing-plugin@qa-market/.test(text) && /17/.test(text) && /pass47 disable failed/.test(text));
+      return Boolean(card && /plugin disable --scope user qa-failing-plugin@qa-market/.test(text) && /17/.test(text) && /pass47 disable failed/.test(text));
     })();
   `, 10000));
   assertStep("PASS47_ROW_FAILURE_SUMMARY_VISIBLE", await waitFor(win, `
@@ -234,18 +238,18 @@ async function runTest() {
   assertStep("PASS47_OPEN_OUTPUTS_PANEL", await openOutputsPanel(win));
   assertStep("PASS47_TIMELINE_HAS_FAILURE", await waitFor(win, `
     Boolean(document.querySelector('.run-timeline') &&
-      /plugin disable qa-failing-plugin@qa-market/.test(document.querySelector('.run-timeline')?.textContent || '') &&
+      /plugin disable --scope user qa-failing-plugin@qa-market/.test(document.querySelector('.run-timeline')?.textContent || '') &&
       /退出码: 17/.test(document.querySelector('.run-timeline')?.textContent || ''))
   `, 8000));
   assertStep("PASS47_BOTTOM_EVIDENCE_HAS_FAILURE_OUTPUT", await waitFor(win, `
     Boolean(document.querySelector('.capability-command-evidence-stack') &&
-      /plugin disable qa-failing-plugin@qa-market/.test(document.querySelector('.capability-command-evidence-stack')?.textContent || '') &&
+      /plugin disable --scope user qa-failing-plugin@qa-market/.test(document.querySelector('.capability-command-evidence-stack')?.textContent || '') &&
       /pass47 disable failed/.test(document.querySelector('.capability-command-evidence-stack')?.textContent || ''))
   `, 8000));
   assertStep("PASS47_CAPABILITY_COMMAND_PERSISTED", (() => {
     const parsed = JSON.parse(fs.readFileSync(DATA_FILE, "utf8"));
     return parsed.commandRuns?.some((run) => run.kind === "capability" &&
-      /plugin disable qa-failing-plugin@qa-market/.test(run.command || "") &&
+      /plugin disable --scope user qa-failing-plugin@qa-market/.test(run.command || "") &&
       run.code === 17 &&
       /pass47 disable failed/.test(run.stderr || ""));
   })());

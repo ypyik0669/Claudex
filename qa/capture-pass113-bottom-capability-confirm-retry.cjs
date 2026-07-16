@@ -104,11 +104,11 @@ else if (args[0] === 'plugin' && args[1] === 'list') out('Installed plugins:\\n\
 else if (args[0] === 'mcp' && args[1] === 'list') out('? qa-mcp: connected');
 else if (args[0] === 'plugin' && args[1] === 'marketplace' && args[2] === 'list' && args.includes('--json')) out([]);
 else if (args[0] === 'plugin' && args[1] === 'marketplace' && args[2] === 'list') out('Configured marketplaces: none');
-else if (args[0] === 'plugin' && args[1] === 'disable' && args[2] === 'qa-mutating-retry-plugin@qa-market') {
+else if (args[0] === 'plugin' && args[1] === 'disable' && args[2] === '--scope' && args[3] === 'user' && args[4] === 'qa-mutating-retry-plugin@qa-market') {
   const nextDisableCount = disableCount() + 1;
   fs.writeFileSync(disableCountFile, String(nextDisableCount), 'utf8');
   if (nextDisableCount === 1) { process.stderr.write('pass113 disable failed\\n'); process.exit(33); }
-  else out('ok plugin disable qa-mutating-retry-plugin@qa-market');
+  else out('ok plugin disable --scope user qa-mutating-retry-plugin@qa-market');
 }
 else out('pass113 fake claude command: ' + args.join(' '));
 `;
@@ -234,7 +234,7 @@ async function runTest() {
     })();
   `));
   assertStep("PASS113_DISABLE_CONFIRM_VISIBLE", await waitFor(win, "Boolean(document.querySelector('.plugin-cli-confirm'))", 5000));
-  assertStep("PASS113_DISABLE_NOT_RUN_BEFORE_CONFIRM", !/plugin disable qa-mutating-retry-plugin@qa-market/.test(readCommandLog().slice(beforeDisable.length)));
+  assertStep("PASS113_DISABLE_NOT_RUN_BEFORE_CONFIRM", !/plugin disable --scope user qa-mutating-retry-plugin@qa-market/.test(readCommandLog().slice(beforeDisable.length)));
   assertStep("PASS113_CONFIRM_DISABLE", await win.webContents.executeJavaScript(`
     (function() {
       const button = document.querySelector('.plugin-cli-confirm .danger-action');
@@ -243,7 +243,7 @@ async function runTest() {
       return true;
     })();
   `));
-  assertStep("PASS113_DISABLE_RAN", await waitForLog(/plugin disable qa-mutating-retry-plugin@qa-market/));
+  assertStep("PASS113_DISABLE_RAN", await waitForLog(/plugin disable --scope user qa-mutating-retry-plugin@qa-market/));
   assertStep("PASS113_DISABLE_FAILURE_VISIBLE", await waitFor(win, `
     (function() {
       const row = [...document.querySelectorAll('.structured-plugin-row')]
@@ -268,7 +268,7 @@ async function runTest() {
         stack &&
         /Plugin\\/MCP CLI/.test(stack.textContent || '') &&
         card &&
-        /plugin disable qa-mutating-retry-plugin@qa-market/.test(text) &&
+        /plugin disable --scope user qa-mutating-retry-plugin@qa-market/.test(text) &&
         /pass113 disable failed/.test(text) &&
         retry
       );
@@ -290,9 +290,9 @@ async function runTest() {
     Boolean(document.querySelector('.plugin-manager-modal') &&
       document.querySelector('.plugin-cli-confirm') &&
       !document.querySelector('.plugin-cli-confirm .danger-action')?.disabled &&
-      /plugin disable qa-mutating-retry-plugin@qa-market/.test(document.querySelector('.plugin-cli-confirm')?.textContent || ''))
+      /plugin disable --scope user qa-mutating-retry-plugin@qa-market/.test(document.querySelector('.plugin-cli-confirm')?.textContent || ''))
   `, 10000));
-  assertStep("PASS113_RETRY_DID_NOT_RUN_BEFORE_CONFIRM", !/plugin disable qa-mutating-retry-plugin@qa-market/.test(readCommandLog().slice(beforeRetryClick.length)));
+  assertStep("PASS113_RETRY_DID_NOT_RUN_BEFORE_CONFIRM", !/plugin disable --scope user qa-mutating-retry-plugin@qa-market/.test(readCommandLog().slice(beforeRetryClick.length)));
   assertStep("PASS113_CONFIRM_RETRY", await win.webContents.executeJavaScript(`
     (function() {
       const button = document.querySelector('.plugin-cli-confirm .danger-action');
@@ -301,7 +301,7 @@ async function runTest() {
       return true;
     })();
   `));
-  assertStep("PASS113_RETRY_DISABLE_RAN", await waitForLog(/plugin disable qa-mutating-retry-plugin@qa-market(?:.|\n)*plugin disable qa-mutating-retry-plugin@qa-market/, 12000));
+  assertStep("PASS113_RETRY_DISABLE_RAN", await waitForLog(/plugin disable --scope user qa-mutating-retry-plugin@qa-market(?:.|\n)*plugin disable --scope user qa-mutating-retry-plugin@qa-market/, 12000));
   assertStep("PASS113_PLUGIN_ROW_RETRY_RECOVERED", await waitFor(win, `
     (function() {
       const row = [...document.querySelectorAll('.structured-plugin-row')]
@@ -310,18 +310,18 @@ async function runTest() {
       return Boolean(
         row?.querySelector('.plugin-status-badge.disabled') &&
         row?.querySelector('.row-cli-action-evidence.ok') &&
-        /ok plugin disable qa-mutating-retry-plugin@qa-market/.test(text)
+        /ok plugin disable --scope user qa-mutating-retry-plugin@qa-market/.test(text)
       );
     })();
   `, 15000));
   assertStep("PASS113_RETRY_PERSISTED", await waitFor(win, `
     (async function() {
       const state = await window.claudexDesktop.getState();
-      const runs = state.commandRuns?.filter((run) => run.kind === 'capability' && /plugin disable qa-mutating-retry-plugin@qa-market/.test(run.command || '')) || [];
+      const runs = state.commandRuns?.filter((run) => run.kind === 'capability' && /plugin disable --scope user qa-mutating-retry-plugin@qa-market/.test(run.command || '')) || [];
       return Boolean(
         runs.length >= 2 &&
         runs.some((run) => run.code === 33 && /pass113 disable failed/.test(run.stderr || '')) &&
-        runs.some((run) => run.code === 0 && /ok plugin disable qa-mutating-retry-plugin@qa-market/.test(run.stdout || ''))
+        runs.some((run) => run.code === 0 && /ok plugin disable --scope user qa-mutating-retry-plugin@qa-market/.test(run.stdout || ''))
       );
     })();
   `, 10000));

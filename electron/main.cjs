@@ -6066,7 +6066,7 @@ function existingProjectDirectory(value) {
 function projectBoundCapabilityScope(argv = []) {
   const args = Array.isArray(argv) ? argv.map(String) : [];
   const isMcpMutation = args[0] === "mcp" && ["add", "remove"].includes(args[1]);
-  const isScopedPluginMutation = args[0] === "plugin" && ["update", "uninstall", "remove"].includes(args[1]);
+  const isScopedPluginMutation = args[0] === "plugin" && ["enable", "disable", "update", "uninstall", "remove"].includes(args[1]);
   if (!isMcpMutation && !isScopedPluginMutation) return "";
   const delimiterIndex = args.indexOf("--");
   const optionArgs = delimiterIndex >= 0 ? args.slice(0, delimiterIndex) : args;

@@ -608,13 +608,14 @@ const copy = {
     copyEvidence: "复制证据",
     openCapabilityContext: "打开能力上下文",
     openOutputs: "打开输出",
-    confirmDisableTitle: "要禁用这个插件吗？",
-    confirmDisableWarning: "这会禁用「{name}」。之后可以通过重新安装或更新来重新启用它。",
-    confirmDisableButton: "确认禁用",
     confirmCliActionTitle: "确认执行本机 CLI 操作",
     confirmCliActionWarning: "这会通过 Claude Code CLI 修改本机插件、MCP 或市场状态：{command}",
     confirmCliActionButton: "确认执行",
     pluginMutationRisk: "会通过 Claude Code CLI 修改本机插件状态，并把执行结果写入本地命令证据。",
+    pluginToggleRisk: "这会在 {scope} 范围{action}插件；命令成功后会刷新真实 CLI 状态并保留执行证据。",
+    pluginToggleScopeRequired: "Claude Code 未返回可修改的安装范围，无法安全启用或禁用。",
+    pluginToggleProjectRequired: "project 和 local 范围的插件启用或禁用需要先选择真实项目文件夹。",
+    pluginToggleSelectInstalled: "请先输入已安装且具有有效范围的插件。",
     pluginUpdateRisk: "这会在 {scope} 范围更新插件；命令成功后仍需重启 Claude Code 才会应用新版本。",
     pluginUpdateScopeRequired: "Claude Code 未返回可更新的安装范围，无法安全更新。",
     pluginUpdateProjectRequired: "project 和 local 范围的插件更新需要先选择真实项目文件夹。",
@@ -1202,6 +1203,42 @@ function normalizePluginScope(value) {
   return ["user", "project", "local"].includes(scope) ? scope : "";
 }
 
+function pluginToggleCommandArgs(plugin = {}, action = "", scopeOverride = "") {
+  const identifier = String(plugin?.id || plugin?.name || "").trim();
+  const normalizedAction = String(action || "").trim().toLowerCase();
+  const scope = normalizePluginScope(scopeOverride || plugin?.scope);
+  return identifier && !identifier.startsWith("-") && !/[\s\u0000-\u001f\u007f]/.test(identifier)
+    && ["enable", "disable"].includes(normalizedAction) && scope
+    ? ["plugin", normalizedAction, "--scope", scope, identifier]
+    : [];
+}
+
+function parsePluginToggleCommand(value) {
+  if (Array.isArray(value)) {
+    const args = value.map(String);
+    if (
+      args.length !== 5 || args[0] !== "plugin" ||
+      !["enable", "disable"].includes(args[1]) || args[2] !== "--scope"
+    ) return null;
+    const action = args[1];
+    const scope = normalizePluginScope(args[3]);
+    const identifier = String(args[4] || "").trim();
+    const canonical = pluginToggleCommandArgs({ id: identifier }, action, scope);
+    return canonical.length && JSON.stringify(canonical) === JSON.stringify(args)
+      ? { action, scope, identifier }
+      : null;
+  }
+  const command = String(value || "").trim().replace(/^claude\s+/i, "");
+  const match = command.match(/^plugin\s+(enable|disable)\s+--scope\s+(user|project|local)\s+([^\s]+)$/i);
+  if (!match) return null;
+  const parsed = {
+    action: String(match[1] || "").toLowerCase(),
+    scope: normalizePluginScope(match[2]),
+    identifier: String(match[3] || "").trim(),
+  };
+  return pluginToggleCommandArgs({ id: parsed.identifier }, parsed.action, parsed.scope).length ? parsed : null;
+}
+
 function normalizePluginUpdateScope(value) {
   const scope = String(value || "").trim().toLowerCase();
   return ["user", "project", "local", "managed"].includes(scope) ? scope : "";
@@ -1460,13 +1497,17 @@ function pluginActionRegex(identifier, actions = ["install", "update", "disable"
   if (!id) return null;
   const suffix = id.includes("@") ? "" : "(?:@[^\\s]+)?";
   const normalizedActions = [...new Set((actions || []).map((action) => String(action || "").trim().toLowerCase()).filter(Boolean))];
-  const directActions = normalizedActions.filter((action) => !["update", "uninstall", "remove"].includes(action));
+  const directActions = normalizedActions.filter((action) => !["enable", "disable", "update", "uninstall", "remove"].includes(action));
   const patterns = [];
   if (directActions.length) {
     patterns.push(`(?:^|\\s)plugin\\s+(?:${directActions.map(escapeRegExp).join("|")})\\s+${escapeRegExp(id)}${suffix}(?=\\s|$)`);
   }
   if (normalizedActions.some((action) => ["uninstall", "remove"].includes(action))) {
     patterns.push(`(?:^|\\s)plugin\\s+(?:uninstall|remove)\\s+--scope\\s+(?:user|project|local)\\s+${escapeRegExp(id)}${suffix}(?=\\s|$)`);
+  }
+  const toggleActions = normalizedActions.filter((action) => ["enable", "disable"].includes(action));
+  if (toggleActions.length) {
+    patterns.push(`(?:^|\\s)plugin\\s+(?:${toggleActions.map(escapeRegExp).join("|")})(?:\\s+--scope\\s+(?:user|project|local))?\\s+${escapeRegExp(id)}${suffix}(?=\\s|$)`);
   }
   if (normalizedActions.includes("update")) {
     patterns.push(`(?:^|\\s)plugin\\s+update(?:\\s+--scope\\s+(?:user|project|local|managed))?\\s+${escapeRegExp(id)}${suffix}(?=\\s|$)`);
@@ -1514,6 +1555,10 @@ function findRecentMcpServerActionRun(runs, serverName) {
 
 function pluginActionArgsFromRun(run, fallbackIdentifier = "") {
   const commandLine = capabilityCommandLine(run);
+  const toggle = parsePluginToggleCommand(Array.isArray(run?.args) ? run.args : commandLine);
+  if (toggle?.identifier && toggle.scope) {
+    return pluginToggleCommandArgs({ id: toggle.identifier }, toggle.action, toggle.scope);
+  }
   const update = parsePluginUpdateCommand(Array.isArray(run?.args) ? run.args : commandLine);
   if (update?.identifier && update.scope) {
     return pluginUpdateCommandArgs({ id: update.identifier }, update.scope);
@@ -1522,7 +1567,7 @@ function pluginActionArgsFromRun(run, fallbackIdentifier = "") {
   if (uninstall?.identifier && uninstall.scope) {
     return pluginUninstallCommandArgs({ id: uninstall.identifier }, uninstall.scope);
   }
-  const match = commandLine.match(/(?:^|\s)plugin\s+(enable|disable|install)\s+([^\s]+)/i);
+  const match = commandLine.match(/(?:^|\s)plugin\s+(install)\s+([^\s]+)/i);
   const action = String(match?.[1] || "").trim().toLowerCase();
   const identifier = String(match?.[2] || fallbackIdentifier || "").trim();
   if (!action || !identifier) return "";
@@ -1556,10 +1601,13 @@ function mutatingCapabilityRetryArgsFromRun(run) {
   if (mcpAdd) return mcpAddCommandArgs(mcpAdd);
   const pluginUpdate = parsePluginUpdateCommand(Array.isArray(run?.args) ? run.args : capabilityCommandLine(run));
   if (pluginUpdate) return pluginUpdateCommandArgs({ id: pluginUpdate.identifier }, pluginUpdate.scope);
+  const pluginToggle = parsePluginToggleCommand(Array.isArray(run?.args) ? run.args : capabilityCommandLine(run));
+  if (pluginToggle) return pluginToggleCommandArgs({ id: pluginToggle.identifier }, pluginToggle.action, pluginToggle.scope);
   const args = claudeArgsFromRun(run);
   if (!args) return "";
   const mutatingPatterns = [
-    /^plugin\s+(?:install|enable|disable)\s+\S+/i,
+    /^plugin\s+install\s+\S+/i,
+    /^plugin\s+(?:enable|disable)\s+--scope\s+(?:user|project|local)\s+\S+$/i,
     /^plugin\s+update\s+--scope\s+(?:user|project|local|managed)\s+\S+$/i,
     /^plugin\s+(?:uninstall|remove)\s+--scope\s+(?:user|project|local)\s+\S+$/i,
     /^mcp\s+remove\s+--scope\s+(?:local|user|project)\s+\S+$/i,
@@ -1673,6 +1721,17 @@ function capabilityActionFocusForCommand(args, context = {}) {
       query: mcpRemove.name,
       action: "remove",
       target: mcpRemove.scope,
+    };
+  }
+  const pluginToggle = parsePluginToggleCommand(args);
+  if (pluginToggle?.identifier && pluginToggle.scope) {
+    return {
+      tab: "plugins",
+      kind: "plugin",
+      id: pluginToggle.identifier,
+      query: panelPluginNameFromId(pluginToggle.identifier),
+      action: pluginToggle.action,
+      target: pluginToggle.scope,
     };
   }
   const pluginUpdate = parsePluginUpdateCommand(args);
@@ -2317,6 +2376,20 @@ function pluginUpdateReviewRows(plugin = {}, t, activeProject = null, scopeOverr
     actionLabel: t.updatePlugin,
     commandArgs,
     risk: t.pluginUpdateRisk.replace("{scope}", scope || "-"),
+  });
+}
+
+function pluginToggleReviewRows(plugin = {}, action = "", t, activeProject = null, scopeOverride = "") {
+  const normalizedAction = ["enable", "disable"].includes(String(action || "").toLowerCase())
+    ? String(action).toLowerCase()
+    : "";
+  const scope = normalizePluginScope(scopeOverride || plugin.scope);
+  const commandArgs = pluginToggleCommandArgs(plugin, normalizedAction, scope);
+  const actionLabel = normalizedAction === "enable" ? t.enablePlugin : t.disablePlugin;
+  return installedPluginActionReviewRows(plugin, t, activeProject, {
+    actionLabel,
+    commandArgs,
+    risk: t.pluginToggleRisk.replace("{scope}", scope || "-").replace("{action}", actionLabel),
   });
 }
 
@@ -10112,7 +10185,6 @@ function ToolsPanel({
   const [claudeRequestId, setClaudeRequestId] = useState("");
   const claudeRequestRef = useRef("");
   const claudeOutputRef = useRef(null);
-  const [confirmingPluginAction, setConfirmingPluginAction] = useState(null);
   const [pluginName, setPluginName] = useState("");
   const [pluginItems, setPluginItems] = useState(null);
   const [pluginsLoading, setPluginsLoading] = useState(false);
@@ -11169,6 +11241,17 @@ function ToolsPanel({
   const selectedPluginUpdateReady = Boolean(
     selectedPluginUpdateArgs.length && (!selectedPluginUpdateNeedsProject || activeProject?.path),
   );
+  const selectedPluginToggleAction = selectedPluginActionItem?.enabled === false ? "enable" : "disable";
+  const selectedPluginToggleScope = normalizePluginScope(selectedPluginActionItem?.scope);
+  const selectedPluginToggleArgs = pluginToggleCommandArgs(
+    selectedPluginActionItem,
+    selectedPluginToggleAction,
+    selectedPluginToggleScope,
+  );
+  const selectedPluginToggleNeedsProject = ["project", "local"].includes(selectedPluginToggleScope);
+  const selectedPluginToggleReady = Boolean(
+    selectedPluginToggleArgs.length && (!selectedPluginToggleNeedsProject || activeProject?.path),
+  );
   const mcpPanelItems = Array.isArray(claudeStatus?.mcpServers) ? claudeStatus.mcpServers : [];
   const marketplacePanelSources = Array.isArray(claudeStatus?.marketplaces) ? claudeStatus.marketplaces : [];
   const marketplacePanelPlugins = Array.isArray(claudeStatus?.marketplacePlugins) ? claudeStatus.marketplacePlugins : [];
@@ -11197,6 +11280,32 @@ function ToolsPanel({
         args: selectedPluginUpdateArgs,
         label: `${t.updatePlugin}: ${identifier}`,
         reviewRows: pluginUpdateReviewRows(selectedPluginActionItem, t, activeProject, selectedPluginUpdateScope),
+        capabilityContext,
+      },
+    });
+  }
+
+  function openScopedPluginToggleReview(plugin = selectedPluginActionItem, action = selectedPluginToggleAction) {
+    const scope = normalizePluginScope(plugin?.scope);
+    const args = pluginToggleCommandArgs(plugin, action, scope);
+    const needsProject = ["project", "local"].includes(scope);
+    if (!plugin || !args.length || (needsProject && !activeProject?.path)) return;
+    const identifier = plugin.id || plugin.name;
+    const actionLabel = action === "enable" ? t.enablePlugin : t.disablePlugin;
+    const capabilityContext = {
+      tab: "plugins",
+      kind: "plugin",
+      id: identifier,
+      query: identifier,
+      action,
+      target: scope,
+    };
+    onCapabilities?.("plugins", {
+      ...capabilityContext,
+      confirmCommand: {
+        args,
+        label: `${actionLabel}: ${identifier}`,
+        reviewRows: pluginToggleReviewRows(plugin, action, t, activeProject, scope),
         capabilityContext,
       },
     });
@@ -11785,26 +11894,24 @@ function ToolsPanel({
                   >
                     {t.updatePlugin}
                   </button>
-                  <button type="button" className="plain-action danger-action" onClick={() => pluginName.trim() && setConfirmingPluginAction(pluginName.trim())} disabled={claudeBusy || !pluginName.trim()} title={claudeBusy ? t.workingHint : !pluginName.trim() ? t.pluginNameRequired : undefined}>{t.disablePlugin}</button>
+                  <button
+                    type="button"
+                    className={cx("plain-action", selectedPluginToggleAction === "disable" && "danger-action")}
+                    onClick={() => openScopedPluginToggleReview()}
+                    disabled={claudeBusy || !selectedPluginToggleReady}
+                    title={claudeBusy
+                      ? t.workingHint
+                      : !pluginName.trim() || !selectedPluginActionItem || !selectedPluginToggleArgs.length
+                        ? t.pluginToggleSelectInstalled
+                        : selectedPluginToggleNeedsProject && !activeProject?.path
+                          ? t.pluginToggleProjectRequired
+                          : t.pluginToggleRisk
+                            .replace("{scope}", selectedPluginToggleScope)
+                            .replace("{action}", selectedPluginToggleAction === "enable" ? t.enablePlugin : t.disablePlugin)}
+                  >
+                    {selectedPluginToggleAction === "enable" ? t.enablePlugin : t.disablePlugin}
+                  </button>
                 </div>
-                {confirmingPluginAction && (
-                  <div className="dirty-confirm-banner" role="alertdialog">
-                    <span>{t.confirmDisableWarning.replace("{name}", confirmingPluginAction)}</span>
-                    <div className="dirty-confirm-actions">
-                      <button type="button" className="plain-action" onClick={() => setConfirmingPluginAction(null)}>{t.dismissAction}</button>
-                      <button
-                        type="button"
-                        className="danger-action"
-                        onClick={() => {
-                          runClaudeAndRefreshPlugins(`plugin disable ${confirmingPluginAction}`);
-                          setConfirmingPluginAction(null);
-                        }}
-                      >
-                        {t.confirmDisableButton}
-                      </button>
-                    </div>
-                  </div>
-                )}
               </div>
               <div className="plugin-status-list">
                 <div className="plugin-status-header">
@@ -11872,29 +11979,33 @@ function ToolsPanel({
                               {pluginCopied ? <Check size={12} /> : <Copy size={12} />}
                               {pluginCopied ? t.copied : t.copyEvidence}
                             </button>
-                            {plugin.enabled ? (
-                              <button
-                                type="button"
-                                className="plain-action"
-                                {...claudePanelTraceAttributes("plugin", "disable", plugin, { id: plugin.id || plugin.name })}
-                                onClick={() => setConfirmingPluginAction(plugin.id)}
-                                disabled={claudeBusy}
-                                title={claudeBusy ? t.workingHint : undefined}
-                              >
-                                {t.disablePlugin}
-                              </button>
-                            ) : (
-                              <button
-                                type="button"
-                                className="plain-action"
-                                {...claudePanelTraceAttributes("plugin", "enable", plugin, { id: plugin.id || plugin.name })}
-                                onClick={() => runClaudeAndRefreshPlugins(`plugin enable ${plugin.id}`)}
-                                disabled={claudeBusy}
-                                title={claudeBusy ? t.workingHint : undefined}
-                              >
-                                {t.enablePlugin}
-                              </button>
-                            )}
+                            {(() => {
+                              const action = plugin.enabled ? "disable" : "enable";
+                              const scope = normalizePluginScope(plugin.scope);
+                              const args = pluginToggleCommandArgs(plugin, action, scope);
+                              const needsProject = ["project", "local"].includes(scope);
+                              const projectMissing = needsProject && !activeProject?.path;
+                              const actionLabel = action === "enable" ? t.enablePlugin : t.disablePlugin;
+                              return (
+                                <button
+                                  type="button"
+                                  className={cx("plain-action", action === "disable" && "danger-action")}
+                                  data-claude-panel-plugin-action={action}
+                                  {...claudePanelTraceAttributes("plugin", action, plugin, { id: plugin.id || plugin.name })}
+                                  onClick={() => openScopedPluginToggleReview(plugin, action)}
+                                  disabled={claudeBusy || !args.length || projectMissing}
+                                  title={claudeBusy
+                                    ? t.workingHint
+                                    : !args.length
+                                      ? t.pluginToggleScopeRequired
+                                      : projectMissing
+                                        ? t.pluginToggleProjectRequired
+                                        : t.pluginToggleRisk.replace("{scope}", scope).replace("{action}", actionLabel)}
+                                >
+                                  {actionLabel}
+                                </button>
+                              );
+                            })()}
                           </div>
                         </div>
                       );
@@ -14425,6 +14536,11 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                   const pluginCopyFocused = capabilityActionFocusMatches("plugin", "copy", plugin.id, plugin.name);
                   const pluginRetryFocused = capabilityActionFocusMatches("plugin", "retry", plugin.id, plugin.name);
                   const toolDetails = Array.isArray(plugin.toolDetails) ? plugin.toolDetails : [];
+                  const pluginToggleAction = plugin.enabled ? "disable" : "enable";
+                  const pluginToggleScope = normalizePluginScope(plugin.scope);
+                  const pluginToggleArgs = pluginToggleCommandArgs(plugin, pluginToggleAction, pluginToggleScope);
+                  const pluginToggleNeedsProject = ["project", "local"].includes(pluginToggleScope);
+                  const pluginToggleProjectMissing = pluginToggleNeedsProject && !activeProject?.path;
                   const pluginUpdateScope = normalizePluginUpdateScope(plugin.scope);
                   const pluginUpdateArgs = pluginUpdateCommandArgs(plugin, pluginUpdateScope);
                   const pluginUpdateNeedsProject = ["project", "local"].includes(pluginUpdateScope);
@@ -14435,9 +14551,11 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                     ? pluginActionArgsFromRun(recentRun, plugin.id)
                     : "";
                   const pluginActionContext = (action) => {
-                    const target = action === "update"
-                      ? pluginUpdateScope
-                      : action === "uninstall" ? pluginUninstallScope : "";
+                    const target = ["enable", "disable"].includes(action)
+                      ? pluginToggleScope
+                      : action === "update"
+                        ? pluginUpdateScope
+                        : action === "uninstall" ? pluginUninstallScope : "";
                     return {
                       tab: "plugins",
                       kind: "plugin",
@@ -14447,12 +14565,14 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                       ...(target ? { target } : {}),
                     };
                   };
+                  const pluginRetryToggle = parsePluginToggleCommand(pluginRetryArgs);
                   const pluginRetryUpdate = parsePluginUpdateCommand(pluginRetryArgs);
                   const pluginRetryUninstall = parsePluginUninstallCommand(pluginRetryArgs);
                   const pluginRetryDisplayArgs = normalizeClaudeCommandInput(pluginRetryArgs).displayArgs;
-                  const pluginRetryAction = pluginRetryUpdate?.action
+                  const pluginRetryAction = pluginRetryToggle?.action
+                    || pluginRetryUpdate?.action
                     || pluginRetryUninstall?.action
-                    || String(pluginRetryDisplayArgs.match(/(?:^|\s)plugin\s+(enable|disable|install)\s+/i)?.[1] || "").toLowerCase();
+                    || String(pluginRetryDisplayArgs.match(/(?:^|\s)plugin\s+(install)\s+/i)?.[1] || "").toLowerCase();
                   const pluginRetryBaseContext = capabilityContextFromRun(recentRun);
                   const pluginRetryContext = pluginRetryArgs
                     ? normalizeCapabilityContext({
@@ -14461,10 +14581,12 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                         id: pluginRetryBaseContext?.id || plugin.id,
                         query: pluginRetryBaseContext?.query || plugin.id,
                         action: pluginRetryAction || pluginRetryBaseContext?.action || "retry",
-                        target: pluginRetryUpdate?.scope || pluginRetryUninstall?.scope || pluginRetryBaseContext?.target || "",
+                        target: pluginRetryToggle?.scope || pluginRetryUpdate?.scope || pluginRetryUninstall?.scope || pluginRetryBaseContext?.target || "",
                       })
                     : null;
-                  const pluginRetryReviewRows = pluginRetryAction === "update"
+                  const pluginRetryReviewRows = ["enable", "disable"].includes(pluginRetryAction)
+                    ? pluginToggleReviewRows(plugin, pluginRetryAction, t, activeProject, pluginRetryToggle?.scope || pluginRetryContext?.target)
+                    : pluginRetryAction === "update"
                     ? pluginUpdateReviewRows(plugin, t, activeProject, pluginRetryUpdate?.scope || pluginRetryContext?.target)
                     : pluginRetryAction === "uninstall"
                       ? pluginUninstallReviewRows(plugin, t, activeProject, pluginRetryUninstall?.scope || pluginRetryContext?.target)
@@ -14527,9 +14649,20 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                           data-plugin-action="disable"
                           {...capabilityActionFocusAttributes(pluginDisableFocused)}
                           {...surfaceTraceAttributes("plugin", "disable", plugin, { id: plugin.id || plugin.name })}
-                          onClick={() => requestCapabilityClaude(`plugin disable ${plugin.id}`, `${t.disablePlugin}: ${plugin.id}`, pluginActionReviewRows(plugin, t.disablePlugin), pluginActionContext("disable"))}
-                          disabled={cliWorking}
-                          title={cliWorking ? t.workingHint : undefined}
+                          onClick={() => requestCapabilityClaude(
+                            pluginToggleArgs,
+                            `${t.disablePlugin}: ${plugin.id}`,
+                            pluginToggleReviewRows(plugin, "disable", t, activeProject, pluginToggleScope),
+                            pluginActionContext("disable"),
+                          )}
+                          disabled={cliWorking || !pluginToggleArgs.length || pluginToggleProjectMissing}
+                          title={cliWorking
+                            ? t.workingHint
+                            : !pluginToggleArgs.length
+                              ? t.pluginToggleScopeRequired
+                              : pluginToggleProjectMissing
+                                ? t.pluginToggleProjectRequired
+                                : t.pluginToggleRisk.replace("{scope}", pluginToggleScope).replace("{action}", t.disablePlugin)}
                         >
                           {t.disablePlugin}
                         </button>
@@ -14540,9 +14673,20 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                           data-plugin-action="enable"
                           {...capabilityActionFocusAttributes(pluginEnableFocused)}
                           {...surfaceTraceAttributes("plugin", "enable", plugin, { id: plugin.id || plugin.name })}
-                          onClick={() => requestCapabilityClaude(`plugin enable ${plugin.id}`, `${t.enablePlugin}: ${plugin.id}`, pluginActionReviewRows(plugin, t.enablePlugin), pluginActionContext("enable"))}
-                          disabled={cliWorking}
-                          title={cliWorking ? t.workingHint : undefined}
+                          onClick={() => requestCapabilityClaude(
+                            pluginToggleArgs,
+                            `${t.enablePlugin}: ${plugin.id}`,
+                            pluginToggleReviewRows(plugin, "enable", t, activeProject, pluginToggleScope),
+                            pluginActionContext("enable"),
+                          )}
+                          disabled={cliWorking || !pluginToggleArgs.length || pluginToggleProjectMissing}
+                          title={cliWorking
+                            ? t.workingHint
+                            : !pluginToggleArgs.length
+                              ? t.pluginToggleScopeRequired
+                              : pluginToggleProjectMissing
+                                ? t.pluginToggleProjectRequired
+                                : t.pluginToggleRisk.replace("{scope}", pluginToggleScope).replace("{action}", t.enablePlugin)}
                         >
                           {t.enablePlugin}
                         </button>
@@ -16712,6 +16856,22 @@ export function App() {
       ? mcpServers.find((server) => server?.name === mcpRemoveCommand.name)
         || { name: mcpRemoveCommand.name, scope: mcpRemoveCommand.scope }
       : null;
+    const pluginToggleCommand = parsePluginToggleCommand(commandInput.args) || parsePluginToggleCommand(nextArgs);
+    const pluginToggleContext = pluginToggleCommand?.identifier && pluginToggleCommand.scope
+      ? normalizeCapabilityContext({
+          ...(retryContext || {}),
+          tab: "plugins",
+          kind: "plugin",
+          id: pluginToggleCommand.identifier,
+          query: panelPluginNameFromId(pluginToggleCommand.identifier),
+          action: pluginToggleCommand.action,
+          target: pluginToggleCommand.scope,
+        })
+      : null;
+    const pluginTogglePlugin = pluginToggleCommand?.identifier
+      ? findPluginByIdentifiers(installedPlugins, [pluginToggleCommand.identifier])
+        || { id: pluginToggleCommand.identifier, scope: pluginToggleCommand.scope }
+      : null;
     const pluginUpdateCommand = parsePluginUpdateCommand(commandInput.args) || parsePluginUpdateCommand(nextArgs);
     const pluginUpdateContext = pluginUpdateCommand?.identifier && pluginUpdateCommand.scope
       ? normalizeCapabilityContext({
@@ -16772,6 +16932,8 @@ export function App() {
       ? mcpAddReviewRows(mcpAddCommand, t, activeProject)
       : mcpRemoveServer && mcpRemoveCommand?.scope
       ? mcpRemoveReviewRows(mcpRemoveServer, t, activeProject, mcpRemoveCommand.scope)
+      : pluginTogglePlugin && pluginToggleCommand?.scope
+      ? pluginToggleReviewRows(pluginTogglePlugin, pluginToggleCommand.action, t, activeProject, pluginToggleCommand.scope)
       : pluginUpdatePlugin && pluginUpdateCommand?.scope
       ? pluginUpdateReviewRows(pluginUpdatePlugin, t, activeProject, pluginUpdateCommand.scope)
       : uninstallPlugin && uninstallCommand?.scope
@@ -16792,6 +16954,8 @@ export function App() {
       ? `${t.retry}: ${t.addMcpServer} / ${mcpAddCommand.name}`
       : mcpRemoveServer && mcpRemoveCommand?.scope
       ? `${t.retry}: ${t.removeMcpServer} / ${mcpRemoveCommand.name}`
+      : pluginTogglePlugin && pluginToggleCommand?.scope
+      ? `${t.retry}: ${pluginToggleCommand.action === "enable" ? t.enablePlugin : t.disablePlugin} / ${pluginTogglePlugin.id || pluginToggleCommand.identifier}`
       : pluginUpdatePlugin && pluginUpdateCommand?.scope
       ? `${t.retry}: ${t.updatePlugin} / ${pluginUpdatePlugin.id || pluginUpdateCommand.identifier}`
       : uninstallPlugin && uninstallCommand?.scope
@@ -16810,6 +16974,8 @@ export function App() {
           ? mcpAddCommandArgs(mcpAddCommand)
           : mcpRemoveServer && mcpRemoveCommand?.scope
           ? mcpRemoveCommandArgs(mcpRemoveServer, mcpRemoveCommand.scope)
+          : pluginTogglePlugin && pluginToggleCommand?.scope
+          ? pluginToggleCommandArgs(pluginTogglePlugin, pluginToggleCommand.action, pluginToggleCommand.scope)
           : pluginUpdatePlugin && pluginUpdateCommand?.scope
           ? pluginUpdateCommandArgs(pluginUpdatePlugin, pluginUpdateCommand.scope)
           : uninstallPlugin && uninstallCommand?.scope
@@ -16817,8 +16983,8 @@ export function App() {
           : nextArgs,
         label: retryLabel,
         reviewRows: retryReviewRows,
-        ...((mcpAddContext || mcpRemoveContext || pluginUpdateContext || uninstallContext || retryContext)
-          ? { capabilityContext: mcpAddContext || mcpRemoveContext || pluginUpdateContext || uninstallContext || retryContext }
+        ...((mcpAddContext || mcpRemoveContext || pluginToggleContext || pluginUpdateContext || uninstallContext || retryContext)
+          ? { capabilityContext: mcpAddContext || mcpRemoveContext || pluginToggleContext || pluginUpdateContext || uninstallContext || retryContext }
           : {}),
       },
     });
@@ -16830,7 +16996,7 @@ export function App() {
     if (!focus) return;
     if (
       (focus.kind === "custom-marketplace" && ["add", "remove"].includes(focus.action))
-      || (focus.kind === "plugin" && ["update", "uninstall"].includes(focus.action))
+      || (focus.kind === "plugin" && ["enable", "disable", "update", "uninstall"].includes(focus.action))
       || (focus.kind === "mcp" && ["add", "remove"].includes(focus.action))
     ) {
       openCapabilityRetryConfirmation(args, retryContext ? { capabilityContext: retryContext } : context);
@@ -18966,14 +19132,19 @@ export function App() {
       .filter((plugin) => plugin?.id || plugin?.name)
       .flatMap((plugin) => {
         const id = plugin.id || plugin.name;
+        const toggleScope = normalizePluginScope(plugin.scope);
+        const toggleNeedsProject = ["project", "local"].includes(toggleScope);
+        const toggleAvailable = Boolean(toggleScope && (!toggleNeedsProject || activeProject?.path));
         const updateScope = normalizePluginUpdateScope(plugin.scope);
         const updateNeedsProject = ["project", "local"].includes(updateScope);
         const updateAvailable = Boolean(updateScope && (!updateNeedsProject || activeProject?.path));
         const uninstallScope = normalizePluginScope(plugin.scope);
         const specs = [
-          plugin.enabled
-            ? { action: "disable", label: t.disablePlugin, keywords: "disable plugin installed turn off 禁用 插件" }
-            : { action: "enable", label: t.enablePlugin, keywords: "enable plugin installed turn on 启用 插件" },
+          toggleAvailable
+            ? plugin.enabled
+              ? { action: "disable", label: t.disablePlugin, keywords: `disable plugin installed turn off ${toggleScope} 禁用 插件` }
+              : { action: "enable", label: t.enablePlugin, keywords: `enable plugin installed turn on ${toggleScope} 启用 插件` }
+            : null,
           updateAvailable ? { action: "update", label: t.updatePlugin, keywords: `update plugin installed upgrade refresh ${updateScope} 更新 插件` } : null,
           uninstallScope ? { action: "uninstall", label: t.uninstallPlugin, keywords: `uninstall remove plugin installed ${uninstallScope} 卸载 移除 插件` } : null,
           { action: "copy", label: t.copyEvidence, keywords: "copy evidence plugin installed clipboard focus 复制 证据 插件" },

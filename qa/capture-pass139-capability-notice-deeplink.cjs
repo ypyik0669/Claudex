@@ -102,7 +102,7 @@ else if (args[0] === 'plugin' && args[1] === 'list') out('Installed plugins:\\n\
 else if (args[0] === 'mcp' && args[1] === 'list') out('No MCP servers configured');
 else if (args[0] === 'plugin' && args[1] === 'marketplace' && args[2] === 'list' && args.includes('--json')) out([]);
 else if (args[0] === 'plugin' && args[1] === 'marketplace' && args[2] === 'list') out('Configured marketplaces: none');
-else if (args[0] === 'plugin' && args[1] === 'disable' && args[2] === '${PLUGIN_ID}') {
+else if (args[0] === 'plugin' && args[1] === 'disable' && args[2] === '--scope' && args[3] === 'user' && args[4] === '${PLUGIN_ID}') {
   process.stderr.write('pass139 disable failed\\n');
   process.exit(19);
 }
@@ -244,7 +244,7 @@ async function assertCapabilityEvidenceFocused(win, stepName) {
         retry.getAttribute('data-run-recovery-action-focused') === 'true' &&
         document.activeElement === retry &&
         panel.querySelector('[data-run-event-type="capability-cli"]') &&
-        /plugin disable ${PLUGIN_ID}/.test(text) &&
+        /plugin disable --scope user ${PLUGIN_ID}/.test(text) &&
         /pass139 disable failed/.test(text));
     })()
   `, 12000));
@@ -276,7 +276,7 @@ async function assertCapabilityRetryConfirmation(win, stepName) {
         /pass139-tool/.test(row.textContent || '') &&
         /13\\.9\\.0/.test(row.textContent || '') &&
         confirm &&
-        /plugin disable ${PLUGIN_ID}/.test(confirm.textContent || '') &&
+        /plugin disable --scope user ${PLUGIN_ID}/.test(confirm.textContent || '') &&
         !confirm.querySelector('.danger-action')?.disabled
       );
     })()
@@ -331,12 +331,12 @@ async function runTest() {
       return true;
     })();
   `));
-  assertStep("PASS139_DISABLE_COMMAND_RAN", await waitForLog(/plugin disable pass139-failing-plugin@qa-market/, 10000));
+  assertStep("PASS139_DISABLE_COMMAND_RAN", await waitForLog(/plugin disable --scope user pass139-failing-plugin@qa-market/, 10000));
   assertStep("PASS139_FAILURE_NOTICE_ACTION_PERSISTED", await waitFor(win, `
     (async function() {
       const state = await window.claudexDesktop.getState();
       const notice = (state.notices || []).find((item) => /pass139 disable failed/.test((item.title || '') + (item.detail || '')));
-      const run = (state.commandRuns || []).find((item) => /plugin disable ${PLUGIN_ID}/.test(item.command || '') && item.code === 19);
+      const run = (state.commandRuns || []).find((item) => /plugin disable --scope user ${PLUGIN_ID}/.test(item.command || '') && item.code === 19);
       const event = notice?.runEventId ? (state.runEvents || []).find((item) => item.id === notice.runEventId) : null;
       window.__PASS139_NOTICE_ID__ = notice?.id || '';
       window.__PASS139_RUN_ID__ = notice?.runEventId || '';
@@ -347,7 +347,7 @@ async function runTest() {
         notice.runEventId &&
         event?.type === 'capability-cli' &&
         event?.status === 'error' &&
-        /plugin disable ${PLUGIN_ID}/.test(event.commandLine || '') &&
+        /plugin disable --scope user ${PLUGIN_ID}/.test(event.commandLine || '') &&
         run && /pass139 disable failed/.test(run.stderr || '')
       );
     })();

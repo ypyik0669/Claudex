@@ -120,9 +120,9 @@ else if (args[0] === 'plugin' && args[1] === 'list') out('Installed plugins:\\n\
 else if (args[0] === 'plugin' && args[1] === 'marketplace' && args[2] === 'list' && args.includes('--json')) out([]);
 else if (args[0] === 'plugin' && args[1] === 'marketplace' && args[2] === 'list') out('Configured marketplaces: none');
 else if (args[0] === 'mcp' && args[1] === 'list') out('No MCP servers configured');
-else if (args[0] === 'plugin' && args[1] === 'disable' && args[2] === 'pass164-review-plugin@pass164-market') {
+else if (args[0] === 'plugin' && args[1] === 'disable' && args[2] === '--scope' && args[3] === 'project' && args[4] === 'pass164-review-plugin@pass164-market') {
   fs.writeFileSync(disabledFile, '1', 'utf8');
-  out('ok plugin disable pass164-review-plugin@pass164-market');
+  out('ok plugin disable --scope project pass164-review-plugin@pass164-market');
 }
 else out('pass164 ok ' + args.join(' '));
 `;
@@ -236,11 +236,12 @@ async function runTest() {
         /pass164-shell-tool/.test(text) &&
         /filesystem:read/.test(text) &&
         /工作目录/.test(text) &&
-        /修改本机插件状态/.test(text)
+        /plugin disable --scope project pass164-review-plugin@pass164-market/.test(text) &&
+        /在 project 范围禁用插件/.test(text)
       );
     })();
   `, 5000));
-  assertStep("PASS164_DISABLE_NOT_RUN_BEFORE_CONFIRM", !/plugin disable pass164-review-plugin@pass164-market/.test(readCommandLog().slice(beforeDisable.length)));
+  assertStep("PASS164_DISABLE_NOT_RUN_BEFORE_CONFIRM", !/plugin disable --scope project pass164-review-plugin@pass164-market/.test(readCommandLog().slice(beforeDisable.length)));
   assertStep("PASS164_CONFIRM_DISABLE", await win.webContents.executeJavaScript(`
     (function() {
       const button = document.querySelector('.plugin-cli-confirm .danger-action');
@@ -249,7 +250,7 @@ async function runTest() {
       return true;
     })();
   `));
-  assertStep("PASS164_DISABLE_RAN", await waitForLog(/plugin disable pass164-review-plugin@pass164-market/));
+  assertStep("PASS164_DISABLE_RAN", await waitForLog(/plugin disable --scope project pass164-review-plugin@pass164-market/));
   assertStep("PASS164_PLUGIN_STATUS_REFRESHED", await waitFor(win, `
     (function() {
       const row = document.querySelector('.structured-plugin-row[data-plugin-id="pass164-review-plugin@pass164-market"]');
@@ -258,7 +259,7 @@ async function runTest() {
         row?.classList.contains('focused-capability-row') &&
         row?.querySelector('.plugin-status-badge.disabled') &&
         row?.querySelector('.row-cli-action-evidence.ok') &&
-        /ok plugin disable pass164-review-plugin@pass164-market/.test(text)
+        /ok plugin disable --scope project pass164-review-plugin@pass164-market/.test(text)
       );
     })();
   `, 15000));

@@ -102,7 +102,7 @@ else if (args[0] === 'plugin' && args[1] === 'list') out('Installed plugins:\\n\
 else if (args[0] === 'mcp' && args[1] === 'list') out('pass209 mcp ok');
 else if (args[0] === 'plugin' && args[1] === 'marketplace' && args[2] === 'list' && args.includes('--json')) out([]);
 else if (args[0] === 'plugin' && args[1] === 'marketplace' && args[2] === 'list') out('Configured marketplaces: none');
-else if (args[0] === 'plugin' && args[1] === 'disable' && args[2] === '${PLUGIN_ID}') { process.stderr.write('pass209 disable failed for notice recovery\\n'); process.exit(33); }
+else if (args[0] === 'plugin' && args[1] === 'disable' && args[2] === '--scope' && args[3] === 'user' && args[4] === '${PLUGIN_ID}') { process.stderr.write('pass209 disable failed for notice recovery\\n'); process.exit(33); }
 else out('pass209 fake claude command: ' + args.join(' '));
 `;
   fs.mkdirSync(FAKE_BIN_DIR, { recursive: true });
@@ -194,7 +194,7 @@ async function runDisableFailure(win) {
   assertStep("PASS209_DISABLE_CONFIRM_VISIBLE", await waitFor(win, `
     Boolean(document.querySelector('.plugin-cli-confirm') &&
       !document.querySelector('.plugin-cli-confirm .danger-action')?.disabled &&
-      /plugin disable ${PLUGIN_ID}/.test(document.querySelector('.plugin-cli-confirm')?.textContent || ''))
+      /plugin disable --scope user ${PLUGIN_ID}/.test(document.querySelector('.plugin-cli-confirm')?.textContent || ''))
   `, 10000));
   assertStep("PASS209_CONFIRM_DISABLE", await win.webContents.executeJavaScript(`
     (function() {
@@ -204,7 +204,7 @@ async function runDisableFailure(win) {
       return true;
     })();
   `));
-  assertStep("PASS209_DISABLE_RAN", await waitForLogGrowth(/plugin disable pass209-notice-plugin@qa-market/, beforeDisable, 12000));
+  assertStep("PASS209_DISABLE_RAN", await waitForLogGrowth(/plugin disable --scope user pass209-notice-plugin@qa-market/, beforeDisable, 12000));
 }
 
 async function openPaletteAndQuery(win, query) {
@@ -264,7 +264,7 @@ async function runTest() {
         notice.runEventId &&
         event?.type === 'capability-cli' &&
         event?.status === 'error' &&
-        /plugin disable ${PLUGIN_ID}/.test(event.commandLine || '') &&
+        /plugin disable --scope user ${PLUGIN_ID}/.test(event.commandLine || '') &&
         run?.kind === 'capability' &&
         run?.code === 33);
     })();
@@ -302,7 +302,7 @@ async function runTest() {
         retry.getAttribute('data-run-recovery-action-focused') === 'true' &&
         document.activeElement === retry &&
         panel.querySelector('[data-run-event-type="capability-cli"]') &&
-        /plugin disable ${PLUGIN_ID}/.test(text) &&
+        /plugin disable --scope user ${PLUGIN_ID}/.test(text) &&
         /pass209 disable failed for notice recovery/.test(text) &&
         (!runId || /plugin disable/.test(text)));
     })();
