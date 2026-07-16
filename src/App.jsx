@@ -15650,10 +15650,10 @@ function PluginManagerRow({ icon, title, subtitle, enabled, onToggle, actionLabe
   );
 }
 
-function ProjectModal({ state, t, onClose, onSelectProject, onSetProject, onRemoveProject, onReorderProject, onOpenProject, onOpenTerminal }) {
+function ProjectModal({ state, t, projectPathMissing = false, onClose, onSelectProject, onSetProject, onRemoveProject, onReorderProject, onOpenProject, onOpenTerminal }) {
   const activeProject = state.activeProject || { name: t.localWorkspace, path: "" };
   const projects = visibleProjectsForUi(state, t);
-  const hasProjectPath = Boolean(activeProject?.path);
+  const hasProjectPath = Boolean(activeProject?.path) && !projectPathMissing;
   return (
     <ShellModal title={t.selectProject} subtitle={t.activeProject} onClose={onClose} closeLabel={t.close} className="project-modal">
       <section className="project-current" aria-label={t.activeProject}>
@@ -15661,8 +15661,17 @@ function ProjectModal({ state, t, onClose, onSelectProject, onSetProject, onRemo
         <strong>{projectLabel(activeProject, t)}</strong>
         <code title={activeProject?.path || t.noProjectPath}>{activeProject?.path ? compactPath(activeProject.path, 92) : t.noProjectPath}</code>
       </section>
+      {projectPathMissing && (
+        <section className="project-path-warning-inline project-modal-warning" role="alert">
+          <AlertTriangle size={15} />
+          <div>
+            <strong>{t.projectPathMissing}</strong>
+            <p>{t.projectPathMissingHint}</p>
+          </div>
+        </section>
+      )}
       <div className="project-modal-actions">
-        <button type="button" className="primary-action" onClick={onSelectProject}><Folder size={16} />{t.selectProject}</button>
+        <button type="button" className="primary-action" data-project-reselect={projectPathMissing ? "true" : "false"} onClick={onSelectProject}><Folder size={16} />{t.selectProject}</button>
         <button type="button" className="plain-action" onClick={onOpenTerminal} disabled={!hasProjectPath} title={hasProjectPath ? t.openTerminal : t.noProjectPath}><SquareTerminal size={16} />{t.openTerminal}</button>
         <button type="button" className="plain-action" onClick={onOpenProject} disabled={!hasProjectPath} title={hasProjectPath ? t.openProject : t.noProjectPath}><ExternalLink size={16} />{t.openProject}</button>
       </div>
@@ -21916,6 +21925,7 @@ export function App() {
         <ProjectModal
           state={state}
           t={t}
+          projectPathMissing={projectPathMissing}
           onClose={() => setProjectsOpen(false)}
           onSelectProject={selectProject}
           onSetProject={setActiveProject}

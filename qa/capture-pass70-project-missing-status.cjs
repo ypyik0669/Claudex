@@ -127,6 +127,27 @@ app.whenReady().then(async () => {
     })();
   `, 10000));
 
+  assertStep("PASS70_PROJECT_MODAL_RECOVERY", await waitFor(win, `
+    (async function() {
+      if (!window.__pass70ProjectModalOpened) {
+        window.__pass70ProjectModalOpened = true;
+        window.dispatchEvent(new KeyboardEvent('keydown', { key: 'p', ctrlKey: true, bubbles: true }));
+      }
+      await new Promise((resolve) => setTimeout(resolve, 220));
+      const modal = document.querySelector('.project-modal');
+      const warning = modal?.querySelector('.project-modal-warning');
+      const reselect = modal?.querySelector('[data-project-reselect="true"]');
+      const terminal = Array.from(modal?.querySelectorAll('.project-modal-actions button') || [])
+        .find((item) => /\u7ec8\u7aef/.test(item.textContent || ''));
+      return Boolean(
+        modal &&
+        /\u8def\u5f84\u5931\u6548/.test(warning?.textContent || '') &&
+        reselect &&
+        terminal?.disabled
+      );
+    })();
+  `, 10000));
+
   console.log("PASS70_PROJECT_MISSING_STATUS_DONE");
   cleanup();
   app.exit(0);
