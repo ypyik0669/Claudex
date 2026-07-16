@@ -77,6 +77,7 @@ const MAX_TEXT_FILE_BYTES = 2 * 1024 * 1024;
 const WORKSPACE_SEARCH_LIMIT = 40;
 const WORKSPACE_SEARCH_SCAN_LIMIT = 6000;
 const MAX_COMMAND_OUTPUT_CHARS = 30000;
+const MAX_COMMAND_ARG_ITEMS = 256;
 const MAX_GIT_DIFF_CHARS = 80000;
 const CLAUDE_TIMEOUT_MS = 10 * 60 * 1000;
 const AUTOMATION_HISTORY_LIMIT = 8;
@@ -703,7 +704,7 @@ function normalizeCommandRun(item, store) {
   const endedAt = isoOrEmpty(item?.endedAt) || startedAt;
   const command = String(item?.command || item?.commandLine || "").trim();
   const args = Array.isArray(item?.args)
-    ? item.args.slice(0, 64).map((arg) => String(arg).slice(0, 4096))
+    ? item.args.slice(0, MAX_COMMAND_ARG_ITEMS).map((arg) => String(arg).slice(0, 4096))
     : [];
   const rawKind = String(item?.kind || "workspace").trim();
   const kind = ["workspace", "claude", "capability", "git"].includes(rawKind) ? rawKind : "workspace";
@@ -6052,10 +6053,44 @@ ipcMain.handle("claude:status", async (_event, { projectPath } = {}) => {
   return store.capabilityStatus;
 });
 
+function existingProjectDirectory(value) {
+  const target = String(value || "").trim();
+  if (!target) return "";
+  try {
+    return fs.statSync(target).isDirectory() ? target : "";
+  } catch {
+    return "";
+  }
+}
+
+function projectBoundCapabilityScope(argv = []) {
+  const args = Array.isArray(argv) ? argv.map(String) : [];
+  const isMcpMutation = args[0] === "mcp" && ["add", "remove"].includes(args[1]);
+  const isPluginRemoval = args[0] === "plugin" && ["uninstall", "remove"].includes(args[1]);
+  if (!isMcpMutation && !isPluginRemoval) return "";
+  const delimiterIndex = args.indexOf("--");
+  const optionArgs = delimiterIndex >= 0 ? args.slice(0, delimiterIndex) : args;
+  const scopeIndex = optionArgs.findIndex((item) => item === "--scope" || item === "-s");
+  const inlineScope = optionArgs.find((item) => item.startsWith("--scope=") || item.startsWith("-s="));
+  const scope = String(
+    scopeIndex >= 0
+      ? optionArgs[scopeIndex + 1] || ""
+      : inlineScope
+        ? inlineScope.slice(inlineScope.indexOf("=") + 1)
+        : isMcpMutation ? "local" : "",
+  ).trim().toLowerCase();
+  return ["local", "project"].includes(scope) ? scope : "";
+}
+
 ipcMain.handle("claude:run", async (_event, { projectPath, args, requestId, sessionId = "", persistCommandRun = false, commandRunKind = "claude", capabilityContext = null } = {}) => {
-  const cwd = projectPath && fs.existsSync(projectPath) ? projectPath : app.getPath("home");
   const argv = Array.isArray(args) ? args.map(String).filter(Boolean) : splitArgs(args);
   if (!argv.length) throw new Error("Claude 命令为空。");
+  const requestedProjectDirectory = existingProjectDirectory(projectPath);
+  const projectBoundScope = projectBoundCapabilityScope(argv);
+  if (projectBoundScope && !requestedProjectDirectory) {
+    throw new Error(`${projectBoundScope} 范围的本机能力变更需要有效的项目工作区。`);
+  }
+  const cwd = requestedProjectDirectory || app.getPath("home");
   const claudeCommand = configuredClaudeCommand();
   const runId = requestId || id("claude_command");
   const startedAtIso = now();

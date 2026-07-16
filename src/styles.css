@@ -5265,6 +5265,123 @@ button.runtime-health-row {
   gap: 8px;
 }
 
+.structured-registry-head-actions [data-capability-action-focused="true"] {
+  border-color: rgba(96, 165, 250, 0.72);
+  background: rgba(96, 165, 250, 0.1);
+  box-shadow: 0 0 0 1px rgba(96, 165, 250, 0.2);
+}
+
+.mcp-add-form {
+  display: grid;
+  gap: 10px;
+  border-top: 1px solid #272727;
+  border-bottom: 1px solid #272727;
+  padding: 10px 0;
+}
+
+.mcp-add-form-head,
+.mcp-add-form-actions,
+.mcp-empty-state {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.mcp-add-form-head strong {
+  color: #efede7;
+  font-size: 13px;
+  font-weight: 500;
+}
+
+.mcp-add-form-head .icon-only {
+  width: 28px;
+  height: 28px;
+}
+
+.mcp-add-grid {
+  display: grid;
+  grid-template-columns: minmax(140px, 1fr) 116px 184px minmax(210px, 1.6fr);
+  align-items: end;
+  gap: 8px;
+}
+
+.mcp-add-grid label,
+.mcp-add-transport {
+  min-width: 0;
+  display: grid;
+  gap: 5px;
+  margin: 0;
+}
+
+.mcp-add-grid label > span,
+.mcp-add-transport legend {
+  color: var(--muted);
+  font-size: 11.5px;
+}
+
+.mcp-add-transport {
+  border: 0;
+  padding: 0;
+}
+
+.mcp-add-transport .segmented-control {
+  width: 100%;
+}
+
+.mcp-add-transport .segmented-control button {
+  flex: 1;
+}
+
+.mcp-add-grid input,
+.mcp-add-grid select,
+.mcp-add-grid textarea {
+  min-width: 0;
+  width: 100%;
+  border: 1px solid #333333;
+  border-radius: var(--radius-sm);
+  background: #0d0d0d;
+  color: #ededed;
+  outline: 0;
+  padding: 8px 9px;
+}
+
+.mcp-add-grid textarea {
+  min-height: 68px;
+  resize: vertical;
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  line-height: 1.45;
+}
+
+.mcp-add-grid input:focus,
+.mcp-add-grid select:focus,
+.mcp-add-grid textarea:focus {
+  border-color: #555555;
+}
+
+.mcp-add-arguments {
+  grid-column: 1 / -1;
+}
+
+.mcp-add-form-actions {
+  justify-content: flex-end;
+}
+
+.mcp-add-form-actions > span,
+.mcp-empty-state > span {
+  margin-right: auto;
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.mcp-empty-state {
+  min-height: 38px;
+  border: 1px dashed #2b2b2b;
+  border-radius: var(--radius-sm);
+  padding: 7px 8px 7px 10px;
+}
+
 .structured-registry-head strong {
   color: #f0eee8;
   font-size: 13px;
@@ -9472,6 +9589,14 @@ button.git-summary-chip:hover,
 
   .capability-toolbar {
     align-items: stretch;
+  }
+
+  .mcp-add-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .mcp-add-arguments {
+    grid-column: auto;
   }
 
   .segmented-control {

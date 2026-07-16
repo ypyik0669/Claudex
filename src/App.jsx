@@ -648,6 +648,22 @@ const copy = {
     removeMcpServer: "移除配置",
     mcpRemoveRisk: "这会从 {scope} 范围移除 MCP 服务器配置，Claude Code 将不再加载该服务器提供的工具；不会卸载服务器程序或删除其外部数据。",
     mcpRemoveScopeRequired: "Claude Code 未返回有效的 MCP 配置范围，无法安全移除。",
+    addMcpServer: "添加服务器",
+    addMcpServerTitle: "添加 MCP 服务器",
+    reviewMcpAdd: "审查添加",
+    mcpServerName: "名称",
+    mcpCommand: "命令",
+    mcpUrl: "URL",
+    mcpArguments: "参数",
+    mcpArgumentsPlaceholder: "每行一个参数",
+    mcpAddRisk: "这会在 {scope} 范围注册 MCP 服务器，并由 Claude Code 在对应工作区加载。",
+    mcpAddInvalidName: "请输入不含空格、控制字符且不以 - 开头的 MCP 服务器名称。",
+    mcpAddInvalidTarget: "请输入有效的命令，或使用 http/https MCP URL。",
+    mcpAddInvalidArguments: "参数必须每行一个，且不能包含控制字符。",
+    mcpAddProjectRequired: "local 和 project 范围需要先选择真实项目文件夹。",
+    mcpAddAlreadyExists: "同名 MCP 服务器已经存在。",
+    mcpAddAwaitingVerification: "命令已成功，正在等待 Claude Code list/get 验证新服务器。",
+    mcpAddNotVerified: "Claude Code 已接受添加命令，但 list/get 尚未验证服务器与范围；请刷新状态。",
     installFromMarketplace: "从市场安装",
     openHomepage: "主页",
     source: "来源",
@@ -1189,6 +1205,18 @@ function pluginUninstallCommandArgs(plugin = {}, scopeOverride = "") {
 }
 
 function parsePluginUninstallCommand(value) {
+  if (Array.isArray(value)) {
+    const args = value.map(String);
+    if (
+      args.length !== 5 || args[0] !== "plugin" ||
+      !["uninstall", "remove"].includes(args[1]) || args[2] !== "--scope"
+    ) return null;
+    const scope = normalizePluginScope(args[3]);
+    const identifier = String(args[4] || "").trim();
+    return scope && identifier && !/\s/.test(identifier)
+      ? { action: "uninstall", scope, identifier }
+      : null;
+  }
   const command = String(value || "").trim().replace(/^claude\s+/i, "");
   const match = command.match(/^plugin\s+(?:uninstall|remove)\s+--scope\s+(user|project|local)\s+([^\s]+)$/i);
   if (!match) return null;
@@ -1204,6 +1232,99 @@ function normalizeMcpScope(value) {
   return ["local", "user", "project"].includes(scope) ? scope : "";
 }
 
+function normalizeMcpTransport(value) {
+  const transport = String(value || "").trim().toLowerCase();
+  return ["stdio", "http", "sse"].includes(transport) ? transport : "";
+}
+
+function normalizeMcpServerName(value) {
+  const name = String(value || "").trim();
+  if (!name || name.length > 128 || name.startsWith("-") || /[\s\u0000-\u001f\u007f]/.test(name)) return "";
+  return name;
+}
+
+function normalizeMcpStdioTarget(value) {
+  const target = String(value || "").trim();
+  if (!target || target.length > 2048 || /[\r\n\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(target)) return "";
+  return target;
+}
+
+function normalizeMcpAddUrl(value) {
+  const source = String(value || "").trim();
+  if (!source || source.length > 2048 || /[\s\u0000-\u001f\u007f]/.test(source)) return "";
+  try {
+    const parsed = new URL(source);
+    if (!["http:", "https:"].includes(parsed.protocol) || !parsed.hostname || parsed.username || parsed.password) return "";
+    return parsed.href.length <= 2048 ? parsed.href : "";
+  } catch (_error) {
+    return "";
+  }
+}
+
+function normalizeMcpStdioArguments(value) {
+  const values = Array.isArray(value) ? value : String(value || "").split(/\r?\n/);
+  const args = values.map((item) => String(item).trim()).filter(Boolean);
+  if (args.length > 64 || args.some((item) => item.length > 2048 || /[\r\n\u0000-\u001f\u007f]/.test(item))) return null;
+  return args;
+}
+
+function emptyMcpAddForm() {
+  return { name: "", scope: "local", transport: "stdio", target: "", arguments: "" };
+}
+
+function mcpAddFormFromSpec(spec = {}) {
+  return {
+    name: normalizeMcpServerName(spec.name),
+    scope: normalizeMcpScope(spec.scope) || "local",
+    transport: normalizeMcpTransport(spec.transport) || "stdio",
+    target: String(spec.target || ""),
+    arguments: (Array.isArray(spec.stdioArgs) ? spec.stdioArgs : []).join("\n"),
+  };
+}
+
+function mcpAddCommandArgs(spec = {}) {
+  const name = normalizeMcpServerName(spec.name);
+  const scope = normalizeMcpScope(spec.scope);
+  const transport = normalizeMcpTransport(spec.transport);
+  if (!name || !scope || !transport) return [];
+  if (transport === "stdio") {
+    const target = normalizeMcpStdioTarget(spec.target);
+    const stdioArgs = normalizeMcpStdioArguments(spec.stdioArgs ?? spec.arguments);
+    return target && Array.isArray(stdioArgs)
+      ? ["mcp", "add", "--scope", scope, "--transport", transport, name, "--", target, ...stdioArgs]
+      : [];
+  }
+  const target = normalizeMcpAddUrl(spec.target);
+  return target ? ["mcp", "add", "--scope", scope, "--transport", transport, name, target] : [];
+}
+
+function parseMcpAddCommand(value) {
+  if (!Array.isArray(value)) return null;
+  const args = value.map(String);
+  if (
+    args[0] !== "mcp" || args[1] !== "add" ||
+    args[2] !== "--scope" || args[4] !== "--transport"
+  ) return null;
+  const spec = {
+    action: "add",
+    scope: normalizeMcpScope(args[3]),
+    transport: normalizeMcpTransport(args[5]),
+    name: normalizeMcpServerName(args[6]),
+    target: "",
+    stdioArgs: [],
+  };
+  if (spec.transport === "stdio") {
+    if (args[7] !== "--" || !args[8]) return null;
+    spec.target = args[8];
+    spec.stdioArgs = args.slice(9);
+  } else {
+    if (args.length !== 8) return null;
+    spec.target = args[7];
+  }
+  const canonical = mcpAddCommandArgs(spec);
+  return canonical.length && JSON.stringify(canonical) === JSON.stringify(args) ? spec : null;
+}
+
 function mcpRemoveCommandArgs(server = {}, scopeOverride = "") {
   const name = String(server?.name || "").trim();
   const scope = normalizeMcpScope(scopeOverride || server?.scope);
@@ -1211,6 +1332,13 @@ function mcpRemoveCommandArgs(server = {}, scopeOverride = "") {
 }
 
 function parseMcpRemoveCommand(value) {
+  if (Array.isArray(value)) {
+    const args = value.map(String);
+    if (args.length !== 5 || args[0] !== "mcp" || args[1] !== "remove" || args[2] !== "--scope") return null;
+    const scope = normalizeMcpScope(args[3]);
+    const name = normalizeMcpServerName(args[4]);
+    return scope && name ? { action: "remove", scope, name } : null;
+  }
   const command = String(value || "").trim().replace(/^claude\s+/i, "");
   const match = command.match(/^mcp\s+remove\s+--scope\s+(local|user|project)\s+([^\s]+)$/i);
   if (!match) return null;
@@ -1335,8 +1463,10 @@ function findRecentMcpServerActionRun(runs, serverName) {
   const expectedName = String(serverName || "").trim();
   if (!expectedName) return null;
   return runs.find((run) => {
-    const remove = parseMcpRemoveCommand(capabilityCommandLine(run));
-    return Boolean(remove && remove.name === expectedName);
+    const structuredArgs = Array.isArray(run?.args) ? run.args : null;
+    const add = parseMcpAddCommand(structuredArgs);
+    const remove = parseMcpRemoveCommand(structuredArgs) || parseMcpRemoveCommand(capabilityCommandLine(run));
+    return Boolean((add && add.name === expectedName) || (remove && remove.name === expectedName));
   }) || null;
 }
 
@@ -1376,6 +1506,8 @@ function safeCapabilityRetryArgsFromRun(run) {
 }
 
 function mutatingCapabilityRetryArgsFromRun(run) {
+  const mcpAdd = parseMcpAddCommand(Array.isArray(run?.args) ? run.args : null);
+  if (mcpAdd) return mcpAddCommandArgs(mcpAdd);
   const args = claudeArgsFromRun(run);
   if (!args) return "";
   const mutatingPatterns = [
@@ -1472,6 +1604,17 @@ function capabilityRetryFocusForArgs(args, context = {}) {
 }
 
 function capabilityActionFocusForCommand(args, context = {}) {
+  const mcpAdd = parseMcpAddCommand(args);
+  if (mcpAdd?.name && mcpAdd.scope) {
+    return {
+      tab: "mcp",
+      kind: "mcp",
+      id: mcpAdd.name,
+      query: mcpAdd.name,
+      action: "add",
+      target: mcpAdd.scope,
+    };
+  }
   const mcpRemove = parseMcpRemoveCommand(args);
   if (mcpRemove?.name && mcpRemove.scope) {
     return {
@@ -2119,6 +2262,35 @@ function mcpRemoveReviewRows(server = {}, t, activeProject = null, scopeOverride
     [t.commandCwd, activeProject?.path || t.localWorkspace],
     [t.marketplaceRisk, t.mcpRemoveRisk.replace("{scope}", scope || "-")],
   ].filter(Boolean);
+}
+
+function mcpAddReviewRows(spec = {}, t, activeProject = null) {
+  const commandArgs = mcpAddCommandArgs(spec);
+  const commandInput = normalizeClaudeCommandInput(commandArgs);
+  const stdioArgs = normalizeMcpStdioArguments(spec.stdioArgs ?? spec.arguments);
+  return [
+    [t.mcpServers, normalizeMcpServerName(spec.name) || t.mcpServers],
+    [t.scope, normalizeMcpScope(spec.scope) || "-"],
+    [t.mcpTransport, normalizeMcpTransport(spec.transport) || "-"],
+    [spec.transport === "stdio" ? t.mcpCommand : t.mcpUrl, String(spec.target || "-")],
+    spec.transport === "stdio" && Array.isArray(stdioArgs) && stdioArgs.length
+      ? [t.mcpArguments, stdioArgs.map(commandArgumentDisplay).join(" ")]
+      : null,
+    commandInput.displayArgs ? [t.commandLine, `claude ${commandInput.displayArgs}`] : null,
+    [t.commandCwd, activeProject?.path || t.localWorkspace],
+    [t.marketplaceRisk, t.mcpAddRisk.replace("{scope}", normalizeMcpScope(spec.scope) || "-")],
+  ].filter(Boolean);
+}
+
+function verifiedMcpAddServer(status = null, spec = {}) {
+  const name = normalizeMcpServerName(spec.name);
+  const scope = normalizeMcpScope(spec.scope);
+  const transport = normalizeMcpTransport(spec.transport);
+  const server = (Array.isArray(status?.mcpServers) ? status.mcpServers : [])
+    .find((item) => String(item?.name || "").trim() === name);
+  if (!server || normalizeMcpScope(server.scope) !== scope) return null;
+  const serverTransport = normalizeMcpTransport(server.transport);
+  return serverTransport && transport && serverTransport !== transport ? null : server;
 }
 
 function marketplacePluginEvidenceText(plugin = {}, t) {
@@ -12631,6 +12803,9 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
   const [marketplaceOutput, setMarketplaceOutput] = useState("");
   const [marketplaceBusy, setMarketplaceBusy] = useState(false);
   const [customMarketplaceUrl, setCustomMarketplaceUrl] = useState("");
+  const [mcpAddOpen, setMcpAddOpen] = useState(false);
+  const [mcpAddForm, setMcpAddForm] = useState(emptyMcpAddForm);
+  const [mcpAddAwaitingVerification, setMcpAddAwaitingVerification] = useState(null);
   const [marketplacePluginFilter, setMarketplacePluginFilter] = useState("all");
   const [capabilityActionFocus, setCapabilityActionFocus] = useState({ tab: "", kind: "", id: "", query: "", nonce: 0 });
   const manualCapabilityTabSwitchRef = useRef(0);
@@ -12639,6 +12814,16 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
   useEffect(() => {
     if (state.capabilityStatus?.refreshedAt) setCliStatus(state.capabilityStatus);
   }, [state.capabilityStatus?.refreshedAt]);
+  useEffect(() => {
+    if (!mcpAddAwaitingVerification || !verifiedMcpAddServer(cliStatus, mcpAddAwaitingVerification)) return;
+    completeVerifiedMcpAdd(mcpAddAwaitingVerification);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [
+    cliStatus?.refreshedAt,
+    mcpAddAwaitingVerification?.name,
+    mcpAddAwaitingVerification?.scope,
+    mcpAddAwaitingVerification?.transport,
+  ]);
 
   const customMarketplaces = Array.isArray(state.settings.customMarketplaces) ? state.settings.customMarketplaces : [];
   const capabilityRows = capabilityCatalog.map((item) => ({
@@ -12858,10 +13043,12 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
       setCliStatus(result);
       onStatus?.(result);
       recordRuntimeHealthNotice(runtimeHealthSummary(result, state.settings, activeProject, t));
+      return result;
     } catch (error) {
       const message = error.message || String(error);
       setCliError(message);
       recordCapabilityNotice(`${t.capabilities}: ${t.refreshCliStatus}`, message, "capability:refresh-status");
+      return null;
     } finally {
       setCliBusy(false);
     }
@@ -12949,7 +13136,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
     if (!desktopApi?.runClaudeCommand || !nextArgs) return;
     const requestId = `capability_${Date.now()}_${Math.random().toString(16).slice(2)}`;
     const nextCapabilityContext = normalizeCapabilityContext(options.capabilityContext);
-    const nextActionFocus = capabilityActionFocusForCommand(nextArgs, {
+    const nextActionFocus = capabilityActionFocusForCommand(commandInput.args, {
       ...(nextCapabilityContext ? { capabilityContext: nextCapabilityContext } : {}),
       marketplaces: Array.isArray(cliStatus?.marketplaces) ? cliStatus.marketplaces : marketplaceRows,
     });
@@ -12997,7 +13184,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
       onOpenBottomPanel?.("outputs");
       if (result.code !== 0) throw new Error(result.stderr || result.stdout || t.pluginsLoadError);
       if (/plugin marketplace/i.test(nextArgs)) setMarketplaceOutput(result.stdout || result.stderr || "");
-      await refreshCliStatus();
+      const refreshedStatus = await refreshCliStatus();
       if (nextCapabilityContext?.kind === "custom-marketplace" && nextCapabilityContext.action === "add") {
         const source = normalizeCustomMarketplaceUrl(result.args?.[3] || nextCapabilityContext.id);
         if (source) {
@@ -13021,7 +13208,7 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
         setQuery(nextActionFocus.query || nextActionFocus.id || "");
         setCapabilityActionFocus({ ...nextActionFocus, nonce: Date.now() });
       }
-      return result;
+      return { ...result, capabilityStatus: refreshedStatus };
     } catch (error) {
       const message = error.message || String(error);
       if (!result) {
@@ -13081,6 +13268,91 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
     return installedPluginActionReviewRows(plugin, t, activeProject, { actionLabel });
   }
 
+  function completeVerifiedMcpAdd(spec) {
+    const name = normalizeMcpServerName(spec?.name);
+    if (!name) return;
+    setMcpAddAwaitingVerification(null);
+    setMcpAddForm(emptyMcpAddForm());
+    setMcpAddOpen(false);
+    setCliError("");
+    setActiveTab("mcp");
+    setFilter("all");
+    setQuery(name);
+    setCapabilityActionFocus({
+      tab: "mcp",
+      kind: "mcp",
+      id: name,
+      query: name,
+      nonce: Date.now(),
+    });
+  }
+
+  function openMcpAddForm() {
+    setActiveTab("mcp");
+    setFilter("all");
+    setQuery("");
+    setCliError("");
+    setMcpAddOpen(true);
+  }
+
+  function updateMcpAddForm(patch) {
+    setMcpAddForm((current) => ({ ...current, ...patch }));
+    setCliError("");
+  }
+
+  function requestMcpAdd(event) {
+    event?.preventDefault?.();
+    if (cliWorking || mcpAddAwaitingVerification) return;
+    const name = normalizeMcpServerName(mcpAddForm.name);
+    const scope = normalizeMcpScope(mcpAddForm.scope);
+    const transport = normalizeMcpTransport(mcpAddForm.transport);
+    if (!name) {
+      setCliError(t.mcpAddInvalidName);
+      return;
+    }
+    if (["local", "project"].includes(scope) && !activeProject?.path) {
+      setCliError(t.mcpAddProjectRequired);
+      return;
+    }
+    if (allMcpServerRows.some((server) => String(server?.name || "").trim().toLowerCase() === name.toLowerCase())) {
+      setCliError(t.mcpAddAlreadyExists);
+      return;
+    }
+    const stdioArgs = normalizeMcpStdioArguments(mcpAddForm.arguments);
+    if (transport === "stdio" && !Array.isArray(stdioArgs)) {
+      setCliError(t.mcpAddInvalidArguments);
+      return;
+    }
+    const spec = {
+      name,
+      scope,
+      transport,
+      target: mcpAddForm.target,
+      stdioArgs: stdioArgs || [],
+    };
+    const args = mcpAddCommandArgs(spec);
+    if (!args.length) {
+      setCliError(t.mcpAddInvalidTarget);
+      return;
+    }
+    setCliError("");
+    requestCapabilityClaude(
+      args,
+      `${t.addMcpServer}: ${name}`,
+      mcpAddReviewRows(spec, t, activeProject),
+      { tab: "mcp", kind: "mcp", id: name, query: name, action: "add", target: scope },
+    );
+  }
+
+  async function refreshMcpAddVerification() {
+    const status = await refreshCliStatus();
+    if (mcpAddAwaitingVerification && verifiedMcpAddServer(status, mcpAddAwaitingVerification)) {
+      completeVerifiedMcpAdd(mcpAddAwaitingVerification);
+      return;
+    }
+    if (mcpAddAwaitingVerification) setCliError(t.mcpAddNotVerified);
+  }
+
   function requestCapabilityClaude(args, label = "", reviewRows = [], capabilityContext = null) {
     const commandInput = normalizeClaudeCommandInput(args);
     if (!commandInput.displayArgs || cliWorking) return;
@@ -13096,9 +13368,17 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
 
   async function confirmCapabilityClaude() {
     const command = confirmingCliCommand?.args;
+    const mcpAdd = parseMcpAddCommand(command);
     const capabilityContext = normalizeCapabilityContext(confirmingCliCommand?.capabilityContext);
     setConfirmingCliCommand(null);
-    await runCapabilityClaude(command, { capabilityContext });
+    const result = await runCapabilityClaude(command, { capabilityContext });
+    if (!mcpAdd || result?.code !== 0) return;
+    if (verifiedMcpAddServer(result.capabilityStatus, mcpAdd)) {
+      completeVerifiedMcpAdd(mcpAdd);
+      return;
+    }
+    setMcpAddAwaitingVerification(mcpAdd);
+    setCliError(t.mcpAddNotVerified);
   }
 
   function mcpServerKey(server) {
@@ -13372,14 +13652,22 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
   }, [activeTab]);
   useEffect(() => {
     if (!focus?.nonce) return;
+    const focusesMcpAdd = focus.kind === "mcp-registry" && focus.action === "add";
     if (tabs.some(([id]) => id === focus.tab)) setActiveTab(focus.tab);
     setFilter(normalizeCapabilityStatusFilter(focus.filter) || "all");
     setMarketplacePluginFilter(normalizeMarketplacePluginFilter(focus.marketplaceFilter) || "all");
-    setQuery(String(focus.query || focus.id || "").trim());
+    setQuery(focusesMcpAdd ? "" : String(focus.query || focus.id || "").trim());
     setCapabilityActionFocus({ tab: "", kind: "", id: "", query: "", nonce: 0 });
+    if (focusesMcpAdd) setMcpAddOpen(true);
     if (focus.confirmCommand?.args) {
       const capabilityContext = normalizeCapabilityContext(focus.confirmCommand.capabilityContext || focus);
       const commandInput = normalizeClaudeCommandInput(focus.confirmCommand.args);
+      const mcpAdd = parseMcpAddCommand(commandInput.args);
+      if (mcpAdd) {
+        setMcpAddForm(mcpAddFormFromSpec(mcpAdd));
+        setMcpAddAwaitingVerification(null);
+        setMcpAddOpen(true);
+      }
       setConfirmingCliCommand({
         args: commandInput.args,
         displayArgs: commandInput.displayArgs,
@@ -14195,6 +14483,19 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                     <strong>{mcpServerRows.length}</strong>
                     <button
                       type="button"
+                      className="plain-action"
+                      data-mcp-registry-action="add"
+                      {...capabilityActionFocusAttributes(capabilityActionFocusMatches("mcp-registry", "add", "add"))}
+                      {...surfaceTraceAttributes("mcp-registry", "add", { id: "add", name: t.addMcpServerTitle })}
+                      onClick={() => (mcpAddOpen ? setMcpAddOpen(false) : openMcpAddForm())}
+                      disabled={cliWorking}
+                      title={cliWorking ? t.workingHint : t.addMcpServerTitle}
+                    >
+                      <Plus size={13} />
+                      {t.addMcpServer}
+                    </button>
+                    <button
+                      type="button"
                       className="plain-action subtle-action"
                       onClick={() => runCapabilityClaude("mcp list")}
                       disabled={cliWorking}
@@ -14205,6 +14506,107 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                     </button>
                   </div>
                 </div>
+                {mcpAddOpen && (
+                  <form className="mcp-add-form" data-mcp-add-form onSubmit={requestMcpAdd}>
+                    <div className="mcp-add-form-head">
+                      <strong>{t.addMcpServerTitle}</strong>
+                      <button
+                        type="button"
+                        className="icon-only"
+                        onClick={() => setMcpAddOpen(false)}
+                        title={t.dismissAction}
+                        aria-label={t.dismissAction}
+                      >
+                        <X size={15} />
+                      </button>
+                    </div>
+                    <div className="mcp-add-grid">
+                      <label>
+                        <span>{t.mcpServerName}</span>
+                        <input
+                          data-mcp-add-field="name"
+                          value={mcpAddForm.name}
+                          onChange={(event) => updateMcpAddForm({ name: event.target.value })}
+                          placeholder="my-server"
+                          disabled={cliWorking || Boolean(mcpAddAwaitingVerification)}
+                          autoComplete="off"
+                        />
+                      </label>
+                      <label>
+                        <span>{t.scope}</span>
+                        <select
+                          data-mcp-add-field="scope"
+                          value={mcpAddForm.scope}
+                          onChange={(event) => updateMcpAddForm({ scope: event.target.value })}
+                          disabled={cliWorking || Boolean(mcpAddAwaitingVerification)}
+                        >
+                          <option value="local">local</option>
+                          <option value="user">user</option>
+                          <option value="project">project</option>
+                        </select>
+                      </label>
+                      <fieldset className="mcp-add-transport" disabled={cliWorking || Boolean(mcpAddAwaitingVerification)}>
+                        <legend>{t.mcpTransport}</legend>
+                        <div className="segmented-control compact-segmented" role="group" aria-label={t.mcpTransport}>
+                          {["stdio", "http", "sse"].map((transport) => (
+                            <button
+                              type="button"
+                              key={transport}
+                              className={cx(mcpAddForm.transport === transport && "active")}
+                              data-mcp-add-transport={transport}
+                              aria-pressed={mcpAddForm.transport === transport}
+                              onClick={() => updateMcpAddForm({ transport })}
+                            >
+                              {transport}
+                            </button>
+                          ))}
+                        </div>
+                      </fieldset>
+                      <label className="mcp-add-target">
+                        <span>{mcpAddForm.transport === "stdio" ? t.mcpCommand : t.mcpUrl}</span>
+                        <input
+                          data-mcp-add-field="target"
+                          value={mcpAddForm.target}
+                          onChange={(event) => updateMcpAddForm({ target: event.target.value })}
+                          placeholder={mcpAddForm.transport === "stdio" ? "npx" : "https://..."}
+                          disabled={cliWorking || Boolean(mcpAddAwaitingVerification)}
+                          autoComplete="off"
+                        />
+                      </label>
+                      {mcpAddForm.transport === "stdio" && (
+                        <label className="mcp-add-arguments">
+                          <span>{t.mcpArguments}</span>
+                          <textarea
+                            data-mcp-add-field="arguments"
+                            value={mcpAddForm.arguments}
+                            onChange={(event) => updateMcpAddForm({ arguments: event.target.value })}
+                            placeholder={t.mcpArgumentsPlaceholder}
+                            disabled={cliWorking || Boolean(mcpAddAwaitingVerification)}
+                            rows={3}
+                          />
+                        </label>
+                      )}
+                    </div>
+                    <div className="mcp-add-form-actions">
+                      {mcpAddAwaitingVerification && <span>{t.mcpAddAwaitingVerification}</span>}
+                      <button type="button" className="plain-action subtle-action" onClick={onOpenClaudePanel}>
+                        <Bot size={13} />
+                        {t.openClaudePanel}
+                      </button>
+                      {mcpAddAwaitingVerification ? (
+                        <button type="button" className="plain-action" onClick={refreshMcpAddVerification} disabled={cliWorking}>
+                          <RefreshCw size={13} className={cliBusy ? "spin" : undefined} />
+                          {t.refreshCliStatus}
+                        </button>
+                      ) : (
+                        <button type="submit" className="plain-action" data-mcp-add-action="submit" disabled={cliWorking}>
+                          <Plus size={13} />
+                          {t.reviewMcpAdd}
+                        </button>
+                      )}
+                    </div>
+                  </form>
+                )}
                 <RowCliActionEvidence
                   run={recentMcpActionRun}
                   t={t}
@@ -14213,7 +14615,17 @@ function CapabilityModal({ state, lang, t, onClose, onToggle, onSaved, onOpenCla
                     ? () => runCapabilityClaude("mcp list", recentMcpActionContext ? { capabilityContext: recentMcpActionContext } : {})
                     : null}
                 />
-                {mcpServerRows.length === 0 && <p className="empty-list">{hasStructuredMcpRows ? t.noCapabilities : t.noMcpServers}</p>}
+                {mcpServerRows.length === 0 && (
+                  allMcpServerRows.length === 0 ? (
+                    <div className="mcp-empty-state">
+                      <span>{t.noMcpServers}</span>
+                      <button type="button" className="plain-action" data-mcp-empty-action="add" onClick={openMcpAddForm} disabled={cliWorking}>
+                        <Plus size={13} />
+                        {t.addMcpServer}
+                      </button>
+                    </div>
+                  ) : <p className="empty-list">{t.noCapabilities}</p>
+                )}
                 {mcpServerRows.map((server) => {
                   const rowKey = mcpServerKey(server);
                   const recentServerRun = findRecentMcpServerActionRun(recentCapabilityRuns, server.name);
@@ -16098,25 +16510,43 @@ export function App() {
   }
 
   function capabilityRetrySurfaceFocus(args, context = {}) {
-    const nextArgs = String(args || "").trim();
-    if (!mutatingCapabilityRetryArgsFromRun({ commandLine: `claude ${nextArgs}` })) return null;
-    return capabilityRetryFocusForArgs(nextArgs, {
+    const commandInput = normalizeClaudeCommandInput(args);
+    if (!commandInput.displayArgs) return null;
+    const retryRun = {
+      commandLine: `claude ${commandInput.displayArgs}`,
+      ...(Array.isArray(commandInput.args) ? { args: commandInput.args } : {}),
+    };
+    if (!mutatingCapabilityRetryArgsFromRun(retryRun)) return null;
+    return capabilityRetryFocusForArgs(commandInput.args, {
       ...context,
       marketplaces: Array.isArray(capabilityCommandStatus?.marketplaces) ? capabilityCommandStatus.marketplaces : [],
     });
   }
 
   function openCapabilityRetryConfirmation(args, context = {}) {
-    const nextArgs = String(args || "").trim();
+    const commandInput = normalizeClaudeCommandInput(args);
+    const nextArgs = commandInput.displayArgs;
     const retryContext = normalizeCapabilityContext(context);
-    const focus = capabilityRetrySurfaceFocus(nextArgs, retryContext ? { capabilityContext: retryContext } : context);
+    const focus = capabilityRetrySurfaceFocus(commandInput.args, retryContext ? { capabilityContext: retryContext } : context);
     if (!focus) return;
     const nextTab = focus.tab || "plugins";
     const marketplaceSources = Array.isArray(capabilityCommandStatus?.marketplaces) ? capabilityCommandStatus.marketplaces : [];
     const marketplacePlugins = Array.isArray(capabilityCommandStatus?.marketplacePlugins) ? capabilityCommandStatus.marketplacePlugins : [];
     const installedPlugins = Array.isArray(capabilityCommandStatus?.pluginItems) ? capabilityCommandStatus.pluginItems : [];
     const mcpServers = Array.isArray(capabilityCommandStatus?.mcpServers) ? capabilityCommandStatus.mcpServers : [];
-    const mcpRemoveCommand = parseMcpRemoveCommand(nextArgs);
+    const mcpAddCommand = parseMcpAddCommand(commandInput.args);
+    const mcpAddContext = mcpAddCommand?.name && mcpAddCommand.scope
+      ? normalizeCapabilityContext({
+          ...(retryContext || {}),
+          tab: "mcp",
+          kind: "mcp",
+          id: mcpAddCommand.name,
+          query: mcpAddCommand.name,
+          action: "add",
+          target: mcpAddCommand.scope,
+        })
+      : null;
+    const mcpRemoveCommand = parseMcpRemoveCommand(commandInput.args) || parseMcpRemoveCommand(nextArgs);
     const mcpRemoveContext = mcpRemoveCommand?.name && mcpRemoveCommand.scope
       ? normalizeCapabilityContext({
           ...(retryContext || {}),
@@ -16172,6 +16602,8 @@ export function App() {
           t,
           activeProject,
         )
+      : mcpAddCommand?.scope
+      ? mcpAddReviewRows(mcpAddCommand, t, activeProject)
       : mcpRemoveServer && mcpRemoveCommand?.scope
       ? mcpRemoveReviewRows(mcpRemoveServer, t, activeProject, mcpRemoveCommand.scope)
       : uninstallPlugin && uninstallCommand?.scope
@@ -16188,6 +16620,8 @@ export function App() {
       ];
     const retryLabel = marketplaceRemoveSource && marketplaceRemoveName
       ? t.retry + ": " + t.removeMarketplaceFromCli + " / " + marketplaceRemoveName
+      : mcpAddCommand?.scope
+      ? `${t.retry}: ${t.addMcpServer} / ${mcpAddCommand.name}`
       : mcpRemoveServer && mcpRemoveCommand?.scope
       ? `${t.retry}: ${t.removeMcpServer} / ${mcpRemoveCommand.name}`
       : uninstallPlugin && uninstallCommand?.scope
@@ -16202,14 +16636,16 @@ export function App() {
     openCapabilitiesSurface(nextTab, {
       ...focus,
       confirmCommand: {
-        args: mcpRemoveServer && mcpRemoveCommand?.scope
+        args: mcpAddCommand?.scope
+          ? mcpAddCommandArgs(mcpAddCommand)
+          : mcpRemoveServer && mcpRemoveCommand?.scope
           ? mcpRemoveCommandArgs(mcpRemoveServer, mcpRemoveCommand.scope)
           : uninstallPlugin && uninstallCommand?.scope
           ? pluginUninstallCommandArgs(uninstallPlugin, uninstallCommand.scope)
           : nextArgs,
         label: retryLabel,
         reviewRows: retryReviewRows,
-        ...((mcpRemoveContext || uninstallContext || retryContext) ? { capabilityContext: mcpRemoveContext || uninstallContext || retryContext } : {}),
+        ...((mcpAddContext || mcpRemoveContext || uninstallContext || retryContext) ? { capabilityContext: mcpAddContext || mcpRemoveContext || uninstallContext || retryContext } : {}),
       },
     });
   }
@@ -16221,7 +16657,7 @@ export function App() {
     if (
       (focus.kind === "custom-marketplace" && ["add", "remove"].includes(focus.action))
       || (focus.kind === "plugin" && focus.action === "uninstall")
-      || (focus.kind === "mcp" && focus.action === "remove")
+      || (focus.kind === "mcp" && ["add", "remove"].includes(focus.action))
     ) {
       openCapabilityRetryConfirmation(args, retryContext ? { capabilityContext: retryContext } : context);
       return;
@@ -16712,6 +17148,7 @@ export function App() {
         const event = commandRunTimelineEvent(run, t);
         if (!event) return [];
         const retryArgs = capabilityRetryArgsFromRun(run);
+        const retryDisplayArgs = normalizeClaudeCommandInput(retryArgs).displayArgs;
         const mutatingRetryArgs = mutatingCapabilityRetryArgsFromRun(run);
         const capabilityContext = capabilityContextFromRun(run);
         const evidence = runTimelineEvidenceForEvent(event, {
@@ -16740,7 +17177,7 @@ export function App() {
           run.requestId,
           run.kind,
           commandLine,
-          retryArgs,
+          retryDisplayArgs,
           run.stdout,
           run.stderr,
           run.cwd,
@@ -16760,11 +17197,11 @@ export function App() {
                 projectPath: run.cwd || run.project?.path || event.cwd || "",
               }),
               "data-command-capability-run-event-id": event.id || "",
-              "data-command-capability-retry-args": retryArgs,
+              "data-command-capability-retry-args": retryDisplayArgs,
             }
           : {
               "data-command-capability-run-event-id": event.id || "",
-              "data-command-capability-retry-args": retryArgs,
+              "data-command-capability-retry-args": retryDisplayArgs,
             };
         return [
           {
@@ -20364,6 +20801,7 @@ export function App() {
     { id: "capability-plugins", title: t.plugins, subtitle: t.capabilities, group: t.capabilities, priority: 80, keywords: "plugins installed installed plugins claude code 插件 已安装 capability", action: () => openCapabilitiesSurface("plugins") },
     { id: "capability-skills", title: t.skills, subtitle: t.localSkillRegistry, group: t.capabilities, priority: 80, keywords: "skills registry local SKILL.md 技能 本地 能力", action: () => openCapabilitiesSurface("skills") },
     { id: "capability-mcp", title: t.mcps, subtitle: t.mcpServers, group: t.capabilities, priority: 100, keywords: "mcp servers tools mcps server 工具 服务器", action: () => openCapabilitiesSurface("mcp") },
+    { id: "capability-mcp-add", title: t.addMcpServerTitle, subtitle: t.mcpServers, group: t.capabilities, priority: 112, keywords: "mcp add server register scoped 添加 注册 服务器", action: () => openCapabilitiesSurface("mcp", { kind: "mcp-registry", id: "add", query: "", action: "add" }) },
     { id: "capability-marketplace", title: t.marketplace, subtitle: t.marketplaceCatalog, group: t.capabilities, priority: 80, keywords: "marketplace catalog install plugin 市场 插件目录 安装", action: () => openCapabilitiesSurface("marketplace") },
     ...settingsSectionCommands,
     ...runtimeHealthActionCommands,

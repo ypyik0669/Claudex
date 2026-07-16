@@ -323,6 +323,7 @@ async function runTest() {
     (async function() {
       const state = await window.claudexDesktop.getState();
       const row = document.querySelector('.structured-plugin-row[data-plugin-id="${PLUGIN_ID}"]');
+      const uninstall = row?.querySelector('[data-plugin-action="uninstall"]');
       const run = (state.commandRuns || []).find((item) =>
         item.kind === 'capability' &&
         item.code === 31 &&
@@ -340,6 +341,8 @@ async function runTest() {
       );
       return Boolean(
         row &&
+        row.classList.contains('focused-capability-row') &&
+        uninstall?.getAttribute('data-capability-action-focused') === 'true' &&
         /PASS331 scoped plugin uninstall rejected/.test(row.textContent || '') &&
         /31/.test(row.textContent || '') &&
         row.querySelector('.row-cli-action-evidence.error') &&
